@@ -128,6 +128,7 @@ export default async function SettingsBody() {
       /* 托管版的登录标识是邮箱（控制面账号按邮箱认，找回密码也靠它）；
          自部署版是用户名，既有账号是 admin / zhangsan 这种，不能改 */
       用邮箱登录={multiTenant()}
+      企业版={企业版()}
       llm={llm}
       business={business}
       aiUsage={aiUsage}

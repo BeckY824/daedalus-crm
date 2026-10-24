@@ -4,7 +4,10 @@ import { 转交商机 } from "@/lib/opportunity-activity";
 import { 补来源 } from "@/lib/customer-extra-db";
 
 import { 钉住老签约 } from "@/lib/contract-owner";
-import { 跟着客户转的项目, 转项目 } from "@/lib/carry-over-db";
+import { 转项目 } from "@/lib/carry-over-db";
+import { 企业版 } from "@/lib/enterprise/switch";
+import { 停用分拣, 停用方式们, 停用进公海理由, 停用项目进公海理由, type 停用方式 } from "@/lib/offboard-db";
+import { 转让痕 } from "@/lib/project/db";
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
@@ -277,8 +280,10 @@ export async function saveUser(input: {
  * 也能挡住他（getCurrentUser 只认在职的），但他会被静静地弹回登录页，
  * 不知道为什么。撤掉成员资格之后，登录那一步会明确说这个账号没有工作区。
  */
-export async function deactivateUser(id: string, transferToId: string) {
+export async function deactivateUser(id: string, transferToId: string, 方式: 停用方式 = "转交") {
   const me = await requireAdmin();
+  if (!停用方式们.includes(方式)) return { ok: false as const, error: "交接方式不对，刷新再试" };
+  if (方式 === "公海" && !企业版()) return { ok: false as const, error: "放进公海交接是企业版的功能" };
   // 必须在业务库转交、停用之前拒绝，不能写到一半才发现永久 OWNER 身份丢失。
   if (托管版()) {
     const t = await resolveCurrentTenant();
@@ -311,50 +316,40 @@ export async function deactivateUser(id: string, transferToId: string) {
       计划、待办 —— 只转没完成的；完成了的是他做的
       已有客户身上的渠道负责人 —— **不改写**：那是业绩归属，不是活。原来这里一起改了，
         他带来的学员整批算到接手人头上（签约的业绩现在按签约那一刻记，见 lib/contract-owner.ts）
+    企业版离职交接（D-36）多了「放进公海」方式，哪些给接手人、哪些进公海见 lib/offboard-db.ts 停用分拣。
     转走了哪些记下 id，留痕里查得到，要手工退回也有据可依。
   */
-  const 转 = {
-    客户: { salesOwnerId: id },
-    商机: { ownerId: id, status: "OPEN" },
-    待办: { ownerId: id, done: false },
-    计划: { ownerId: id, done: false },
-    线索: { ownerId: id },
-    渠道: { channelOwnerId: id },
-  } as const;
-  const [客户们, 商机们, 待办们, 计划们, 线索们, 渠道们] = await Promise.all([
-    prisma.customer.findMany({ where: 转.客户, select: { id: true } }),
-    prisma.opportunity.findMany({ where: 转.商机, select: { id: true } }),
-    prisma.task.findMany({ where: 转.待办, select: { id: true } }),
-    prisma.followPlan.findMany({ where: 转.计划, select: { id: true } }),
-    prisma.lead.findMany({ where: 转.线索, select: { id: true } }),
-    prisma.channel.findMany({ where: 转.渠道, select: { id: true } }),
-  ]);
-  const 只要id = (rows: { id: string }[]) => rows.map((r) => r.id);
-  const 转走了 = {
-    客户: 只要id(客户们), 商机: 只要id(商机们), 待办: 只要id(待办们),
-    计划: 只要id(计划们), 线索: 只要id(线索们), 渠道: 只要id(渠道们),
-  };
-
   // 转之前先钉住老签约「签约那一刻是谁的」：停用留痕说「历史业绩不动」，就得真不动（2026-10-02 排查 X1）
   await 钉住老签约();
-  let 项目: string[] = [];
-  // 函数式事务：数组式在托管版的工作区代理下会抛错，而且抛之前已经写了（2026-10-02 排查 A3）
-  await prisma.$transaction(async (tx) => {
-    await tx.customer.updateMany({ where: { id: { in: 转走了.客户 } }, data: { salesOwnerId: transferToId } });
-    await 转交商机(tx, { id: { in: 转走了.商机 }, ownerId: id, status: "OPEN" }, transferToId);
-    await tx.task.updateMany({ where: { id: { in: 转走了.待办 } }, data: { ownerId: transferToId } });
-    await tx.followPlan.updateMany({ where: { id: { in: 转走了.计划 } }, data: { ownerId: transferToId } });
+  // 函数式事务：数组式在托管版的工作区代理下会抛错，而且抛之前已经写了（2026-10-02 排查 A3）。
+  // 分拣也放在事务里：清点到写完之间有人改了负责人，不会漏转、错转。一个人名下一两百条，给足时间
+  const 转走了 = await prisma.$transaction(async (tx) => {
+    const 分 = await 停用分拣(tx, id, 方式, 企业版());
+    await tx.customer.updateMany({ where: { id: { in: 分.客户 } }, data: { salesOwnerId: transferToId } });
+    await 转交商机(tx, { id: { in: 分.商机 }, ownerId: id, status: "OPEN" }, transferToId);
+    await tx.task.updateMany({ where: { id: { in: 分.待办 } }, data: { ownerId: transferToId } });
+    await tx.followPlan.updateMany({ where: { id: { in: 分.计划 } }, data: { ownerId: transferToId } });
     /**
      * 线索、渠道原本漏了转交：
      *   线索      —— 留在停用的人名下，列表按负责人筛选时谁都看不到，等于丢了
      *   渠道负责人 —— Channel.channelOwnerId 还指着停用的人，之后这个渠道新带来的学员会继续算到一个离职的人头上
      */
-    await tx.lead.updateMany({ where: { id: { in: 转走了.线索 } }, data: { ownerId: transferToId } });
-    await tx.channel.updateMany({ where: { id: { in: 转走了.渠道 } }, data: { channelOwnerId: transferToId } });
-    // 项目跟着转走的客户整体转，规矩和转让客户同一处（跟着客户转的项目）；他挂在没转走的客户上的项目不动，老板可以手动转
-    if (转走了.客户.length) 项目 = await 转项目(tx, { OR: 转走了.客户.map((cid) => 跟着客户转的项目(cid)) }, transferToId, me.id);
+    await tx.lead.updateMany({ where: { id: { in: 分.线索 } }, data: { ownerId: transferToId } });
+    await tx.channel.updateMany({ where: { id: { in: 分.渠道 } }, data: { channelOwnerId: transferToId } });
+    // 项目：跟着转走的客户整体转（同转让客户，跟着客户转的项目），企业版再加上他负责、挂在别人客户上的
+    const 项目 = 分.项目.length ? await 转项目(tx, { id: { in: 分.项目 }, pooledAt: null }, transferToId, me.id) : [];
+    if (分.进公海客户.length) {
+      await tx.customerPool.createMany({ data: 分.进公海客户.map((customerId) => ({ customerId, userId: me.id, reason: 停用进公海理由 })) });
+    }
+    if (分.进公海项目.length) {
+      const 们 = await tx.project.findMany({ where: { id: { in: 分.进公海项目 } }, select: { id: true, ownerId: true, phase: true, node: true, result: true } });
+      await tx.project.updateMany({ where: { id: { in: 分.进公海项目 } }, data: { pooledAt: new Date(), nextStepAt: null } });
+      await tx.projectNodeLog.createMany({ data: 们.map((p) => 转让痕(p, me.id, p.ownerId, null, "pool-release", 停用项目进公海理由)) });
+    }
     await tx.user.update({ where: { id }, data: { active: false } });
-  });
+    const { 订单项目: _, ...记 } = 分;
+    return { ...记, 项目 };
+  }, { timeout: 30_000 });
 
   if (托管版()) {
     const t = await resolveCurrentTenant();
@@ -366,19 +361,51 @@ export async function deactivateUser(id: string, transferToId: string) {
     prisma.user.findUnique({ where: { id }, select: { name: true } }),
     prisma.user.findUnique({ where: { id: transferToId }, select: { name: true } }),
   ]);
+  const 进公海 = 转走了.进公海客户.length + 转走了.本来在公海.length;
   await recordAudit({
     user: me, action: "deactivate", entity: "User", entityId: id,
     summary: `停用成员「${被停?.name ?? id}」，转交给「${接手?.name ?? transferToId}」：` +
       `${转走了.客户.length} 位客户、${转走了.商机.length} 个进行中商机、${转走了.计划.length + 转走了.待办.length} 条没完成的计划和待办、` +
-      `${转走了.线索.length} 条线索、${转走了.渠道.length} 个渠道` + (项目.length ? `、${项目.length} 个项目` : "") + "（历史业绩不动）",
-    detail: { userId: id, transferToId, 转走了: 项目.length ? { ...转走了, 项目 } : 转走了 },
+      `${转走了.线索.length} 条线索、${转走了.渠道.length} 个渠道` + (转走了.项目.length ? `、${转走了.项目.length} 个项目` : "") +
+      (方式 === "公海" ? `；${进公海} 位客户放进公海` + (转走了.进公海项目.length ? `、${转走了.进公海项目.length} 个项目放回项目公海` : "") : "") +
+      "（历史业绩不动）",
+    // 转交时详情和开关加入前一字不差（差分测试逐字段比）；只有放进公海才多记方式和进公海的清单
+    detail: 方式 === "公海"
+      ? { userId: id, transferToId, 方式, 转走了 }
+      : {
+          userId: id, transferToId,
+          转走了: {
+            客户: 转走了.客户, 商机: 转走了.商机, 待办: 转走了.待办, 计划: 转走了.计划, 线索: 转走了.线索, 渠道: 转走了.渠道,
+            ...(转走了.项目.length ? { 项目: 转走了.项目 } : {}),
+          },
+        },
   });
 
   revalidatePath("/settings");
   revalidatePath("/customers");
   revalidatePath("/leads");
   revalidatePath("/channels");
+  revalidatePath("/projects");
   return { ok: true as const };
+}
+
+/**
+ * 停用前清点（离职交接对话框用，企业版才有）：两种方式各会转走、放进公海多少，和停用时同一套分法（停用分拣）。
+ * 只是数个数，真停用时在事务里重新分。不是企业版对话框照原来的说，不来清点
+ */
+export async function 停用清点(id: string) {
+  await requireAdmin();
+  if (typeof id !== "string" || !id) return { ok: false as const, error: "这个成员已不存在，请刷新重试" };
+  if (!企业版()) return { ok: false as const, error: "离职交接是企业版的功能" };
+  const 数 = (分: Awaited<ReturnType<typeof 停用分拣>>) => ({
+    客户: 分.客户.length,
+    进公海客户: 分.进公海客户.length + 分.本来在公海.length,
+    项目: 分.项目.length,
+    进公海项目: 分.进公海项目.length,
+    订单项目: 分.订单项目,
+  });
+  const [转交, 公海] = await Promise.all([停用分拣(prisma, id, "转交", true), 停用分拣(prisma, id, "公海", true)]);
+  return { ok: true as const, 转交: 数(转交), 公海: 数(公海) };
 }
 
 export async function reactivateUser(id: string) {
