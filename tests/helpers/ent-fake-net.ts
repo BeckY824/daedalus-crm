@@ -7,7 +7,7 @@ import type { 联网 } from "@/lib/enterprise-import/net";
 /** 一次响应；给了 抛 就当 fetch 自己报错（断网、DNS 解析不了、超时），不回任何东西；拨 = 给完这条把钟往后拨（翻页翻到一半令牌到期） */
 export type 响应 = { status?: number; body?: unknown; 抛?: unknown; 拨?: number };
 export type 录制 = { 路由: Record<string, 响应[]> };
-export type 调用 = { 键: string; url: string; body?: Record<string, unknown>; headers: Record<string, string> };
+export type 调用 = { 键: string; url: string; body?: Record<string, unknown>; headers: Record<string, string>; signal?: AbortSignal | null };
 
 export const 起始钟 = 1792810800000; // 北京时间 2026-10-24 11:00
 
@@ -42,7 +42,7 @@ export function 假网(录: 录制, 先给: Record<string, 响应[]> = {}, 改: 
       const method = init?.method ?? "GET";
       const 体 = typeof init?.body === "string" ? init.body : undefined;
       const k = 键(method, url, 体);
-      调用们.push({ 键: k, url, body: 体 ? JSON.parse(体) : undefined, headers: { ...(init?.headers as Record<string, string>) } });
+      调用们.push({ 键: k, url, body: 体 ? JSON.parse(体) : undefined, headers: { ...(init?.headers as Record<string, string>) }, signal: init?.signal });
       const q = 队.get(k);
       if (!q?.length) throw new Error(`没录这个接口：${k}`);
       const r = q.length > 1 ? q.shift()! : q[0];

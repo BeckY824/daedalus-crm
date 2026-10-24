@@ -14,16 +14,16 @@ import feishuFixture from "./fixtures/ent-feishu.json";
 import dingtalkFixture from "./fixtures/ent-dingtalk.json";
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
-import { invalidateSettingsCache } from "@/lib/settings";
+import { invalidateSettingsCache, setSetting } from "@/lib/settings";
 import { 写一批 } from "@/lib/enterprise-import/apply";
-import { 换适配器 } from "@/lib/enterprise-import/adapter";
+import { 换联网, 换适配器, 连接键 } from "@/lib/enterprise-import/adapter";
 import { 钉钉适配器, type 钉钉配置 } from "@/lib/enterprise-import/dingtalk";
 import { 飞书适配器, type 飞书配置 } from "@/lib/enterprise-import/feishu";
 import { 进备注 } from "@/lib/enterprise-import/mapping";
 import { 接口出错 } from "@/lib/enterprise-import/net";
 import { 不见的列, 读同步设置, 同步一次, 拉全量试跑, 已认映射 } from "@/lib/enterprise-import/sync";
 import type { 映射, 来源 } from "@/lib/enterprise-import/types";
-import { 假网, 断网, 超时, type 录制, type 响应 } from "./helpers/ent-fake-net";
+import { 假网, 断网, 超时, 起始钟, type 录制, type 响应 } from "./helpers/ent-fake-net";
 
 const 我 = { id: "tester-id", name: "测试员" };
 
@@ -100,9 +100,15 @@ describe("飞书适配器 · 断网", () => {
   });
 
   it("30 秒没响应（超时）也按连不上处理，话里说等了 30 秒", async () => {
+    const 定时 = vi.spyOn(AbortSignal, "timeout");
     const n = 假网(飞书录, { [客户字段]: [超时, 超时, 超时] });
     await expect(new 飞书适配器(飞书, n.网).拉全量()).rejects.toThrow(/连不上飞书.*等了 30 秒没响应/);
     expect(n.调过(客户字段)).toHaveLength(3);
+    // 30 秒是真挂在每次请求上的：每次都带了 signal，用的是 AbortSignal.timeout(30_000)
+    expect(n.调用们.every((c) => c.signal instanceof AbortSignal)).toBe(true);
+    expect(定时).toHaveBeenCalledTimes(n.调用们.length);
+    expect(new Set(定时.mock.calls.map(([ms]) => ms))).toEqual(new Set([30_000]));
+    定时.mockRestore();
   });
 
   it("断一下又好了：等 1 秒重试，接着拉全，一条不少", async () => {
@@ -151,6 +157,17 @@ describe("飞书适配器 · 现有列", () => {
   it("每次拉都重新报：原系统改了列名，旧名不再出现", async () => {
     const a = new 飞书适配器(飞书, 假网(飞书录, {}, 改列名(飞书录, [客户字段, 客户第一页, 客户第二页], "电话", "联系电话")).网);
     await a.拉全量();
+    expect(a.现有列()?.customer).toContain("联系电话");
+    expect(a.现有列()?.customer).not.toContain("电话");
+  });
+
+  it("同一个适配器连着拉：上一次的列不留到这一次（定时同步一直用的是同一个）", async () => {
+    let 当前 = 假网(飞书录).网;
+    const a = new 飞书适配器(飞书, { fetch: (u, i) => 当前.fetch(u, i), 等: (ms) => 当前.等(ms), 现在: () => 当前.现在() });
+    await a.拉全量();
+    expect(a.现有列()?.customer).toContain("电话");
+    当前 = 假网(飞书录, {}, 改列名(飞书录, [客户字段, 客户第一页, 客户第二页], "电话", "联系电话")).网;
+    await a.拉变化(new Date(起始钟));
     expect(a.现有列()?.customer).toContain("联系电话");
     expect(a.现有列()?.customer).not.toContain("电话");
   });
@@ -245,6 +262,7 @@ beforeEach(async () => {
 afterEach(() => {
   换适配器("feishu", null);
   换适配器("dingtalk", null);
+  换联网(null);
 });
 
 afterAll(async () => {
@@ -413,5 +431,25 @@ describe("同步 · 字段改名", () => {
 
     钉钉接({}, { [企业客户]: [{ body: { hasMore: false, maxResults: 100, values: [] } }] });
     expect((await 同步一次("dingtalk", { 用户: 我 })).结果).not.toBe("出错");
+  });
+});
+
+describe("同步 · 按存好的连接配置取适配器（线上走的路）", () => {
+  it("连接配置存在设置里、不换适配器：同步照样拉、照样认出改名停下", async () => {
+    await setSetting(连接键("feishu"), 飞书);
+    invalidateSettingsCache();
+    换联网(假网(飞书录).网);
+    await 首次导入("feishu");
+    expect((await 同步一次("feishu", { 用户: 我 })).结果).not.toBe("出错");
+    const 拉到 = (await 读同步设置("feishu")).拉到;
+    expect(拉到).not.toBeNull();
+
+    换联网(假网(飞书录, {}, 改列名(飞书录, [客户字段, 客户第一页, 客户第二页], "电话", "联系电话")).网);
+    const 前 = await 库();
+    const r = await 同步一次("feishu", { 用户: 我 });
+    expect(r.结果).toBe("出错");
+    expect(r.话).toContain("飞书「客户」表里『电话』列不见了");
+    expect((await 读同步设置("feishu")).拉到).toEqual(拉到);
+    expect(await 库()).toEqual(前);
   });
 });
