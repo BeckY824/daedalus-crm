@@ -55,8 +55,9 @@ export async function 跑工具(name: string, args: Record<string, unknown>, who
   if (!MCP_TOOL_NAMES.includes(name)) throw new Error(`没有这个工具：${name}`);
   const tool = TOOL_MAP.get(name);
   if (!tool) throw new Error(`没有这个工具：${name}`);
-  // 脱敏器同样要给（见 agent/run.ts 那段）：MCP 是第五个出口，别再漏一个
-  const ctx: ToolContext = { userId: who.id, userName: who.name, b: await getBusiness(), recordOffset: 0, proposals: [], 号: await 号码脱敏器() };
+  // 脱敏器同样要给（见 agent/run.ts 那段）：MCP 是第五个出口，别再漏一个。
+  // 令牌不带 cookie，企业版字段权限要按令牌的主人查，所以把 who.id 传进去
+  const ctx: ToolContext = { userId: who.id, userName: who.name, b: await getBusiness(), recordOffset: 0, proposals: [], 号: await 号码脱敏器(who.id) };
   const r = await tool.run(args ?? {}, ctx);
   return { summary: r.summary, data: r.data };
 }
