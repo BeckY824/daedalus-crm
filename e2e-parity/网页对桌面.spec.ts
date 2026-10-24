@@ -202,9 +202,28 @@ async function 去(page: Page, 址: string) {
   await 关掉弹窗(page);
   // 字体、懒加载的图、动画落定
   await page.evaluate(() => document.fonts.ready);
+  await 自动高重量(page);
   await page.mouse.move(0, 0);
   await page.waitForTimeout(500);
   await 等布局稳(page);
+}
+
+/**
+ * 字体到了以后让自动长高的输入框再量一次（10-24 #143 第二轮：Mac 记录页 6 次红 2 次，「记一笔」网页约 60px、桌面端约 48px，
+ * 两边都稳了但稳在不同高度——antd autoSize 在字体还没到时量过一次，之后宽度不变就不再量）。
+ * 发一次 resize，再把每个 textarea 宽度临时减 1px 下一帧还原，ResizeObserver 就会按现在的字体重算高度。不锁高度、不改排版
+ */
+async function 自动高重量(page: Page) {
+  await page.evaluate(async () => {
+    const 帧 = () => new Promise((r) => requestAnimationFrame(r));
+    window.dispatchEvent(new Event("resize"));
+    const 们 = [...document.querySelectorAll<HTMLTextAreaElement>("textarea")].filter((t) => t.offsetParent);
+    const 原 = 们.map((t) => t.style.width);
+    们.forEach((t) => { t.style.width = `${t.getBoundingClientRect().width - 1}px`; });
+    await 帧(); await 帧();
+    们.forEach((t, i) => { t.style.width = 原[i]; });
+    await 帧(); await 帧();
+  });
 }
 
 /**
