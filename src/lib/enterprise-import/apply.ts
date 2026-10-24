@@ -63,11 +63,11 @@ export type 写入结果 = {
 };
 
 /** 这一条写不进去（给人看的原因） */
-class 写不进 extends Error {}
+export class 写不进 extends Error {}
 /** 别的地方正在写这一批：游标被挪过了 */
 class 让位 extends Error {}
 
-type 现场 = {
+export type 现场 = {
   批次Id: string;
   源: 来源;
   m: 映射;
@@ -166,7 +166,7 @@ function 拣(v: 值表, 键: readonly string[]): 值表 {
 }
 
 /** 新建一条，返回 id。值已经过 落值（负责人认过、父记录换成我们的 id、日期是 ISO） */
-async function 建(tx: Tx, e: 实体, v: 值表, 现在: string): Promise<string> {
+export async function 建(tx: Tx, e: 实体, v: 值表, 现在: string): Promise<string> {
   if (e === "customer") {
     const c = await tx.customer.create({
       data: {
@@ -330,7 +330,7 @@ async function 认父(tx: Tx, 源: 来源, e: "customer" | "opportunity", 父: {
  * 待写 → 这次要落的值（比对字段那几格，规整过）。
  * 上次 / 现值 用来补原系统没给的：负责人对不上退回上次的；结单日期、跟进时间没给就沿用，免得每次同步都改成「今天」
  */
-async function 落值(tx: Tx, 现: 现场, w: 待写, 上次: 值表 | null, 现值: 值表 | null): Promise<值表> {
+export async function 落值(tx: Tx, 现: 现场, w: 待写, 上次: 值表 | null, 现值: 值表 | null): Promise<值表> {
   const v: 值表 = { ...w.值 };
   const 主 = 负责人列[w.实体];
   if (主 && !现.可任.has(String(v[主] ?? ""))) {
@@ -491,6 +491,21 @@ async function 记冲突(tx: Tx, 现: 现场, w: 待写, targetId: string, field
 
 const 计数列: Record<结果, "created" | "updated" | "skipped" | "conflicts"> = { 新建: "created", 更新: "updated", 跳过: "skipped", 冲突: "conflicts" };
 
+/** 写之前备好的：谁能当负责人、负责人都对不上时给谁 */
+export async function 开现场(批次Id: string, 源: 来源, m: 映射, 用户: Actor): Promise<现场> {
+  const 成员 = await prisma.user.findMany({ where: { active: true, role: { not: "ADMIN" } }, select: { id: true } });
+  const 可任 = new Set(成员.map((u) => u.id));
+  return {
+    批次Id,
+    源,
+    m,
+    可任,
+    兜底负责人: 可任.has(用户.id) ? 用户.id : (成员[0]?.id ?? 用户.id),
+    分机起: await 分机留存起(),
+    现在: new Date().toISOString(),
+  };
+}
+
 /**
  * 把一批写进去（或接着写）。preview / applying 才写；写完一趟时间到了就返回，完了 = false 时再调一次。
  * 用户 = 点「正式导入」的人（同步时是开同步的那位），记进操作日志
@@ -505,17 +520,7 @@ export async function 写一批(批次Id: string, 用户: Actor, opts: { 段长�
   const 计划 = 解<待写[]>(批.plan, []);
   const m = 解<映射 | null>(批.mapping, null);
   if (!m) throw new Error("这一批没有字段映射，请重新试跑");
-  const 成员 = await prisma.user.findMany({ where: { active: true, role: { not: "ADMIN" } }, select: { id: true } });
-  const 可任 = new Set(成员.map((u) => u.id));
-  const 现: 现场 = {
-    批次Id,
-    源: 批.source as 来源,
-    m,
-    可任,
-    兜底负责人: 可任.has(用户.id) ? 用户.id : (成员[0]?.id ?? 用户.id),
-    分机起: await 分机留存起(),
-    现在: new Date().toISOString(),
-  };
+  const 现 = await 开现场(批次Id, 批.source as 来源, m, 用户);
   const 失败们 = 解<失败明细[]>(批.note, []);
 
   // 每次调用至少写一趟，再看时间：段长再短也不会原地踏步

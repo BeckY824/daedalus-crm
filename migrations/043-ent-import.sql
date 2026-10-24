@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS "EntConflict" (
     "status" TEXT NOT NULL DEFAULT '待定',
     "resolvedById" TEXT,
     "resolvedAt" DATETIME,
+    "resolveBatchId" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -102,6 +103,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS "EntExternalRef_source_entity_externalId_key" 
 CREATE INDEX IF NOT EXISTS "EntConflict_status_createdAt_idx" ON "EntConflict"("status", "createdAt");
 
 CREATE INDEX IF NOT EXISTS "EntConflict_source_entity_externalId_idx" ON "EntConflict"("source", "entity", "externalId");
+
+CREATE INDEX IF NOT EXISTS "EntConflict_resolveBatchId_idx" ON "EntConflict"("resolveBatchId");
 
 CREATE INDEX IF NOT EXISTS "EntTrash_batchId_idx" ON "EntTrash"("batchId");
 

@@ -6,8 +6,9 @@
  *   - 这一批改过的（同号补空、并入、同步改格子）：把那几格改回写之前的样子，对照行退回写之前那一份
  *   - 动不得的留下不动，原因记在批次的 revertNote：
  *       导入之后有人改过（比对字段和当时写进去的不一样；或院校、渠道、决策状态这类导入不碰的格子不再是空的）、
- *       名下挂着这一批以外的记录（手记的跟进、任务、合同……）、之后的同步又改过它（先撤那一批）
+ *       名下挂着这一批以外的记录（手记的跟进、任务、合同……）、之后的同步或冲突处理又改过它（先撤那一批）
  *   - 这一批记下的待定冲突改成「已撤回」，跟进删了的客户重算「最近跟进」
+ *   - 冲突处理那一批（kind = resolve）：照样退格子、退对照行（本地已删时建回来的那条删掉），定下的冲突回到待定
  * 恢复：回收区里的照原 id 建回去、对照行建回去；改过的格子再改回导入后的样子。撤回之后又导进来、又改过的跳过。
  *
  * 和写一批一样分段、可续：每 每趟条数 行一个小事务，处理到哪记在行上（undo / restoredAt），断了再调一次接着来；
@@ -207,13 +208,27 @@ async function 名称(tx: Tx, e: 实体, id: string, written: 值表): Promise<s
 }
 
 /** 跟进删了 / 建回来了：客户的「最近跟进」按剩下的重算（同合并客户） */
-async function 重算最近跟进(tx: Tx, 客户们: Set<string>): Promise<void> {
+export async function 重算最近跟进(tx: Tx, 客户们: Set<string>): Promise<void> {
   for (const id of 客户们) {
     await tx.$executeRawUnsafe('UPDATE "Customer" SET lastFollowAt = (SELECT MAX(occurredAt) FROM "FollowUp" WHERE customerId = ?) WHERE id = ?', id, id);
   }
 }
 
 const 对照数据 = (r: 引用行) => ({ targetId: r.targetId, fingerprint: r.fingerprint, written: r.written, raw: r.raw, batchId: r.batchId });
+
+/** 恢复前：对照行还是撤回时退回去的那一份（撤回之后没再同步、没再处理冲突）；当时没有的现在也得没有 */
+function 对照没动(现: 引用行 | null, 原: 引用行 | null): boolean {
+  if (!原) return !现;
+  return !!现 && 现.fingerprint === 原.fingerprint && 现.batchId === 原.batchId && 现.targetId === 原.targetId;
+}
+
+/** 撤回时对照行退回去：写之前有的退回那一份，没有的删掉 */
+async function 退对照(tx: Tx, ref: 引用行, 原对照: 引用行 | null): Promise<void> {
+  if (原对照) await tx.entExternalRef.update({ where: { id: ref.id }, data: 对照数据(原对照) });
+  else await tx.entExternalRef.delete({ where: { id: ref.id } });
+}
+
+const 叫法 = (kind: string) => (kind === "sync" ? "同步" : kind === "resolve" ? "冲突处理" : "导入");
 
 /* ───────────────────────── 撤一行 ───────────────────────── */
 
@@ -223,14 +238,16 @@ async function 撤一行(tx: Tx, 源: 来源, 批次Id: string, row: 记的行, 
   const e = row.entity as 实体;
   const ref = await tx.entExternalRef.findUnique({ where: 引用键(源, e, row.externalId) });
   const 写过 = 解<值表>(row.written, {});
-  if (ref && ref.batchId !== 批次Id) throw new 不动("之后的同步又改过它，先撤回那一批");
+  if (ref && ref.batchId !== 批次Id) throw new 不动("之后的同步或冲突处理又改过它，先撤回那一批");
+  const 原对照 = 解<引用行 | null>(row.refBefore, null);
 
   if (row.kind === "create") {
+    // 原对照：冲突处理时本地已删、照原系统建回来的那条；撤回就是对照行指回原来那条（已删的）
     const 连着 = ref && ref.targetId === row.targetId ? ref : null;
     const 现值 = await 读现值(tx, e, row.targetId);
     if (!现值) {
-      // 我们这边已经删了：撤回的目的达到了，对照行一起清掉
-      if (连着) await tx.entExternalRef.delete({ where: { id: 连着.id } });
+      // 我们这边已经删了：撤回的目的达到了，对照行一起退掉
+      if (连着) await 退对照(tx, 连着, 原对照);
       return "无";
     }
     if (!一致(现值, 写过)) throw new 不动("导入之后又改过");
@@ -239,7 +256,7 @@ async function 撤一行(tx: Tx, 源: 来源, 批次Id: string, row: 记的行, 
     await tx.entTrash.create({
       data: { batchId: 批次Id, entity: e, targetId: row.targetId, data: J(await 快照(tx, e, row.targetId)), ref: 连着 ? J(连着) : null, rowId: row.id },
     });
-    if (连着) await tx.entExternalRef.delete({ where: { id: 连着.id } });
+    if (连着) await 退对照(tx, 连着, 原对照);
     await 删(tx, e, row.targetId);
     if (e === "followup" && 现值.customerId) 碰过.add(String(现值.customerId));
     return "删掉";
@@ -258,11 +275,7 @@ async function 撤一行(tx: Tx, 源: 来源, 批次Id: string, row: 记的行, 
       if ("customerId" in 原 && 原.customerId) 碰过.add(String(原.customerId));
     }
   }
-  const 原对照 = 解<引用行 | null>(row.refBefore, null);
-  if (ref) {
-    if (原对照) await tx.entExternalRef.update({ where: { id: ref.id }, data: 对照数据(原对照) });
-    else await tx.entExternalRef.delete({ where: { id: ref.id } });
-  }
+  if (ref) await 退对照(tx, ref, 原对照);
   await tx.entTrash.create({
     data: { batchId: 批次Id, entity: e, targetId: row.targetId, data: J({ 还原: 还原了 ? 拣(原, 键) : {} }), ref: ref ? J(ref) : null, rowId: row.id },
   });
@@ -278,25 +291,26 @@ async function 恢复一条(tx: Tx, t: 回收行, row: 记的行 | null, 碰过:
   const e = t.entity as 实体;
   const 存的对照 = 解<引用行 | null>(t.ref, null);
   const 现对照 = 存的对照 ? await tx.entExternalRef.findUnique({ where: 引用键(存的对照.source as 来源, e, 存的对照.externalId) }) : null;
+  const 原对照 = 解<引用行 | null>(row.refBefore, null);
 
   if (row.kind === "create") {
-    if (现对照) throw new 不动("撤回之后原系统这条又导进来了");
+    if (!对照没动(现对照, 原对照)) throw new 不动(原对照 ? "撤回之后原系统这条又同步过" : "撤回之后原系统这条又导进来了");
     if (await 还在(tx, e, t.targetId)) throw new 不动("这条记录已经在了");
     const data = 解<Record<string, unknown> | null>(t.data, null);
     if (!data) throw new 不动("回收区里这条读不出来了");
     if (e !== "customer" && e !== "lead" && !(await 还在(tx, "customer", String(data.customerId)))) throw new 不动("所属客户不在了");
     if (e === "followup" && data.opportunityId && !(await 还在(tx, "opportunity", String(data.opportunityId)))) data.opportunityId = null;
     await 建回(tx, e, data);
-    if (存的对照) await tx.entExternalRef.create({ data: { source: 存的对照.source, entity: e, externalId: 存的对照.externalId, ...对照数据(存的对照) } });
+    if (存的对照) {
+      if (现对照) await tx.entExternalRef.update({ where: { id: 现对照.id }, data: 对照数据(存的对照) });
+      else await tx.entExternalRef.create({ data: { source: 存的对照.source, entity: e, externalId: 存的对照.externalId, ...对照数据(存的对照) } });
+    }
     if (e === "followup") 碰过.add(String(data.customerId));
     return true;
   }
 
   // update：撤回时改回去的那几格没人再动过，就再改成导入后的样子
-  const 原对照 = 解<引用行 | null>(row.refBefore, null);
-  if (原对照 ? !现对照 || 现对照.fingerprint !== 原对照.fingerprint || 现对照.batchId !== 原对照.batchId : 现对照) {
-    throw new 不动("撤回之后原系统这条又同步过");
-  }
+  if (!对照没动(现对照, 原对照)) throw new 不动("撤回之后原系统这条又同步过");
   const 改回 = 解<{ 还原?: 值表 }>(t.data, {}).还原 ?? {};
   const 键 = Object.keys(改回);
   let 恢复了 = false;
@@ -374,7 +388,7 @@ async function 分段跑<T extends { id: string }>(
   }
 }
 
-async function 别的在写(source: string, 批次Id: string): Promise<boolean> {
+export async function 别的在写(source: string, 批次Id: string): Promise<boolean> {
   return (await prisma.entImportBatch.count({ where: { source, id: { not: 批次Id }, status: { in: ["applying", "reverting", "restoring"] } } })) > 0;
 }
 
@@ -441,18 +455,21 @@ export async function 撤回一批(批次Id: string, 用户: Actor, opts: { 段�
     return 结果(批次Id);
   }
 
-  const n = await prisma.$transaction([
-    prisma.entImportBatch.updateMany({ where: { id: 批次Id, status: "reverting" }, data: { status: "reverted", revertedAt: new Date() } }),
-    prisma.entConflict.updateMany({ where: { batchId: 批次Id, status: "待定" }, data: { status: "已撤回" } }),
-  ]);
-  if (n[0].count === 1) {
+  const n = await prisma.$transaction(async (tx) => {
+    const n = await tx.entImportBatch.updateMany({ where: { id: 批次Id, status: "reverting" }, data: { status: "reverted", revertedAt: new Date() } });
+    if (n.count !== 1) return n;
+    await tx.entConflict.updateMany({ where: { batchId: 批次Id, status: "待定" }, data: { status: "已撤回" } });
+    if (批.kind === "resolve") await 定的冲突回待定(tx, 批次Id);
+    return n;
+  });
+  if (n.count === 1) {
     const r = await 结果(批次Id);
     await recordAudit({
       user: 用户,
       action: "ent-revert",
       entity: "EntImportBatch",
       entityId: 批次Id,
-      summary: `撤回从${来源名[源] ?? 源}${批.kind === "sync" ? "同步" : "导入"}的那一批：删掉 ${r.删掉} 条，还原 ${r.还原} 条${r.留下数 ? `，${r.留下数} 条导入后被动过、留下没动` : ""}`,
+      summary: `撤回从${来源名[源] ?? 源}${叫法(批.kind)}的那一批：删掉 ${r.删掉} 条，还原 ${r.还原} 条${r.留下数 ? `，${r.留下数} 条导入后被动过、留下没动` : ""}`,
       detail: { batchId: 批次Id, 删掉: r.删掉, 还原: r.还原, 留下数: r.留下数 },
     });
     for (const p of ["/customers", "/leads", "/opportunities", "/dashboard"]) revalidatePath(p);
@@ -528,6 +545,7 @@ export async function 恢复一批(批次Id: string, 用户: Actor, opts: { 段�
       const 有新的 = await tx.entConflict.count({ where: { source: c.source, entity: c.entity, externalId: c.externalId, status: "待定" } });
       if (!有新的) await tx.entConflict.update({ where: { id: c.id }, data: { status: "待定" } });
     }
+    if (批.kind === "resolve") await 冲突再定回去(tx, 批次Id, 批.plan, 批.userId);
     return n;
   });
   if (n.count === 1) {
@@ -537,12 +555,43 @@ export async function 恢复一批(批次Id: string, 用户: Actor, opts: { 段�
       action: "ent-restore",
       entity: "EntImportBatch",
       entityId: 批次Id,
-      summary: `恢复撤回的那一批（${来源名[批.source as 来源] ?? 批.source}）：恢复 ${r.恢复} 条${r.留下数 ? `，${r.留下数} 条撤回后又有变动、跳过` : ""}`,
+      summary: `恢复撤回的那一批（${来源名[批.source as 来源] ?? 批.source}${叫法(批.kind)}）：恢复 ${r.恢复} 条${r.留下数 ? `，${r.留下数} 条撤回后又有变动、跳过` : ""}`,
       detail: { batchId: 批次Id, 恢复: r.恢复, 留下数: r.留下数 },
     });
     for (const p of ["/customers", "/leads", "/opportunities", "/dashboard"]) revalidatePath(p);
   }
   return 结果(批次Id);
+}
+
+/* ───────────────────────── 冲突处理那一批 ───────────────────────── */
+
+/** 冲突处理那一批记的计划：每一笔定的是哪个冲突、选了什么、当时冲突是哪一批记的、原系统那份的指纹 */
+export type 定的一笔 = { 冲突Id: string; 选: "采用原系统" | "保留我们"; 批次Id: string | null; 指纹: string };
+
+/** 这一笔冲突在这一批里记的那一行（本地已删又保留我们的没有行） */
+const 那一行 = (tx: Tx, 批次Id: string, c: { entity: string; externalId: string }) =>
+  tx.entImportRow.findFirst({ where: { batchId: 批次Id, entity: c.entity, externalId: c.externalId }, select: { undo: true } });
+
+/** 撤回冲突处理那一批：定下的冲突回到待定。那一行留下没撤的、同一条原系统记录之后又有待定的，不动 */
+async function 定的冲突回待定(tx: Tx, 批次Id: string): Promise<void> {
+  const 定了 = await tx.entConflict.findMany({ where: { resolveBatchId: 批次Id, status: { in: ["采用原系统", "保留我们"] } } });
+  for (const c of 定了) {
+    if ((await 那一行(tx, 批次Id, c))?.undo === "留下") continue;
+    const 有新的 = await tx.entConflict.count({ where: { source: c.source, entity: c.entity, externalId: c.externalId, status: "待定" } });
+    if (!有新的) await tx.entConflict.update({ where: { id: c.id }, data: { status: "待定", resolvedById: null, resolvedAt: null } });
+  }
+}
+
+/** 恢复冲突处理那一批：回到待定的冲突再定回去。撤回之后又同步过（冲突换了一份）、那一行没恢复的，仍待定 */
+async function 冲突再定回去(tx: Tx, 批次Id: string, plan: string | null, userId: string | null): Promise<void> {
+  for (const p of 解<定的一笔[]>(plan, [])) {
+    const c = await tx.entConflict.findUnique({ where: { id: p.冲突Id } });
+    if (!c || c.status !== "待定" || c.resolveBatchId !== 批次Id) continue;
+    if (c.batchId !== p.批次Id || 解<{ 指纹?: string }>(c.incoming, {}).指纹 !== p.指纹) continue;
+    const 行 = await 那一行(tx, 批次Id, c);
+    if (行 && 行.undo !== null) continue;
+    await tx.entConflict.update({ where: { id: c.id }, data: { status: p.选, resolvedById: userId, resolvedAt: new Date() } });
+  }
 }
 
 async function 结果(批次Id: string): Promise<撤回结果> {

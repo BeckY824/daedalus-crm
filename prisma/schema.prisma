@@ -990,7 +990,7 @@ model EntImportBatch {
   id         String         @id @default(cuid())
   /// excel | feishu | dingtalk
   source     String
-  /// full = 首次全量；sync = 增量同步
+  /// full = 首次全量；sync = 增量同步；resolve = 一次冲突处理（采用原系统 / 保留我们，可整批撤回）
   kind       String         @default("full")
   /// preview = 只试跑出了报告；applying = 写到一半（可续）；done；reverting / restoring = 撤回 / 恢复到一半（可续）；reverted = 已整批撤回
   status     String         @default("preview")
@@ -1081,14 +1081,17 @@ model EntConflict {
   incoming     String
   /// 本地那条已经被删了
   localDeleted Boolean   @default(false)
-  /// 待定 | 采用原系统 | 保留我们 | 已撤回（那一批整批撤回了；恢复后回到待定）
-  status       String    @default("待定")
-  resolvedById String?
-  resolvedAt   DateTime?
-  createdAt    DateTime  @default(now())
+  /// 待定 | 采用原系统 | 保留我们 | 已撤回（那一批整批撤回了；恢复后回到待定）| 已过时（记下之后原系统又变了 / 我们这边删了或建回了，等下次同步）
+  status         String    @default("待定")
+  resolvedById   String?
+  resolvedAt     DateTime?
+  /// 定下它的那一批（kind = resolve）；撤回那一批时冲突回到待定
+  resolveBatchId String?
+  createdAt      DateTime  @default(now())
 
   @@index([status, createdAt])
   @@index([source, entity, externalId])
+  @@index([resolveBatchId])
 }
 
 /// 整批撤回的「回收站」：被撤的记录连同一起建的子记录存成 JSON，能整批恢复
