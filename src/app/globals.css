@@ -1790,6 +1790,8 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 /* 点完成之后留位 600ms 再消失：立刻抽走的话下面的行会跳上来顶替，眼睛得重新找位置 */
 .plan-row-done { opacity: 0.45; transition: opacity var(--t) var(--ease); }
 .plan-row-done .plan-row-t { text-decoration: line-through; }
+/* 分批时要摆、详情还在路上的那一行（2026-10-24）：占住位置，取到了就换成真的 */
+.plan-row-wait .plan-row-t { font-weight: 400; color: var(--text-muted); }
 .plan-row-m { flex: 1; min-width: 0; }
 .plan-row-t { display: block; font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-row-s { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: var(--fs-note); color: var(--text-muted); }
