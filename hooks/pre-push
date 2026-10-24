@@ -15,7 +15,23 @@ set -e
 FULL=${PREPUSH_FULL:-}
 ZERO="0000000000000000000000000000000000000000"
 CHANGED=$(mktemp)
-trap 'rm -f "$CHANGED"' EXIT
+TESTS=$(mktemp)
+LOG=$(mktemp)
+trap 'rm -f "$CHANGED" "$TESTS" "$LOG"' EXIT
+
+# 每步只打一行结论；失败才把最后 40 行吐出来（10-24：推送输出要短）
+step() {
+  label=$1; shift
+  started=$(date +%s)
+  if "$@" > "$LOG" 2>&1; then
+    summary=$(grep -E '^ *(Test Files|Tests) ' "$LOG" | sed 's/^ *//' | tr -s ' ' | awk 'NR>1{printf "，"} {printf "%s", $0}')
+    echo "  ✓ $label（$(( $(date +%s) - started ))s）${summary:+ $summary}"
+  else
+    echo "  ✗ $label 没过，最后 40 行："
+    tail -40 "$LOG"
+    exit 1
+  fi
+}
 
 # git 从标准输入给：<本地 ref> <本地 sha> <远端 ref> <远端 sha>，一次推几个就几行
 ANY_REF=
@@ -46,34 +62,28 @@ if [ -z "$FULL" ] && grep -Eq '^(vitest\.config\.|tests/setup-db\.ts$|scripts/bu
 fi
 
 if [ -n "$FULL" ]; then
-  echo "▶ 1/3 类型检查…"
-  npx tsc --noEmit
-  echo "▶ 2/3 代码检查…"
-  npx eslint .
-  echo "▶ 3/3 单元测试…"
-  npx vitest run
+  echo "▶ 预推送：全套"
+  step 类型检查 npx tsc --noEmit
+  step 代码检查 npx eslint .
+  step 单元测试 npx vitest run --reporter=dot
   echo "✅ 预推送检查通过"
   exit 0
 fi
 
-echo "功能分支：只跑相关用例，全套交 CI"
+echo "▶ 功能分支：只跑相关用例，全套交 CI"
 sort -u -o "$CHANGED" "$CHANGED"
 
-echo "▶ 1/3 类型检查…"
-npx tsc --noEmit
+step 类型检查 npx tsc --noEmit
 
-echo "▶ 2/3 代码检查（改过的文件）…"
 LINT_FILES=$(grep -E '\.(ts|tsx|js|jsx|mjs|cjs)$' "$CHANGED" || true)
 if [ -n "$LINT_FILES" ]; then
   # 被 eslint 配置忽略的（desktop/、生成代码）不报警告
-  printf '%s\n' "$LINT_FILES" | tr '\n' '\0' | xargs -0 npx eslint --no-warn-ignored --
+  step "代码检查（$(printf '%s\n' "$LINT_FILES" | wc -l | tr -d ' ') 个改过的文件）" \
+    sh -c 'printf "%s\n" "$1" | tr "\n" "\0" | xargs -0 npx eslint --no-warn-ignored --' _ "$LINT_FILES"
 else
-  echo "  没有要查的脚本文件"
+  echo "  - 代码检查：没有改过的脚本文件"
 fi
 
-echo "▶ 3/3 单元测试（相关用例）…"
-TESTS=$(mktemp)
-trap 'rm -f "$CHANGED" "$TESTS"' EXIT
 # 改过的用例本身
 grep -E '^tests/.+\.test\.ts$' "$CHANGED" >> "$TESTS" || true
 # 不走 import、直接按路径读源码的用例（readFileSync("../desktop/main.js") 之类）：
@@ -85,8 +95,8 @@ done < "$CHANGED"
 sort -u -o "$TESTS" "$TESTS"
 # vitest related 顺着 import 找到其余相关用例；传进去的用例文件自己也会跑
 if [ -s "$CHANGED" ]; then
-  cat "$CHANGED" "$TESTS" | sort -u | tr '\n' '\0' | xargs -0 npx vitest related --run --passWithNoTests
+  step 单元测试（相关用例） sh -c 'cat "$1" "$2" | sort -u | tr "\n" "\0" | xargs -0 npx vitest related --run --passWithNoTests --reporter=dot' _ "$CHANGED" "$TESTS"
 else
-  echo "  和 origin/main 没有差别，不用跑"
+  echo "  - 单元测试：和 origin/main 没有差别，不用跑"
 fi
 echo "✅ 预推送检查通过（功能分支，全套交 CI）"
