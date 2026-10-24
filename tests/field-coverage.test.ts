@@ -230,6 +230,7 @@ const 派生: Record<string, Record<string, string>> = {
     acceptancePassedAt: "勾验收通过的那一刻，系统打上",
     closedAt: "有结局的那一刻，系统打上；回到进行中清掉",
     pooledAt: "放回公海的那一刻，系统打上；有人领取或老板重新指派时清掉",
+    nextStepAt: "记沟通时填的下一步时间，跟着最近一条沟通写；企业版超时回收用",
   },
   ProjectMember: { projectId: "哪个项目的组员，加人时定", userId: "哪位成员，加人时定；换人 = 删了再加", invitedById: "谁拉进来的，加人时打上" },
   ProjectRole: { sort: "加角色时排到最后，系统写；不做拖动排序" },
