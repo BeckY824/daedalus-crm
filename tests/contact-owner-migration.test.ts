@@ -9,8 +9,14 @@ it("真实桌面入口连续迁移旧库：确认来源归属、保留未知与�
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "crm-owner-migrate-"));
   try {
     const file = path.join(dir, "crm.db");
-    fs.copyFileSync(path.resolve(__dirname, "../prisma/test.db"), file);
+    // 只借共享 test.db 的表结构：前面的用例文件可能留下了行（串行跑、不清尾），整份复制会把它们带进来，
+    // 下面按全表断言 wasPrimary 就会多出几行。VACUUM INTO 连 WAL 里的内容一起快照，再清空所有表。
+    const src = new DatabaseSync(path.resolve(__dirname, "../prisma/test.db"));
+    src.exec(`VACUUM INTO '${file.replaceAll("'", "''")}'`);
+    src.close();
     const db = new DatabaseSync(file);
+    db.exec("PRAGMA foreign_keys = OFF");
+    for (const { name } of db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all() as { name: string }[]) db.exec(`DELETE FROM "${name}"`);
     db.exec('DROP INDEX IF EXISTS "UnassignedContact_ownerId_idx"; ALTER TABLE "UnassignedContact" DROP COLUMN "ownerId"; ALTER TABLE "UnassignedContact" DROP COLUMN "wasPrimary"');
     for (const id of ["legacy-sales", "legacy-channel"]) db.prepare('INSERT INTO "User" (id, email, name, password, updatedAt) VALUES (?, ?, ?, ?, ?)').run(id, `${id}@example.invalid`, id, "unused", Date.now());
     db.prepare('INSERT INTO "Customer" (id, name, phone, salesOwnerId, channelOwnerId, updatedAt) VALUES (?, ?, ?, ?, ?, ?)').run("legacy-source", "旧来源", "", "legacy-sales", "legacy-channel", Date.now());

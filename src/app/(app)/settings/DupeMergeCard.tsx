@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
+import { RowLink } from "@/components/ui";
 import { useRouter } from "next/navigation";
 import { App, Alert, Button, Checkbox, Radio } from "antd";
 import { smartTime } from "@/lib/utils";
@@ -151,7 +151,7 @@ export default function DupeMergeCard({ 组们, 上次合并, 叫法, 变了 }: 
                   {g.记录.map((r) => (
                     <tr key={r.id} className={留哪个(g) === r.id ? "is-keep" : undefined}>
                       <td><Radio checked={留哪个(g) === r.id} onChange={() => set留((x) => ({ ...x, [键(g)]: r.id }))} aria-label={`留下 ${r.name}`} /></td>
-                      <td className="dupe-name"><Link href={r.href}>{r.name}</Link></td>
+                      <td className="dupe-name"><RowLink href={r.href}>{r.name}</RowLink></td>
                       <td className="dupe-owner">{r.谁的 ?? "—"}</td>
                       <td>{r.跟进 ?? 0} 条</td>
                       <td>{r.最近跟进 ? smartTime(r.最近跟进) : <span className="muted">没有</span>}</td>
@@ -170,7 +170,7 @@ export default function DupeMergeCard({ 组们, 上次合并, 叫法, 变了 }: 
             <li key={键(g)}>
               <span className="muted">{g.种类} · {g.依据}：</span>
               {g.记录.map((r, i) => (
-                <span key={r.id}>{i > 0 && "、"}<Link href={r.href}>{r.name}</Link></span>
+                <span key={r.id}>{i > 0 && "、"}<RowLink href={r.href}>{r.name}</RowLink></span>
               ))}
             </li>
           ))}

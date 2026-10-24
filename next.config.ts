@@ -58,6 +58,9 @@ const nextConfig: NextConfig = {
   // Prisma 生成的客户端里有动态路径，Turbopack 会把整个项目追进 standalone（含 public/）；Dockerfile 另外再拷一遍 public，
   // 扫名片的 115 MB 识别文件就会在镜像里出现两份。public/ocr 不追，只走 COPY public 那一份；服务器识别的 ocr-server 也是 Dockerfile 单独拷
   outputFileTracingExcludes: { "*": ["public/ocr/**", "ocr-server/**"] },
+  // 全项目没有一处用 next/image；关掉图片优化，/_next/image 那条路就不走了，
+  // 桌面端的本地服务因此可以不带 sharp（Mac 约 18 MB 原生库 / Windows 约 10 MB wasm，desktop/scripts/build-server.mjs 第 9 步删）
+  images: { unoptimized: true },
 
   /*
     只给 e2e 用（playwright.feedback-chain.config.ts）：同一份代码里同时起「云端」和「桌面端本地服务」两个 next dev。

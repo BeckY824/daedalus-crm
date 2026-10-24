@@ -11,6 +11,7 @@ import { 数逾期跟进 } from "@/lib/overdue";
 import { 带币种, 商机币种, 签约合计 } from "@/lib/money-db";
 import { 按币种合计, 取币种, 同币环比 } from "@/lib/currency";
 import { getBusiness } from "@/lib/business";
+import { 近90天趋势, 最近8周, 每周新增 } from "@/lib/dashboard-trend";
 
 /**
  * 「现在」这个视图：指标卡、趋势、漏斗、排行、待办、盯盘。
@@ -121,25 +122,12 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
     用户昨天加了一位，今天这条线还是 1，按「新增」的说法今天该是 0。
     数据没错，是名字在说谎；名字和口径都在 DashboardView 里改正了。
   */
-  const days = Array.from({ length: 90 }, (_, i) => now.subtract(89 - i, "day"));
   const followDates = await prisma.followUp.findMany({
     select: { customerId: true, occurredAt: true },
     where: { occurredAt: { gte: now.subtract(120, "day").toDate() } },
   });
-
-  const trendData = days.map((d) => {
-    const total = customersForTrend.filter((c) => !dayjs(c.createdAt).isAfter(d, "day")).length;
-    const activeIds = new Set(
-      followDates
-        .filter(
-          (f) =>
-            !dayjs(f.occurredAt).isAfter(d, "day") &&
-            dayjs(f.occurredAt).isAfter(d.subtract(30, "day"), "day"),
-        )
-        .map((f) => f.customerId),
-    );
-    return { label: d.format("MM-DD"), created: total, active: activeIds.size };
-  });
+  // 每一行只建一次 dayjs，之后全是数字比较（1 万客户时原来的「天数 × 行数」要 5 秒多）。口径见 lib/dashboard-trend.ts
+  const trendData = 近90天趋势(now, customersForTrend, followDates);
 
   /**
    * 漏斗。
@@ -225,14 +213,9 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
    * 数据首页上的假曲线比没有曲线更糟，人会照着它做判断。
    * 这里按最近 8 周真算；一条数据都没有时就返回全 0，曲线自然是平的。
    */
-  const 周 = Array.from({ length: 8 }, (_, i) => ({
-    起: now.subtract(7 - i, "week").startOf("week"),
-    止: now.subtract(6 - i, "week").startOf("week"),
-  }));
+  const 周 = 最近8周(now);
 
-  const newCustomerSeries = 周.map(
-    (w) => customersForTrend.filter((c) => dayjs(c.createdAt).isAfter(w.起) && dayjs(c.createdAt).isBefore(w.止)).length,
-  );
+  const newCustomerSeries = 每周新增(周, customersForTrend);
   // 进行中商机的金额是「截至那一周末的存量」，不是当周新增。一条线只能画一个币种：画本位币那一份
   const oppAmountSeries = 周.map((w) =>
     Math.round(
