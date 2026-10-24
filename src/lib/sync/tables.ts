@@ -59,6 +59,8 @@ export const 不同步表 = [
   "EntImportBatch", "EntImportRow", "EntExternalRef", "EntConflict", "EntTrash", "EntSnapshot",
   // 企业版组织架构（2026-10-24）：企业版是一台服务器上的网页，不走团队同步
   "EntDept", "EntMember",
+  // 企业版线索分配（2026-10-24）：同上
+  "EntLeadAssign", "EntLeadQuota",
 ] as const;
 
 /**
@@ -124,6 +126,12 @@ export const 指向人的列: [string, string][] = [
   ["EntMember", "userId"],
   ["EntMember", "managerId"],
   ["EntMember", "dottedManagerId"],
+  // 企业版线索分配（2026-10-24）：不建外键
+  ["EntLeadAssign", "toUserId"],
+  ["EntLeadAssign", "fromUserId"],
+  ["EntLeadAssign", "byUserId"],
+  ["EntLeadQuota", "userId"],
+  ["EntLeadQuota", "setById"],
 ];
 
 /**

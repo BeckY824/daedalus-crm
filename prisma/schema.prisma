@@ -1154,3 +1154,39 @@ model EntMember {
   @@index([managerId])
   @@index([dottedManagerId])
 }
+
+/// 企业版线索分配（2026-10-24）：每分一次记一行。按月计数、每月清零靠 month；销售自己拓的线索没有这一行，不算数。
+/// fromUserId = 分之前的负责人（通常是市场人员）：分出去以后他仍能在「我分出去的线索」里看转化情况。
+/// 不建外键：同 EntMember。线索删了这几行留着当记录，「我分出去的线索」读的时候跳过
+model EntLeadAssign {
+  id         String   @id @default(cuid())
+  leadId     String
+  /// 分给谁（销售）
+  toUserId   String
+  /// 分之前的负责人；线索原来没人负责时为空
+  fromUserId String?
+  /// 谁点的分配
+  byUserId   String
+  /// 走哪条线：内贸 / 外贸；null = 没指定
+  line       String?
+  /// 营销 / 营销企划。企划线索走哪边、算不算数还没定（lib/enterprise/lead-assign.ts 的 计不计数 留口子）
+  kind       String   @default("营销")
+  /// 算不算进接手人当月的分配数（配额按它数）
+  counted    Boolean  @default(true)
+  /// YYYY-MM（服务器本地时间），按月清零就是只数本月这一格
+  month      String
+  createdAt  DateTime @default(now())
+
+  @@index([toUserId, month])
+  @@index([fromUserId])
+  @@index([leadId])
+}
+
+/// 企业版每人每月最多接几条分配的线索。没有这一行 = 不限。直属上级、虚线上级、总管理员、老板能设
+model EntLeadQuota {
+  userId    String   @id
+  quota     Int
+  /// 最后一次是谁设的
+  setById   String
+  updatedAt DateTime @updatedAt
+}

@@ -50,6 +50,8 @@ export async function resetDb() {
   await prisma.supplier.deleteMany();
   // 企业版组织架构（迁移 044）：不建外键，不会被级联带走（2026-10-24）
   await prisma.entMember.deleteMany();
+  await prisma.entLeadAssign.deleteMany();
+  await prisma.entLeadQuota.deleteMany();
   await prisma.entDept.deleteMany();
   await prisma.user.deleteMany();
 }
