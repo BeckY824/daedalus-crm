@@ -17,7 +17,7 @@ import { OPP_STAGES } from "@/lib/constants";
 import { 按币种合计 } from "@/lib/currency";
 import { 带币种, 商机币种 } from "@/lib/money-db";
 import { 取管道, 管道条件 } from "@/lib/pipeline-page";
-import { 每批, 读每列, 写每列, 列头, 汇总 } from "@/lib/pipeline-columns";
+import { 每批, 读每列, 写每列, 列头, 汇总, 读新, 加新, 记几张 } from "@/lib/pipeline-columns";
 
 beforeEach(resetDb);
 
@@ -119,7 +119,7 @@ const 原来列头 = (全: 卡[], stage: string, 显示阶段: (r: 卡) => strin
 /** 库里的排序：金额从大到小，同金额按 id 字节序（ASCII 下 JS 的 < 就是字节序） */
 const 库序 = (a: 卡, b: 卡) => b.amount - a.amount || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
-const 新页 = (每列: Record<string, number>, 新?: string) => 取管道(prisma, 起, 每列, 新);
+const 新页 = (每列: Record<string, number>, 新?: string | string[]) => 取管道(prisma, 起, 每列, 新);
 
 describe("商机管道分批取", () => {
   for (const 种子 of [1, 2, 3]) {
@@ -206,6 +206,17 @@ describe("商机管道分批取", () => {
     for (const 新 of [老.id, 丢!.id, "不存在", 第一列[0].id]) expect((await 新页(读每列(undefined), 新)).rows).toEqual(基线.rows);
   });
 
+  it("刚挪过的几张（new=a,b）都带上，各在各的列；重复的、不在管道里的不重复带", async () => {
+    await 灌(4);
+    const 全 = (await 原来全取()).sort(库序);
+    const 第一列 = 全.filter((r) => r.stage === OPP_STAGES[0]);
+    const [甲, 乙] = [第一列[第一列.length - 1], 第一列[第一列.length - 2]];
+    const 期望 = [...第一列.slice(0, 每批), 乙, 甲];
+    for (const 新 of [`${甲.id},${乙.id}`, [甲.id, 乙.id], `${甲.id},不存在,${乙.id},${甲.id},${第一列[0].id}`]) {
+      expect((await 新页(读每列(undefined), 新)).rows.filter((r) => r.stage === OPP_STAGES[0])).toEqual(期望);
+    }
+  });
+
   it("列头：挪出 / 挪进只取了一部分的列 = 原来在全部行上按显示阶段算", async () => {
     await 灌(5, true);
     const 全 = await 原来全取();
@@ -246,5 +257,22 @@ describe("每列张数在 URL 里", () => {
     expect(读每列("100,,150")).toEqual({ ...一批, [OPP_STAGES[0]]: 100, [OPP_STAGES[2]]: 150 });
     expect(写每列(读每列("100,50,150,50,200,999"))).toBe("100,50,150,50,200");
     expect(写每列({})).toBe(OPP_STAGES.map(() => 每批).join(","));
+  });
+});
+
+describe("刚挪过的几张在 URL 里（new=）", () => {
+  it("逗号分开、去重、去空；只留最近的 记几张 张", () => {
+    expect(读新(undefined)).toEqual([]);
+    expect(读新("")).toEqual([]);
+    expect(读新(" a, ,b,a,c ")).toEqual(["a", "b", "c"]);
+    const 多 = Array.from({ length: 记几张 + 5 }, (_, i) => `x${i}`);
+    expect(读新(多.join(","))).toEqual(多.slice(5));
+  });
+  it("加新：加在最后，已有的挪到最后，超了截掉最早的", () => {
+    expect(加新(null, "a")).toBe("a");
+    expect(加新("a,b", "c")).toBe("a,b,c");
+    expect(加新("a,b,c", "a")).toBe("b,c,a");
+    const 满 = Array.from({ length: 记几张 }, (_, i) => `x${i}`).join(",");
+    expect(加新(满, "y").split(",")).toEqual([...读新(满).slice(1), "y"]);
   });
 });
