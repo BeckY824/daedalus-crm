@@ -196,6 +196,16 @@ describe("规则开着", () => {
     expect(await 作为(外人, 名单)).toHaveLength(7);
     await 开规则(true);
   });
+
+  it("改完组织、缓存冷着，马上开事务写库不卡（单连接）", async () => {
+    忘掉企业版范围();
+    const id = await 客户id("B小王的");
+    const 写 = 作为(经理, () => db.$transaction(async (tx) => tx.customer.update({ where: { id }, data: { remark: "事务里改" } }), { timeout: 3000, maxWait: 3000 }));
+    await expect(写).resolves.toMatchObject({ remark: "事务里改" });
+    // 数组形式也一样
+    忘掉企业版范围();
+    await expect(作为(经理, () => db.$transaction([db.customer.update({ where: { id }, data: { remark: "批量改" } })]))).resolves.toHaveLength(1);
+  });
 });
 
 describe("虚线上级批量改负责人", () => {

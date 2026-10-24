@@ -374,7 +374,7 @@ function 改完推一下() {
 
 /** 给一个客户端套上业务员限定（lib/prisma.ts 用；测试拿拷出来的库套同一层） */
 export function 加上限定(db: PrismaClient): PrismaClient {
-  return db.$extends({
+  const c = db.$extends({
     query: {
       $allModels: {
         async $allOperations({ model, operation, args, query }) {
@@ -409,4 +409,16 @@ export function 加上限定(db: PrismaClient): PrismaClient {
       },
     },
   }) as unknown as PrismaClient;
+  // 交互式事务占着连接（SQLite 只有一条）。范围缓存是冷的（刚改完组织、刚换人）时，事务里第一条查询
+  // 要拿 db 现算范围，等的正是事务手里那条连接，15 秒后超时。开事务之前先把范围算好
+  return new Proxy(c, {
+    get(t, prop) {
+      const v = Reflect.get(t, prop);
+      if (prop !== "$transaction" || typeof v !== "function") return v;
+      return async (...a: unknown[]) => {
+        await 现在的限定(db).catch(() => {});
+        return (v as (...x: unknown[]) => unknown).apply(t, a);
+      };
+    },
+  });
 }
