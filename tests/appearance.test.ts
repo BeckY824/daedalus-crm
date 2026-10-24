@@ -65,10 +65,7 @@ describe("外观", () => {
     expect(跑("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/130 Safari/537.36")).toEqual({ 类: [], skin: 默认外观.skin });
     expect(跑()).toEqual({ 类: [], skin: 默认外观.skin });
     const css = fs.readFileSync(path.resolve(__dirname, "../src/app/globals.css"), "utf8");
-    // win-ua 单写一条（os-win 那条由 desktop-windows-chrome.test 钉着只许一条），两条的内容一字不差
-    const 体 = (类: string) => css.match(new RegExp(`html\\.${类}\\[data-skin="now"\\]\\s*\\{([^}]*)\\}`))?.[1];
-    expect(体("win-ua")).toContain("--text-muted");
-    expect(体("win-ua")).toBe(体("os-win"));
+    expect(css).toMatch(/html:is\(\.os-win, \.win-ua\)\[data-skin="now"\]\s*\{\s*--text-muted/);
     // 桌面端那几条让出标题栏的规矩只认 os-win（网页版没有标题栏），win-ua 不许挂进去
     expect(css).not.toMatch(/win-ua[^{]*\.shell-desktop/);
   });
