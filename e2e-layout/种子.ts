@@ -10,7 +10,9 @@ import type { PrismaClient } from "../src/generated/prisma";
 export const 长句商机 = "chicken breast BFQ. Exw. 10kg/Box. Country is Turkmenistan / Tadjikistan. Target price is 1300$, quantity 500 tons";
 export const 客户们 = [
   { k: "scandi", name: "SCANDI PAK EUROPE LTD", country: "英国", level: "A 级", source: "展会获取", follow: "跟进中", decision: "意向强" },
-  { k: "long-uk", name: "THE INTERNATIONAL GROUP OF SCANDINAVIAN FOOD PACKAGING AND COLD CHAIN LOGISTICS HOLDINGS LIMITED (UK BRANCH)", country: "英国", level: "B 级", source: "独立站询盘", follow: "待跟进", decision: "了解中" },
+  // 这一位的来源、职级、行业都用长选项.ts 里的长选项（10-22 排版普查：长选项、长字段名才露出字压字、Tag 盖住旁边一列）
+  { k: "long-uk", name: "THE INTERNATIONAL GROUP OF SCANDINAVIAN FOOD PACKAGING AND COLD CHAIN LOGISTICS HOLDINGS LIMITED (UK BRANCH)", country: "英国", level: "B 级", source: "LinkedInSalesNavigatorOutboundCampaignAutumn2026", follow: "待跟进", decision: "了解中",
+    school: "THE INTERNATIONAL GROUP OF SCANDINAVIAN FOOD PACKAGING HOLDINGS LIMITED / شركة النور للأغذية المجمدة", grade: "SeniorProcurementManagerForFrozenPoultryAndSeafoodImports", major: "冷冻禽肉水产品及清真认证肉类产品进出口批发与零售连锁" },
   { k: "turkmen", name: "Türkmen Azyk Önümleri Hojalyk Jemgyýeti «Altyn Asyr Trading»", country: "土库曼斯坦", level: "A 级", source: "阿里国际站", follow: "跟进中", decision: "比价中" },
   { k: "nospace", name: "AlRashidTradingAndContractingCompanyLimitedJebelAliFreeZoneAuthority", country: "阿联酋", level: "C 级", source: "WhatsApp", follow: "已成交", decision: "已签约" },
   { k: "cn-long", name: "深圳市宝安区福永街道某某照明电器科技股份有限公司东莞分公司（外贸二部 / 中东大区）", country: "沙特阿拉伯", level: "B 级", source: "老客户返单", follow: "跟进中", decision: "意向强" },
@@ -23,6 +25,7 @@ const 天 = 86400_000;
 export async function 灌真客户(db: PrismaClient, 我: string) {
   await db.customer.deleteMany({ where: { id: { startsWith: "gate-" } } });
   await db.supplier.deleteMany({ where: { id: { startsWith: "gate-" } } });
+  await db.lead.deleteMany({ where: { id: { startsWith: "gate-" } } });
   const 现在 = Date.now();
   const 供应商 = await db.supplier.create({
     data: { id: "gate-sup", name: 长供应商, category: "冷链包装 / 真空袋 / 瓦楞纸箱", region: "浙江宁波", contact: "王经理（外贸部副总监兼工厂厂长）", phone: "+86 574 8888 8888", payment: "T/T 30/70，见提单副本付尾款", rating: "A", remark: "可开 13% 增值税专用发票；MOQ 20000 pcs；交期 25–35 天" },
@@ -31,7 +34,7 @@ export async function 灌真客户(db: PrismaClient, 我: string) {
     const id = `gate-${c.k}`;
     await db.customer.create({
       data: {
-        id, name: c.name, phone: `+44 20 7946 ${String(1000 + i)}`, salesOwnerId: 我, followStatus: c.follow, decisionStatus: c.decision,
+        id, name: c.name, school: "school" in c ? c.school : undefined, grade: "grade" in c ? c.grade : undefined, major: "major" in c ? c.major : undefined, phone: `+44 20 7946 ${String(1000 + i)}`, salesOwnerId: 我, followStatus: c.follow, decisionStatus: c.decision,
         lastFollowAt: new Date(现在 - i * 天), remark: "Incoterms 2020 EXW Shenzhen; payment T/T 30/70; samples DHL account 123456789; 每月 15 号前对账",
         extra: { create: { country: c.country, whatsapp: `+44 7700 900${String(100 + i)}`, email: `procurement.department.${c.k}@international-group-holdings.example.co.uk`, source: c.source, level: c.level, website: `https://www.${c.k}-international-group-holdings.example.co.uk/products/frozen-chicken-breast` } },
         contacts: { create: [
@@ -76,6 +79,14 @@ export async function 灌真客户(db: PrismaClient, 我: string) {
     for (const [j, 差] of [-3, 0, 2].entries()) {
       await db.followPlan.create({ data: { customerId: id, ownerId: 我, subject: `${j === 0 ? "【逾期】" : ""}催 ${c.name} 回签 PI 并确认 30% 定金到账时间（${长句商机.slice(0, 40)}…）`, plannedAt: new Date(现在 + 差 * 天), method: ["电话沟通", "WhatsApp", "邮件"][j] } });
     }
+  }
+  // 线索：长来源、长行业（10-22 排版普查 #6：线索页来源 Tag 盖住「状态」列）
+  for (const [i, l] of [
+    { name: "AlRashidTradingAndContractingCompanyLimitedJebelAliFreeZoneAuthority", source: "LinkedInSalesNavigatorOutboundCampaignAutumn2026", industry: "冷冻禽肉水产品及清真认证肉类产品进出口批发与零售连锁" },
+    { name: "THE INTERNATIONAL GROUP OF SCANDINAVIAN FOOD PACKAGING HOLDINGS LIMITED", source: "Alibaba International Station · RFQ 询盘 · 2026 秋季广交会线下展位 1", industry: "Frozen poultry, seafood & halal-certified meat import / wholesale 第1" },
+    { name: "شركة النور للتجارة والمقاولات الكهربائية المحدودة", source: "领英", industry: "照明电器" },
+  ].entries()) {
+    await db.lead.create({ data: { id: `gate-lead-${i}`, ...l, contact: "Mr. Alexander Christopher Montgomery-Smythe", phone: `+971 4 555 ${String(1000 + i)}`, email: `buyer.${i}@international-group-holdings.example.ae`, status: "待跟进", ownerId: 我 } });
   }
 }
 

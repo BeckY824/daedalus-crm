@@ -81,13 +81,29 @@ export default function ImportsTab() {
             "还没有导入过"
           ),
         }}
+        /*
+          定宽列加起来不能超过设置页正文：1024 宽时只有 494，原来 140 + 100 + 170 + 110 = 520，
+          连空表都多出一条 26px 的横滚，文件名那列被挤到没有（10-22 排版普查 #13）。
+          「谁导的」并进时间下面一行。开着 AI 栏时正文只剩 370 上下，所以只给时间、撤销两列定宽（合计 188），
+          文件名、结果两列分剩下的；结果、「无需撤销」那几个字窄了就折行
+        */
         columns={[
           { title: "文件", dataIndex: "fileName", ellipsis: true },
-          { title: "什么时候", dataIndex: "at", width: 140, render: (v: string) => smartTime(new Date(v)) },
-          { title: "谁导的", dataIndex: "userName", width: 100 },
+          {
+            title: "什么时候",
+            dataIndex: "at",
+            width: 100,
+            render: (v: string, r) => (
+              <>
+                {smartTime(new Date(v))}
+                <Typography.Text type="secondary" ellipsis={{ tooltip: r.userName }} style={{ display: "block", fontSize: 12 }}>
+                  {r.userName}
+                </Typography.Text>
+              </>
+            ),
+          },
           {
             title: "结果",
-            width: 170,
             render: (_, r) => (
               <Typography.Text type="secondary" style={{ fontSize: 13 }}>
                 新建 {r.created} 条{r.updated ? `，补空 ${r.updated} 条` : ""}
@@ -97,7 +113,7 @@ export default function ImportsTab() {
           },
           {
             title: "",
-            width: 110,
+            width: 88,
             align: "right",
             render: (_, r) =>
               r.revertedAt ? (

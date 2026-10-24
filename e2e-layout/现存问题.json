@@ -74,6 +74,82 @@
     ]
   },
   {
+    "键": "客户记录页 | 字溢出 | div.rec-field > div.rec-field-k",
+    "归属": "普查 #3 · 客户业务：globals.css .rec-field-k（nowrap，盒子 66px，长字段名压到值上）",
+    "例": "「公司全称（含英文注册名）」字宽 156，盒子 66",
+    "在哪几组": [
+      "1024 AI栏常驻",
+      "1024 左栏最宽",
+      "1024 默认",
+      "1280 AI栏常驻",
+      "1280 左栏最宽",
+      "1280 默认",
+      "1366 AI栏常驻",
+      "1366 左栏最宽",
+      "1366 默认"
+    ]
+  },
+  {
+    "键": "客户记录页-长英文名 | 字溢出 | div.rec-field > div.rec-field-k",
+    "归属": "普查 #3 · 客户业务：globals.css .rec-field-k（nowrap，盒子 66px，长字段名压到值上）",
+    "例": "「公司全称（含英文注册名）」字宽 156，盒子 66",
+    "在哪几组": [
+      "1024 AI栏常驻",
+      "1024 左栏最宽",
+      "1024 默认",
+      "1280 AI栏常驻",
+      "1280 左栏最宽",
+      "1280 默认",
+      "1366 AI栏常驻",
+      "1366 左栏最宽",
+      "1366 默认"
+    ]
+  },
+  {
+    "键": "客户记录页-无空格名 | 字溢出 | div.rec-field > div.rec-field-k",
+    "归属": "普查 #3 · 客户业务：globals.css .rec-field-k（nowrap，盒子 66px，长字段名压到值上）",
+    "例": "「公司全称（含英文注册名）」字宽 156，盒子 66",
+    "在哪几组": [
+      "1024 AI栏常驻",
+      "1024 左栏最宽",
+      "1024 默认",
+      "1280 AI栏常驻",
+      "1280 左栏最宽",
+      "1280 默认",
+      "1366 AI栏常驻",
+      "1366 左栏最宽",
+      "1366 默认"
+    ]
+  },
+  {
+    "键": "线索 | 撑出 | tr.ant-table-row.ant-table-row-level-0 > td.ant-table-cell.dl-col-source",
+    "归属": "普查 #6 · 客户业务：leads/LeadsView.tsx 来源列（列宽 120，Tag 不省略，盖住「状态」列）",
+    "例": "长来源 Tag 伸出来源列",
+    "在哪几组": [
+      "1024 AI栏常驻",
+      "1024 左栏最宽",
+      "1024 默认",
+      "1280 AI栏常驻",
+      "1280 左栏最宽",
+      "1280 默认",
+      "1366 AI栏常驻",
+      "1366 左栏最宽",
+      "1366 默认"
+    ]
+  },
+  {
+    "键": "线索 | 撑出 | tr.ant-table-row.ant-table-row-level-0 > td.ant-table-cell.dl-col-act",
+    "归属": "普查 #11 · 客户业务：leads/LeadsView.tsx 操作列（列宽差几 px，低优先）",
+    "例": "「转客户」那组按钮伸出操作列",
+    "在哪几组": [
+      "1024 AI栏常驻",
+      "1024 左栏最宽",
+      "1024 默认",
+      "1280 AI栏常驻",
+      "1366 AI栏常驻"
+    ]
+  },
+  {
     "键": "商机列表 | 撑出 | tr.ant-table-row.ant-table-row-level-0 > td.ant-table-cell.dl-col-name",
     "归属": "客户业务会话：opportunities/OpportunitiesView.tsx 名称列（长网址商机名不折行，下一版 D-27 修）",
     "例": "tbody.ant-table-tbody > tr.ant-table-row.ant-table-row-level-0 > td.ant-table-cell.dl-col-name > button.link-strong.link-plain 伸出 184px",

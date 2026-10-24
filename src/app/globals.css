@@ -900,6 +900,13 @@ body.rail-resizing-collapse .pane-chat { opacity: .45; }
   white-space: nowrap;
 }
 
+/* 自动列宽的表（不设 ellipsis 的 antd Table）：单元格里的长串可以从任意处断开。
+   不加的话一个没空格的长表头、长邮箱就是这一列的最小宽度，整张表被撑出抽屉 / 弹窗（10-22 排版普查）。
+   只影响「没地方断」的长串，中文和正常英文照旧按词折行 */
+.tbl-wrap .ant-table-cell {
+  overflow-wrap: anywhere;
+}
+
 .link-strong {
   color: var(--ink);
   font-weight: 500;
@@ -1574,7 +1581,11 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .md-list li { margin: 2px 0; }
 /* 回答里的表：窄面板里横向能滚，不把整栏撑开；密度和 DataList 一致 */
 .md-tw { overflow-x: auto; margin: 4px 0 10px; }
-.md-table { border-collapse: collapse; font-size: var(--fs-note); white-space: nowrap; }
+/* 表头不折；格子里的字要折——原来整张表 nowrap，一格写一句话的表在 AI 栏里要横着滚好几屏才看得完。
+   min-width 保住短列（数字、日期）不被挤成一字一行；长串照样从任意处断开 */
+.md-table { border-collapse: collapse; font-size: var(--fs-note); }
+.md-table th { white-space: nowrap; }
+.md-table td { min-width: 6em; overflow-wrap: anywhere; }
 .md-table th, .md-table td { padding: 5px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 .md-table th { color: var(--text-muted); font-weight: 500; }
 .md-table tr:last-child td { border-bottom: 0; }
@@ -2169,7 +2180,11 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .ant-modal-wrap .ant-modal .ant-modal-footer { flex: none; }
 /* 只竖着滚：表单栅格（Row gutter）两边各有 -8px 的负边距，overflow: auto 会因此多出一条横滚动条（1024×700 实地看到）。
    被裁掉的只是 Col 的内边距，输入框和焦点环都在里面 */
-.ant-modal-wrap .ant-modal .ant-modal-body { flex: 1 1 auto; min-height: 0; overflow: hidden auto; overscroll-behavior: contain; }
+.ant-modal-wrap .ant-modal .ant-modal-body { flex: 1 1 auto; min-height: 0; overflow: hidden auto; overscroll-behavior: contain;
+  /* 横向是裁掉的，所以里面的长串得自己能断开：没空格的长名字、长网址原来超出去的那一截直接看不见，也没有滚动条 */
+  overflow-wrap: anywhere; }
+/* 弹窗里的宽表：在自己那块里横着滚，不被上面那条静默裁掉 */
+.ant-modal-wrap .ant-modal .ant-modal-body .ant-table-content { overflow-x: auto; }
 /* 中间能滚以后，最后一个表单项的下边距不再和底栏的上边距叠在一起，按钮上方会多出 12px 空白；
    表单自己那 24 已经够隔开，底栏就不再加 */
 .ant-modal-wrap .ant-modal .ant-modal-body:has(.ant-form-item) + .ant-modal-footer { margin-top: 0; }
