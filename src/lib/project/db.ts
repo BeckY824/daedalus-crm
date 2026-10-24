@@ -10,6 +10,7 @@ import { 还差, 节点推进生效, 按必填走, 节点必填, type 必填数�
 import { 规整项目, 规整沟通, type 向导项目, type 向导跟进 } from "./wizard";
 import { 持有上限of, type 组织规则 } from "./org-rules";
 import { 企业版 } from "@/lib/enterprise/switch";
+import { 读组织, 直属上级of, type 组织 } from "@/lib/enterprise/org";
 import { 生效组织规则 } from "./org-rules-store";
 import { 超时回收日, 已超时, 超时理由, 超时起点 } from "./timeout";
 import { getSetting, setSetting } from "../settings";
@@ -34,6 +35,29 @@ export const 角色名上限 = 20;
 export function 能管项目(me: 谁, p: { ownerId: string; pooledAt?: Date | null }): boolean {
   if (me.role === "ADMIN" || me.role === "MANAGER") return true;
   return !p.pooledAt && me.id === p.ownerId;
+}
+
+/**
+ * 企业版 D-37：负责人的直属上级能改这个项目的节点。组织里设成销售管理不会改账号角色，
+ * 直属上级可能还是 SALES，光看 能管项目 会把他拦在外面（质量审 #138）。org = null（不是企业版）→ 和 能管项目 一样
+ */
+export function 能改节点(me: 谁, p: { ownerId: string; pooledAt?: Date | null }, org: 组织 | null): boolean {
+  return 能管项目(me, p) || (!p.pooledAt && 是直属上级(me, p.ownerId, org));
+}
+export function 是直属上级(me: 谁, ownerId: string, org: 组织 | null): boolean {
+  return !!org && 直属上级of(org, ownerId) === me.id;
+}
+
+/**
+ * 企业版 D-37：负责人有直属上级时，手动往前推节点只给这位直属上级和老板；负责人本人、隔级上级、
+ * 虚线上级（D-39 只读）都不行，本人填齐必填照样自动推。往后退、点结局、进异常不归这条管。
+ * 负责人没设直属上级（组织还没配）照旧，免得谁都推不动。org = null（不是企业版）→ 不拦。
+ * 返回拦下的话，null = 能推
+ */
+export function 往前推不给(me: 谁, ownerId: string, org: 组织 | null): string | null {
+  const 上级 = org ? 直属上级of(org, ownerId) : null;
+  if (!上级 || me.id === 上级 || me.role === "ADMIN") return null;
+  return me.id === ownerId ? "往前推节点要由你的直属上级来推" : "只有负责人的直属上级能往前推节点";
 }
 
 /**
@@ -182,16 +206,19 @@ export async function 改节点(
   me: 谁, projectId: string, 到: 位置, 异常?: { categoryId?: string | null; 备注?: string | null },
 ): Promise<结果 & { 变了?: boolean; 自动推到?: string[] }> {
   const 规则 = await 生效组织规则();
+  const org = 企业版() ? await 读组织() : null;
   return 查完再写(async (tx) => {
     const p = await tx.project.findUnique({ where: { id: String(projectId ?? "") } });
     if (!p) return { ok: false as const, error: "这个项目已经不在了，刷新看看" };
-    if (!能管项目(me, p)) return { ok: false as const, error: p.pooledAt ? "这个项目在公海里，先领取再改" : "只有项目负责人、老板或主管能改节点" };
+    if (!能改节点(me, p, org)) return { ok: false as const, error: p.pooledAt ? "这个项目在公海里，先领取再改" : "只有项目负责人、老板或主管能改节点" };
     const result = 到.result || null;
     const 问题 = 改节点问题({ ...到, result }, p, 异常);
     if (问题) return { ok: false as const, error: 问题 };
-    // 企业版节点必填（D-37）：配了必填的节点，往前推只给老板、主管；销售本人填齐了自动推
     const 往前 = !result && !p.result && 节点序号(到) > 节点序号(p);
-    if (往前 && 按必填走(规则, p.node) && me.role !== "ADMIN" && me.role !== "MANAGER") {
+    const 不给 = 往前 ? 往前推不给(me, p.ownerId, org) : null;
+    if (不给) return { ok: false as const, error: 不给 };
+    // 企业版节点必填（D-37）：配了必填的节点，往前推只给老板、主管、负责人的直属上级；销售本人填齐了自动推
+    if (往前 && 按必填走(规则, p.node) && me.role !== "ADMIN" && me.role !== "MANAGER" && !是直属上级(me, p.ownerId, org)) {
       const 差 = 还差(规则, await 读必填数据(tx, p));
       return {
         ok: false as const,
