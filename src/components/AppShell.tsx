@@ -244,6 +244,30 @@ export default function AppShell({ user, workspace, 收藏 = [], 计数 = {}, �
     return flat.find((k) => pathname === k || pathname.startsWith(k + "/")) ?? "/dashboard";
   }, [pathname]);
 
+  /*
+    网页版的标签页标题跟着当前页走（「客户 · Daedalus CRM」）：浏览器里常开着好几个标签，只写产品名分不出哪个是哪个，
+    左栏顶上也不再有标志。桌面端不动：窗口标题跟着 document.title，Windows 任务栏、切窗口时还是产品名。
+    不用 selectedKey：它认不出的路径都算首页，/admin 之类会被写成「首页」；认不出的页不碰标题，留给页面自己（如「没有找到这个页面」）
+  */
+  const 当前页名 = useMemo(() => {
+    if (pathname === "/feedback" || pathname.startsWith("/feedback/")) return "我的反馈";
+    const 全部 = [...nav, { key: "/settings", label: "设置" }];
+    const 中 = 全部.filter((n) => pathname === n.key || pathname.startsWith(n.key + "/")).sort((a, b) => b.key.length - a.key.length)[0];
+    return typeof 中?.label === "string" ? 中.label : "";
+  }, [nav, pathname]);
+  useEffect(() => {
+    if (desktop || !当前页名) return;
+    const 要 = `${当前页名} · Daedalus CRM`;
+    const 设 = () => {
+      if (document.title !== 要) document.title = 要;
+    };
+    设();
+    // Next 的元数据是流式补进 <head> 的，首屏和换页后都会把 <title> 写回根布局的「Daedalus CRM」，只设一次会被盖掉
+    const 盯 = new MutationObserver(设);
+    盯.observe(document.head, { childList: true, subtree: true, characterData: true });
+    return () => 盯.disconnect();
+  }, [desktop, 当前页名]);
+
   /** 左栏的一项（主导航和「更多」共用）。选中那块底色仍是同一块在各项之间滑（layoutId） */
   const 一项 = (n: (typeof nav)[number]) => (
     <Link
@@ -402,23 +426,17 @@ export default function AppShell({ user, workspace, 收藏 = [], 计数 = {}, �
         {/* 桌面端：这块是红黄绿钮的位置，也是拖动窗口的把手 */}
         <div className="rail-top">
           {/*
-            桌面端顶上是一个搜索框（2026-10-02 照毛玻璃原型，学 MonoCode）：名字已经在登录页和红黄绿钮旁的窗口里了，
+            顶上是一个搜索框（2026-10-02 照毛玻璃原型，学 MonoCode）：名字已经在登录页和红黄绿钮旁的窗口里了，
             这一格留给最常用的「去哪儿 / 找谁」。点它和按 ⌘K 是同一张跳转单（CommandBar 听 cmdbar:open）。
-            网页版没有红黄绿钮那一截，顶上还是标志，不然整个页面上就找不到自己在哪个产品里。
+            网页版原来顶上是标志；2026-10-24 企业版网页要和桌面端一个样子，也换成搜索框——
+            产品名改由标签页标题（「客户 · Daedalus CRM」，见下面 当前页名）和图标、登录页来认。
           */}
-          {desktop ? (
-            <button type="button" className="rail-search" onClick={() => window.dispatchEvent(new Event("cmdbar:open"))} aria-label={页内占着CmdK ? "搜索" : `搜索（${modifier}K）`}>
-              <SearchOutlined />
-              <span>搜索</span>
-              {/* 首页的 ⌘K 是「回问答框」、记录页是「换一位」：那两处不写，免得标签和按下去的对不上（lib/roster.ts） */}
-              {!页内占着CmdK && <kbd><Shortcut>⌘K</Shortcut></kbd>}
-            </button>
-          ) : (
-            <Link href="/dashboard" className="rail-mark" aria-label="Daedalus CRM">
-              <Logo size={20} />
-              <b>Daedalus CRM</b>
-            </Link>
-          )}
+          <button type="button" className="rail-search" onClick={() => window.dispatchEvent(new Event("cmdbar:open"))} aria-label={页内占着CmdK ? "搜索" : `搜索（${modifier}K）`}>
+            <SearchOutlined />
+            <span>搜索</span>
+            {/* 首页的 ⌘K 是「回问答框」、记录页是「换一位」：那两处不写，免得标签和按下去的对不上（lib/roster.ts） */}
+            {!页内占着CmdK && <kbd><Shortcut>⌘K</Shortcut></kbd>}
+          </button>
         </div>
         {/* 名字直接写出来，不再靠 tooltip：第一次打开的人不会去悬停，
             他只看到一列认不出的方块。aria-label 保留原样，e2e 和读屏都认它。 */}
