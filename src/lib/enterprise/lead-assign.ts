@@ -62,6 +62,21 @@ export function 计不计数(kind: 线索种类, 企划算数: boolean | null): 
 /** 配额满了没：配额 null = 不限 */
 export const 满了 = (已分: number, 配额: number | null) => 配额 !== null && 已分 >= 配额;
 
+/** 不参与自动分配的人：Setting 里存 JSON string[]，没存 = 人人参与（开关放哪、谁能改还没定，先只留这个口子） */
+export const 自动分配不参与key = "enterprise.lead_assign.auto_excluded";
+
+export type 候选人 = { userId: string; 已分: number; 配额: number | null; 进池: Date };
+
+/**
+ * 自动分配挑谁（D-38）：去掉不参与的、（这一条算数时）分满的，挑本月已分最少的；
+ * 一样多给最早进分配池的。EntMember 没记进池时间，先按建号时间算；再一样按 id，结果不随查询顺序变
+ */
+export function 挑接手人(候选: 候选人[], 不参与: ReadonlySet<string>, 查满: boolean): string | null {
+  const 可 = 候选.filter((c) => !不参与.has(c.userId) && !(查满 && 满了(c.已分, c.配额)));
+  可.sort((a, b) => a.已分 - b.已分 || a.进池.getTime() - b.进池.getTime() || (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0));
+  return 可[0]?.userId ?? null;
+}
+
 // —— 读库 ——
 
 /** 本月已经算进数的分配条数 */
