@@ -16,6 +16,7 @@ import BusinessSettingsTab from "./BusinessSettingsTab";
 import DesktopTab, { type 桌面端信息 } from "./DesktopTab";
 import TeamTab from "./TeamTab";
 import ImportsTab from "./ImportsTab";
+import EnterpriseImportTab from "./EnterpriseImportTab";
 import ProfileTab from "./ProfileTab";
 import KeymapTab from "./KeymapTab";
 import AppearanceTab from "./AppearanceTab";
@@ -36,6 +37,7 @@ const 说明表: Record<string, string> = {
   ai: "走哪把 Key、还剩几次",
   business: "客户 / 学员 这些叫法",
   imports: "导进来的那几批，可撤销",
+  enterprise: "飞书 / 钉钉 / Excel 导进来、同步、切换",
   audit: "每一次改动的记录",
   project: "项目组员角色、成员的上级",
   org: "部门、角色、直属和虚线上级",
@@ -55,6 +57,7 @@ export default function SettingsView({
   共享区 = false,
   项目设置 = null,
   组织架构 = null,
+  企业版导入 = false,
 }: {
   users: Row[];
   me: SessionUser;
@@ -82,6 +85,8 @@ export default function SettingsView({
   项目设置?: 项目设置 | null;
   /** 企业版多一栏「组织架构」；null = 不是企业版，这一栏不出现 */
   组织架构?: 组织架构 | null;
+  /** 企业版（CRM_ENTERPRISE=1）的管理员：多一栏「企业版导入」（飞书 / 钉钉 / Excel 首次导入、同步、切换） */
+  企业版导入?: boolean;
 }) {
   const [搜, set搜] = useState("");
   // 当前页签由地址栏 ?tab= 决定：中栏那列设置项就是一组带 tab 的链接，刷新、回退都对得上
@@ -110,6 +115,7 @@ export default function SettingsView({
     ...(组织架构 ? [{ key: "org", label: "组织架构", children: <OrgTab value={组织架构} /> }] : []),
     ...(项目设置 ? [{ key: "project", label: "项目模式", children: <ProjectSettingsTab value={项目设置} isAdmin={isAdmin} /> }] : []),
     { key: "imports", label: "导入记录", children: <ImportsTab /> },
+    ...(企业版导入 ? [{ key: "enterprise", label: "企业版导入", children: <EnterpriseImportTab /> }] : []),
     { key: "audit", label: "操作日志", children: <AuditTab logs={logs} /> },
   ]
     /**
@@ -132,7 +138,7 @@ export default function SettingsView({
    */
   const 分组表: [string, string[]][] = [
     ["个人", ["profile", "password", "keymap", "appearance"]],
-    ["工作区", ["members", "org", "business", "project", "ai", "imports", "audit"]],
+    ["工作区", ["members", "org", "business", "project", "ai", "imports", "enterprise", "audit"]],
     ["应用", ["desktop", "team"]],
   ];
 
