@@ -1,11 +1,17 @@
 /**
- * 企业版的组织规则（2026-10-24）：项目公海持有上限等。每条规则都是开关，默认全关——
+ * 企业版的组织规则（2026-10-24）：项目公海持有上限、超时回收等。每条规则都是开关，默认全关——
  * 通用的 20–30 人 B2B 团队不开也照旧用；要的团队老板在「设置 → 项目模式」里自己打开。
  * 存在 Setting 的 orgRules 一个 key 里（业务配置 getBusiness 会丢掉不认识的 key，不混进去）。
  * 这里只管规整，界面也引（不能碰 prisma）；读写库在 org-rules-store.ts，规矩在 lib/project/db.ts 里用
  */
+import { 节点们 } from "./nodes";
+
 /** 持有上限最多填多少：防手滑多打几个 0 */
 export const 上限最大 = 999;
+/** 节点处理时长最多填多少天 */
+export const 时长最大 = 365;
+/** 能设处理时长的节点：线索、商机阶段的；订单阶段永远不回收 */
+export const 能设时长的节点: readonly string[] = [...节点们.线索, ...节点们.商机];
 
 export type 组织规则 = {
   公海: {
@@ -16,10 +22,17 @@ export type 组织规则 = {
     /** 按人单独设（userId → 个数），0 = 这个人不能再多拿 */
     每人上限: Record<string, number>;
   };
+  超时回收: {
+    /** 开了才回收；关着时节点时长存着不用，项目沟通也不强制填下一步时间 */
+    开: boolean;
+    /** 节点名 → 最长处理天数；没设的节点不回收 */
+    节点天数: Record<string, number>;
+  };
 };
 
 export const 默认组织规则: 组织规则 = {
   公海: { 持有上限开: false, 默认上限: 30, 每人上限: {} },
+  超时回收: { 开: false, 节点天数: {} },
 };
 
 function 整数(v: unknown, 最小: number, 最大: number): number | null {
@@ -42,18 +55,29 @@ export function 规整组织规则(raw: unknown): 组织规则 {
       if (uid && n !== null) 每人[uid] = n;
     }
   }
+  const 超时 = (r.超时回收 && typeof r.超时回收 === "object" ? r.超时回收 : {}) as Record<string, unknown>;
+  const 天数: Record<string, number> = {};
+  if (超时.节点天数 && typeof 超时.节点天数 === "object") {
+    for (const [node, v] of Object.entries(超时.节点天数 as Record<string, unknown>)) {
+      const n = 整数(v, 1, 时长最大);
+      if (能设时长的节点.includes(node) && n !== null) 天数[node] = n;
+    }
+  }
   return {
     公海: {
       持有上限开: 公海.持有上限开 === true,
       默认上限: 整数(公海.默认上限, 1, 上限最大) ?? 默认组织规则.公海.默认上限,
       每人上限: 每人,
     },
+    超时回收: { 开: 超时.开 === true, 节点天数: 天数 },
   };
 }
 
 export type 规则改动 = {
   /** 每人上限里传 null = 这个人不单独设了 */
   公海?: Partial<Omit<组织规则["公海"], "每人上限">> & { 每人上限?: Record<string, number | null> };
+  /** 节点天数整份替换（界面每次带全），传 null / 空的节点 = 不设、不回收 */
+  超时回收?: { 开?: boolean; 节点天数?: Record<string, number | string | null> };
 };
 
 /**
@@ -87,7 +111,28 @@ export function 合上改动(现在: 组织规则, 改: 规则改动): 组织规
       公海.每人上限 = 每人;
     }
   }
-  return { ...现在, 公海 };
+  const 超时回收 = { ...现在.超时回收 };
+  if (改.超时回收 !== undefined) {
+    const t = 改.超时回收;
+    if (!t || typeof t !== "object") return { error: "要改什么？" };
+    if (t.开 !== undefined) {
+      if (typeof t.开 !== "boolean") return { error: "超时回收开关只能开或关" };
+      超时回收.开 = t.开;
+    }
+    if (t.节点天数 !== undefined) {
+      if (!t.节点天数 || typeof t.节点天数 !== "object") return { error: "节点时长格式不对，刷新再试" };
+      const 天数: Record<string, number> = {};
+      for (const [node, v] of Object.entries(t.节点天数 as Record<string, unknown>)) {
+        if (!能设时长的节点.includes(node)) return { error: `「${node}」不是线索、商机阶段的节点，不能设处理时长` };
+        if (v === null || v === undefined || v === "") continue;
+        const n = 整数(v, 1, 时长最大);
+        if (n === null) return { error: `「${node}」的处理时长请填 1–${时长最大} 的整数（天）` };
+        天数[node] = n;
+      }
+      超时回收.节点天数 = 天数;
+    }
+  }
+  return { ...现在, 公海, 超时回收 };
 }
 
 /** 这个人的持有上限；没开上限 = null（不限） */

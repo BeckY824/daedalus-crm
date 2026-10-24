@@ -17,7 +17,7 @@ vi.mock("@/lib/business", async (原) => {
 
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
-import { 编辑项目, 加项目组员, 换项目组员角色, 移出项目组员, 改组织规则 } from "@/app/(app)/projects/actions";
+import { 编辑项目, 加项目组员, 换项目组员角色, 移出项目组员, 改组织规则, 预览超时回收, 记项目沟通Action } from "@/app/(app)/projects/actions";
 import { 角色字典 } from "@/lib/project/db";
 import { 读组织规则 } from "@/lib/project/org-rules-store";
 import { invalidateSettingsCache } from "@/lib/settings";
@@ -87,20 +87,36 @@ describe("改组织规则（企业版持有上限）", () => {
     vi.stubEnv("CRM_ENTERPRISE", "");
     expect(await 改组织规则({ 公海: { 持有上限开: true } })).toMatchObject({ ok: false, error: expect.stringContaining("企业版") });
     expect((await 读组织规则()).公海.持有上限开).toBe(false);
+    expect(await 预览超时回收({ 超时回收: { 开: true } })).toMatchObject({ ok: false, error: expect.stringContaining("企业版") });
+    // 在项目上记沟通也是企业版的：拦下，一条跟进不写（照原来去客户页记）
+    expect(await 记项目沟通Action(项目id, { type: "PHONE", content: "聊了", occurredAt: "2026-10-20 10:00" })).toMatchObject({ ok: false, error: expect.stringContaining("企业版") });
+    expect(await prisma.followUp.count()).toBe(0);
     expect(await 记录()).toEqual([]);
   });
 
   it("老板开、设默认和单独上限，存下并留记录；再关", async () => {
-    expect(await 改组织规则({ 公海: { 持有上限开: true } })).toEqual({ ok: true });
-    expect(await 改组织规则({ 公海: { 默认上限: 8, 每人上限: { [乙]: 3 } } })).toEqual({ ok: true });
+    expect(await 改组织规则({ 公海: { 持有上限开: true } })).toEqual({ ok: true, 收回: 0 });
+    expect(await 改组织规则({ 公海: { 默认上限: 8, 每人上限: { [乙]: 3 } } })).toEqual({ ok: true, 收回: 0 });
     expect((await 读组织规则()).公海).toEqual({ 持有上限开: true, 默认上限: 8, 每人上限: { [乙]: 3 } });
-    expect(await 改组织规则({ 公海: { 持有上限开: false } })).toEqual({ ok: true });
+    expect(await 改组织规则({ 公海: { 持有上限开: false } })).toEqual({ ok: true, 收回: 0 });
     expect((await 读组织规则()).公海).toMatchObject({ 持有上限开: false, 默认上限: 8 });
     expect((await 记录()).map((r) => r.summary)).toEqual([
       "组织规则：项目持有上限开，默认 30 个，单独设了 0 人",
       "组织规则：项目持有上限开，默认 8 个，单独设了 1 人",
       "组织规则：项目持有上限关",
     ]);
+  });
+
+  it("超时回收：保存前先看会收回几个，保存后当场收回、返回个数", async () => {
+    const p = await prisma.project.update({ where: { id: 项目id }, data: { createdAt: new Date(Date.now() - 10 * 86400_000) } });
+    const 改 = { 超时回收: { 开: true, 节点天数: { [p.node]: 3 } } };
+    expect(await 预览超时回收(改)).toEqual({ ok: true, 个数: 1, 团队: false });
+    expect((await 读组织规则()).超时回收.开).toBe(false);
+    expect(await 改组织规则(改)).toEqual({ ok: true, 收回: 1 });
+    expect((await prisma.project.findUniqueOrThrow({ where: { id: 项目id } })).pooledAt).not.toBeNull();
+    expect((await 记录()).map((r) => r.summary)).toContain("组织规则：超时回收开，设了 1 个节点的处理时长");
+    mocks.user = { ...mocks.user, id: 乙, role: "SALES" };
+    expect(await 预览超时回收(改)).toMatchObject({ ok: false, error: expect.stringContaining("只有老板") });
   });
 
   it("业务员改不了；开关关着拦；填错拦，都不写", async () => {
