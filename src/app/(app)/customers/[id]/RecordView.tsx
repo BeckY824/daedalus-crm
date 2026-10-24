@@ -104,8 +104,11 @@ export default function RecordView({
   aiEnabled,
   已收藏 = false,
   能放公海 = false,
-  只读 = false,
+  只读: 只读档 = false,
 }: RecordProps) {
+  // 「加跟进」= 团队版互看同事的客户；「全」= 企业版虚线下属的客户，跟进也不能记
+  const 只读 = !!只读档;
+  const 全只读 = 只读档 === "全";
   const { 曲线, 时长, 间隔 } = useMotionTheme();
   const router = useRouter();
   const { message, modal } = App.useApp();
@@ -362,6 +365,7 @@ export default function RecordView({
   }
 
   function openFollow(record: FollowUpRow | null, aiText?: string) {
+    if (全只读) return void message.info("这是虚线下属的客户：只能看，不能改、不能转");
     setFollowInit({ record, aiText });
     setFollowOpen(true);
   }
@@ -418,7 +422,7 @@ export default function RecordView({
             AI
           </Button>
         )}
-        <Space.Compact>
+        {!全只读 && <Space.Compact>
           <Button type="primary" onClick={() => openFollow(null)}>
             记录跟进
           </Button>
@@ -441,7 +445,7 @@ export default function RecordView({
           >
             <Button type="primary" icon={<DownOutlined />} aria-label="客户更多操作" />
           </Dropdown>
-        </Space.Compact>
+        </Space.Compact>}
       </div>
 
       {/*
@@ -510,8 +514,8 @@ export default function RecordView({
           type="info"
           showIcon
           style={{ marginBottom: 12 }}
-          message={`同事 ${customer.salesOwnerName} 的${b.customer} · 只能看和加跟进`}
-          description="团队开了「同事之间互相看得到客户」。改资料、删除、转交、排计划请找负责人或老板"
+          message={全只读 ? `虚线下属 ${customer.salesOwnerName} 的${b.customer} · 只能看` : `同事 ${customer.salesOwnerName} 的${b.customer} · 只能看和加跟进`}
+          description={全只读 ? "这是虚线下属的客户：只能看，不能改、不能转。要改请找他的直属上级或总管理员" : "团队开了「同事之间互相看得到客户」。改资料、删除、转交、排计划请找负责人或老板"}
         />
       )}
 
