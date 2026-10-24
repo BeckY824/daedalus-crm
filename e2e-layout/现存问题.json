@@ -74,22 +74,6 @@
     ]
   },
   {
-    "键": "商机列表 | 撑出 | tr.ant-table-row.ant-table-row-level-0 > td.ant-table-cell.dl-col-name",
-    "归属": "客户业务会话：opportunities/OpportunitiesView.tsx 名称列（长网址商机名不折行，下一版 D-27 修）",
-    "例": "tbody.ant-table-tbody > tr.ant-table-row.ant-table-row-level-0 > td.ant-table-cell.dl-col-name > button.link-strong.link-plain 伸出 184px",
-    "在哪几组": [
-      "1024 AI栏常驻",
-      "1024 左栏最宽",
-      "1024 默认",
-      "1280 AI栏常驻",
-      "1280 左栏最宽",
-      "1280 默认",
-      "1366 AI栏常驻",
-      "1366 左栏最宽",
-      "1366 默认"
-    ]
-  },
-  {
     "键": "客户列表 | 撑出 | div > div.page-head-t",
     "归属": "客户业务会话：customers/CustomersView.tsx 页头「我的客户 / 公海」分段控件（1024 AI栏常驻 窄宽度）",
     "例": "div.page-head > div > div.page-head-t > div.ant-segmented 伸出 90px",
