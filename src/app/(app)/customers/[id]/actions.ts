@@ -10,6 +10,7 @@ import { 虚线只读话 } from "@/lib/enterprise/visibility";
 import type { Prisma } from "@/generated/prisma";
 import { requireUser } from "@/lib/auth";
 import { FOLLOW_TYPES, FOLLOW_RECORD_STATUSES } from "@/lib/constants";
+import { 客户存了推项目 } from "@/lib/project/auto-advance";
 import { recordAudit } from "@/lib/audit";
 import { 领取 } from "../pool-actions";
 import { 认回打码号 } from "@/lib/phone";
@@ -232,6 +233,7 @@ export async function saveFollowUp(input: FollowUpInput) {
     for (const audit of result.audits) await recordAudit(audit);
     刷新待办(input.customerId);
     revalidatePath("/follow-ups");
+    await 客户存了推项目(user, input.customerId);
     return { ok: true as const, id: result.id, ...(result.待办id ? { 待办id: result.待办id } : {}), ...(result.下次计划id ? { 下次计划id: result.下次计划id } : {}), ...(领取了 ? { 领取了: true as const } : {}) };
   } catch (e) { return 不在了(e); }
 }
@@ -646,6 +648,7 @@ export async function saveContact(input: 联系人字段 & { id?: string; custom
     });
   
     刷新联系人(input.customerId);
+    await 客户存了推项目(me, input.customerId);
     return { ok: true as const };
   } catch (e) {
     return 不在了(e);
@@ -763,6 +766,7 @@ export async function saveUnassignedContact(input: 联系人字段 & { id: strin
         detail: { 姓名: data.name, 职位: data.position, 电话: data.phone, 微信: data.wechat },
       });
       刷新联系人(input.customerId);
+      await 客户存了推项目(me, input.customerId);
       return { ok: true as const, 挂到: 客户.name };
     }
     await prisma.unassignedContact.update({ where: { id: u.id }, data });
