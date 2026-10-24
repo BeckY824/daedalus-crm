@@ -31,6 +31,7 @@ import { 认背调意图 } from "@/lib/research/intent";
 import { 认背调对象 } from "@/lib/research/target";
 import { 背调价目 } from "@/lib/research/actions";
 import ResearchModeLine from "@/components/research/ResearchModeLine";
+import { useResearchEntry } from "@/components/research/ResearchEntry";
 import MailPaste, { 邮件摘要 } from "@/components/research/MailPaste";
 import { 像邮件原文, type 邮件信号 } from "@/lib/research/verify/mail";
 import { 是免费邮箱 } from "@/lib/research/verify/domain";
@@ -152,6 +153,8 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
     扣的是背调次数（和问答次数分开），输入框底下常驻「背调 · 每次扣 1 次 · 剩 N 次」；没次数就发不出去。
   */
   const [背调模式, set背调模式] = useState(false);
+  /** 自部署 / 企业版网页背调走不通：不摆「背调」键，「帮我背调 X」也照常当问题问（lib/research/channel.ts 背调有入口） */
+  const 背调入口 = useResearchEntry();
   /*
     「粘贴询盘邮件」（背调补充方案第二期）：弹窗开着没有、带上了哪封。只存认出来的几样（verify/mail.ts），
     原文在弹窗里解析完就丢了，不进 turn、不进库。发出去那一轮背调带上，带完清掉
@@ -367,7 +370,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
       「帮我背调 XX」：不走 agent（那条路没有联网搜索，还会白扣一次），直接摆一张背调确认卡。
       不排队——确认卡本身不调模型，人点了「开始」才跑
     */
-    const 背调公司 = typed.startsWith("/") ? null : 认背调意图(question);
+    const 背调公司 = !背调入口 || typed.startsWith("/") ? null : 认背调意图(question);
     if (背调公司) {
       const turn = addTurn(scope, { question, kind: "research", 公司: 背调公司 });
       set刚发的(turn.id);
@@ -541,20 +544,22 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
             栏左={
               <>
                 {/* 背调模式开关：和普通问答并列切换，选中有明显的状态（.cli-tool-on） */}
-                <button
-                  type="button"
-                  className={`cli-tool${模式 === "宽" ? " cli-tool-t" : ""}${背调模式 ? " cli-tool-on" : ""}`}
-                  aria-pressed={背调模式}
-                  aria-label="背调"
-                  onClick={() => {
-                    set背调模式((v) => !v);
-                    taRef.current?.focus();
-                  }}
-                  title={背调模式 ? "退出背调，回到普通问答" : "背调模式：输入公司名或一句需求，直接上网背调"}
-                >
-                  <GlobalOutlined />
-                  {模式 === "宽" && <span>背调</span>}
-                </button>
+                {背调入口 && (
+                  <button
+                    type="button"
+                    className={`cli-tool${模式 === "宽" ? " cli-tool-t" : ""}${背调模式 ? " cli-tool-on" : ""}`}
+                    aria-pressed={背调模式}
+                    aria-label="背调"
+                    onClick={() => {
+                      set背调模式((v) => !v);
+                      taRef.current?.focus();
+                    }}
+                    title={背调模式 ? "退出背调，回到普通问答" : "背调模式：输入公司名或一句需求，直接上网背调"}
+                  >
+                    <GlobalOutlined />
+                    {模式 === "宽" && <span>背调</span>}
+                  </button>
+                )}
                 {!背调模式 && <AskFiles files={files} onChange={setFiles} disabled={running != null} />}
                 {背调模式 && (
                   <button

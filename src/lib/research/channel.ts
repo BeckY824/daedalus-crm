@@ -148,6 +148,17 @@ export function 云端通道(cfg: { baseUrl: string; apiKey: string; models: str
 }
 
 /**
+ * 界面上摆不摆背调的入口（首页的「背调」键、客户页的「背调」按钮、「帮我背调 X」直接出背调卡）。
+ *
+ * 和下面 选通道 是同一套判断，只是不看登录：桌面端没登录也摆（点了说「请先登录」，登了就能用），
+ * 开发和 mock 也摆。剩下的是不在桌面端的正式环境——自部署 / 企业版网页，那里永远走不通，
+ * 摆出来只会点出一句「背调目前只在桌面端可用」，所以干脆不摆（10-24，企业版 10-27 测试前）
+ */
+export function 背调有入口(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.CRM_RESEARCH_CHANNEL === "mock" || 本地模式() || env.NODE_ENV !== "production";
+}
+
+/**
  * 这台机器上背调走哪条通道。
  *
  * CRM_RESEARCH_CHANNEL=mock 强制走模拟（e2e、演示）；开发环境没登录云端时也走模拟，省得每次开发都要登录。

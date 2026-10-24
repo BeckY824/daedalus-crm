@@ -17,6 +17,7 @@ import { 起草语言们, 起草语气们, type 起草语言, type 起草语气 
 import { useLocalPref } from "@/lib/local-pref";
 import ResearchRun from "@/components/research/ResearchRun";
 import ResearchPerson from "@/components/research/ResearchPerson";
+import { useResearchEntry } from "@/components/research/ResearchEntry";
 import type { Turn } from "@/lib/home-thread";
 import { dayjs } from "@/lib/utils";
 import { 最近背调, 背调价目 } from "@/lib/research/actions";
@@ -79,13 +80,16 @@ export default function AiPanel({
   const [看上次, set看上次] = useState(false);
   /* 按钮上写「背调 · 剩 N 次」：点按钮本身就是确认（10-16 用户），所以扣费得写在按钮上，不够就点不了 */
   const [背调价, set背调价] = useState<Awaited<ReturnType<typeof 背调价目>> | null>(null);
+  /** 自部署 / 企业版网页背调走不通：按钮不摆、价也不问（lib/research/channel.ts 背调有入口）。以前存下的背调照样能看 */
+  const 背调入口 = useResearchEntry();
   useEffect(() => {
+    if (!背调入口) return;
     let 活 = true;
     背调价目().then((r) => 活 && set背调价(r)).catch(() => {});
     return () => {
       活 = false;
     };
-  }, [researchJob?.status]);
+  }, [researchJob?.status, 背调入口]);
   // 查不了（没公司没官网没国际号码）也让点：点了就地说清补哪样——按钮灰着、提示又出不来，人不知道为什么
   const 背调能点 = Boolean(背调价?.可用 && (背调价.还剩 == null || 背调价.还剩 >= 背调价.扣次));
   /* 点按钮就开跑，所以查谁、扣几次都得先写在提示里 */
@@ -189,11 +193,13 @@ export default function AiPanel({
             </Button>
           </Tooltip>
         )}
-        <Tooltip title={背调说明}>
-          <Button size="small" type="text" icon={<GlobalOutlined />} onClick={() => set背调开(true)} disabled={背调开 || Boolean(researchJob) || Boolean(personJob) || !背调能点} aria-label="背调">
-            背调{背调价?.可用 && !背调价.模拟 && 背调价.还剩 != null ? ` · 剩 ${背调价.还剩} 次` : ""}
-          </Button>
-        </Tooltip>
+        {背调入口 && (
+          <Tooltip title={背调说明}>
+            <Button size="small" type="text" icon={<GlobalOutlined />} onClick={() => set背调开(true)} disabled={背调开 || Boolean(researchJob) || Boolean(personJob) || !背调能点} aria-label="背调">
+              背调{背调价?.可用 && !背调价.模拟 && 背调价.还剩 != null ? ` · 剩 ${背调价.还剩} 次` : ""}
+            </Button>
+          </Tooltip>
+        )}
       </div>
 
       {(背调开 || researchJob || personJob) && (
