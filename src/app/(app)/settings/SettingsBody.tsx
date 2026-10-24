@@ -11,7 +11,7 @@ import { multiTenant } from "@/lib/tenant/context";
 import { 当前是共享区 } from "@/lib/shared-ws/current";
 import { 文字里号码打码 } from "@/lib/utils";
 import { 企业版 } from "@/lib/enterprise/switch";
-import { 规则开着 } from "@/lib/enterprise/rules";
+import { 规则开着, 规则名们 } from "@/lib/enterprise/rules";
 import { 读组织, 直属上级of, 虚线上级of, 管理员类别of } from "@/lib/enterprise/org";
 import type { 组织架构 } from "./OrgTab";
 
@@ -71,7 +71,10 @@ export default async function SettingsBody() {
 
   // 企业版才多一栏「组织架构」：部门树、每个人的部门 / 角色 / 业务线 / 上级。老板和总管理员能改
   const 组织架构: 组织架构 | null = 企业版()
-    ? await Promise.all([读组织(), 规则开着("按组织看客户")]).then(([org, 按组织]) => {
+    ? await Promise.all([
+        读组织(),
+        Promise.all(规则名们.map(async (n) => [n, await 规则开着(n)] as const)).then((xs) => Object.fromEntries(xs) as Record<(typeof 规则名们)[number], boolean>),
+      ]).then(([org, 开关]) => {
         const 名 = new Map(users.map((u) => [u.id, u.name]));
         return {
           部门: [...org.部门.values()],
@@ -88,7 +91,7 @@ export default async function SettingsBody() {
           }),
           能改: !共享区 && (me.role === "ADMIN" || 管理员类别of(org, me.id) === "总管理员"),
           是老板: me.role === "ADMIN" && !共享区,
-          规则开着: 按组织,
+          规则开着: 开关,
         };
       })
     : null;

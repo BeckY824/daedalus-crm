@@ -13,7 +13,7 @@ import { recordAudit } from "@/lib/audit";
 import { 不在了 } from "@/lib/not-there";
 import { setSetting } from "@/lib/settings";
 import { 企业版 } from "@/lib/enterprise/switch";
-import { 规则 } from "@/lib/enterprise/rules";
+import { 规则, type 规则名 } from "@/lib/enterprise/rules";
 import { 忘掉企业版范围 } from "@/lib/enterprise/visibility";
 import { 读组织, 建组织, 管理员类别of, 部门挪动问题, 上级设置问题, type 组织部门 } from "@/lib/enterprise/org";
 import { 是业务角色, 角色名, type 业务角色 } from "@/lib/sync/dept-policy";
@@ -176,13 +176,15 @@ export async function 设成员(userId: string, 传来的: 成员改动): Promis
 }
 
 /** 拨「按组织架构看客户」规则开关（默认关） */
-export async function 设规则(on: boolean): Promise<结果> {
+export async function 设规则(on: boolean, 名: 规则名 = "按组织看客户"): Promise<结果> {
   const who = await 能改的人();
   if (!who) return 不能改;
   if (typeof on !== "boolean") return { ok: false, error: "开关只能开或关" };
+  if (!Object.hasOwn(规则, 名)) return { ok: false, error: "没有这条规则" };
+  const r = 规则[名];
   try {
-    await setSetting(规则.按组织看客户.key, on);
-    await recordAudit({ user: who.me, action: "update", entity: "Setting", entityId: 规则.按组织看客户.key, summary: `${on ? "打开" : "关掉"}规则「${规则.按组织看客户.名}」` });
+    await setSetting(r.key, on);
+    await recordAudit({ user: who.me, action: "update", entity: "Setting", entityId: r.key, summary: `${on ? "打开" : "关掉"}规则「${r.名}」` });
     改完了();
     return { ok: true };
   } catch (e) {

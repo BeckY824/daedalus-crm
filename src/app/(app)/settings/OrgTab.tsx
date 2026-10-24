@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { App, Button, Card, Input, Select, Space, Switch, Tag } from "antd";
 import { 角色名, 业务角色, 部门最多层数 } from "@/lib/sync/dept-policy";
 import { 部门树, type 组织部门 } from "@/lib/enterprise/org-tree";
-import { 规则 } from "@/lib/enterprise/rules-table";
+import { 规则, 规则名们, type 规则名 } from "@/lib/enterprise/rules-table";
 import { 建部门, 改部门, 删部门, 设成员, 设规则, type 成员改动 } from "./org-actions";
 
 export type 组织架构 = {
@@ -15,12 +15,14 @@ export type 组织架构 = {
   能改: boolean;
   /** 账号管理员：总管理、管理员两个角色只有老板能给、能动 */
   是老板: boolean;
-  /** 「按组织架构看客户」规则开关，默认关 */
-  规则开着: boolean;
+  /** 每条组织规则的开关，默认都关 */
+  规则开着: Record<规则名, boolean>;
 };
 type 结果 = Promise<{ ok: boolean; error?: string }>;
 
 const 总管级 = (r: string) => r === "director" || r === "admin";
+/** 开关的 data-testid：第一条沿用老名字，E2E 在用 */
+const 规则testid: Record<规则名, string> = { 按组织看客户: "org-rule-scope", 线索分配: "org-rule-lead-assign" };
 
 /**
  * 设置 → 组织架构（企业版，2026-10-24）：部门树、每个人的部门 / 角色 / 业务线 / 直属上级 / 虚线上级。
@@ -113,14 +115,18 @@ export default function OrgTab({ value }: { value: 组织架构 }) {
     <div style={{ display: "grid", gap: 16 }}>
       <Card title="组织规则" extra={只看}>
         <p className="muted">每条规则单独开关，默认都关着：关着时和团队版一样，按原来的方式看客户。先把下面的部门和上级填好再打开。</p>
-        <Space align="start">
-          <Switch checked={value.规则开着} disabled={!能改 || 忙} aria-label={规则.按组织看客户.名} data-testid="org-rule-scope"
-            onChange={(v) => void 跑(() => 设规则(v), v ? `已打开「${规则.按组织看客户.名}」` : `已关掉「${规则.按组织看客户.名}」`)} />
-          <div>
-            <b>{规则.按组织看客户.名}</b>
-            <p className="muted" style={{ margin: 0 }}>{规则.按组织看客户.说明}</p>
-          </div>
-        </Space>
+        <div style={{ display: "grid", gap: 12 }}>
+          {规则名们.map((名) => (
+            <Space align="start" key={名}>
+              <Switch checked={value.规则开着[名]} disabled={!能改 || 忙} aria-label={规则[名].名} data-testid={规则testid[名]}
+                onChange={(v) => void 跑(() => 设规则(v, 名), v ? `已打开「${规则[名].名}」` : `已关掉「${规则[名].名}」`)} />
+              <div>
+                <b>{规则[名].名}</b>
+                <p className="muted" style={{ margin: 0 }}>{规则[名].说明}</p>
+              </div>
+            </Space>
+          ))}
+        </div>
       </Card>
 
       <Card title="部门" extra={只看}>
