@@ -21,6 +21,7 @@ import { 认背调意图 } from "@/lib/research/intent";
 import { 认背调对象 } from "@/lib/research/target";
 import { 背调价目 } from "@/lib/research/actions";
 import MailPaste from "@/components/research/MailPaste";
+import { useResearchEntry } from "@/components/research/ResearchEntry";
 import { 像邮件原文, type 邮件信号 } from "@/lib/research/verify/mail";
 import { 是免费邮箱 } from "@/lib/research/verify/domain";
 import { ComposerFoot, ComposerTools, ComposerTop, SendKey } from "./ComposerParts";
@@ -125,6 +126,8 @@ function usePaste() {
 */
 function useResearchMode(runningKey: string | null) {
   const [背调模式, set背调模式] = useState(false);
+  /** 自部署 / 企业版网页背调走不通：不摆「背调」键，「帮我背调 X」也照常当问题问（lib/research/channel.ts 背调有入口） */
+  const 入口 = useResearchEntry();
   /*
     「粘贴询盘邮件」（背调补充方案第二期）：弹窗开着没有、带上了哪封。只存认出来的几样（verify/mail.ts），
     原文在弹窗里解析完就丢了，不进 turn、不进库。发出去那一轮背调带上，带完清掉
@@ -147,7 +150,7 @@ function useResearchMode(runningKey: string | null) {
 
   /** 背调模式能不能发：这台机器能背调、背调次数还有（不限 = 测试账号 / 开发环境的模拟） */
   const 背调能发 = Boolean(背调价?.可用 && (背调价.还剩 == null || 背调价.还剩 >= 背调价.扣次));
-  return { 背调模式, set背调模式, 邮件框, set邮件框, 邮件, set邮件, 背调价, 背调能发 };
+  return { 入口, 背调模式, set背调模式, 邮件框, set邮件框, 邮件, set邮件, 背调价, 背调能发 };
 }
 
 /**
@@ -247,7 +250,7 @@ export default function Composer({ ref, 屏, scope, models, model, 模式, sugge
       「帮我背调 XX」：不走 agent（那条路没有联网搜索，还会白扣一次），直接摆一张背调确认卡。
       不排队——确认卡本身不调模型，人点了「开始」才跑
     */
-    const 背调公司 = typed.startsWith("/") ? null : 认背调意图(question);
+    const 背调公司 = !调.入口 || typed.startsWith("/") ? null : 认背调意图(question);
     if (背调公司) {
       发完(addTurn(scope, { question, kind: "research", 公司: 背调公司 }).id);
       return;
@@ -305,6 +308,7 @@ export default function Composer({ ref, 屏, scope, models, model, 模式, sugge
           栏左={
             <ComposerTools
               宽={宽}
+              摆背调键={调.入口}
               背调模式={背调模式}
               on切背调={() => {
                 调.set背调模式((v) => !v);
