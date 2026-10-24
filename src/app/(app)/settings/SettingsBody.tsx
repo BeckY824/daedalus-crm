@@ -8,6 +8,7 @@ import { getBusiness } from "@/lib/business";
 import { 角色字典, 异常类别字典 } from "@/lib/project/db";
 import { aiUsageThisMonth } from "@/lib/ai-usage";
 import { multiTenant } from "@/lib/tenant/context";
+import { 企业版 } from "@/lib/enterprise/switch";
 import { 当前是共享区 } from "@/lib/shared-ws/current";
 import { 文字里号码打码 } from "@/lib/utils";
 
@@ -85,6 +86,7 @@ export default async function SettingsBody() {
       aiUsage={aiUsage}
       机器={机器}
       桌面端={桌面端}
+      企业版={企业版()}
       /* 共享试用区：留痕里记的是原号，别的团队也翻得到——号码在这儿打掉再交给浏览器（2026-10-01 排查 A5） */
       logs={logs.map((l) => ({
         id: l.id,
