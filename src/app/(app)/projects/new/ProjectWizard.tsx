@@ -74,6 +74,8 @@ function WizardBody({ users, 要下一步, 全名, 旧 }: { users: 可选成员[
   const b = useBusiness();
   const 我 = useMe();
   const 能选类型 = 跟进类型们(外贸精简(b)).filter((t) => t.value !== "TASK" && t.value !== "REMIND");
+  // 不在候选里的「我」（老板、管理员不做销售）默认还是记在我名下（服务端也这么填）：下拉里补上我自己，不然那一格露出内部编号
+  const 负责人选项 = 我 && !users.some((u) => u.id === 我.id) ? [...成员选项(users), { value: 我.id, label: 我.name }] : 成员选项(users);
   const 新稿 = () => 空稿(默认负责人(我, users) ?? 我?.id ?? "", b.currency || 默认币种, 能选类型[0]?.value ?? "PHONE");
 
   // 上次没填完的接着填
@@ -234,7 +236,7 @@ function WizardBody({ users, 要下一步, 全名, 旧 }: { users: 可选成员[
         <>
           {一行("项目名称", <Input value={d.项目.name} maxLength={项目名上限} showCount onChange={(e) => 改("项目", { name: e.target.value })} />, true)}
           {!独自一人(users, d.项目.ownerId) && 一行("负责人", (
-            <Select style={{ width: "100%" }} value={d.项目.ownerId || undefined} options={成员选项(users)} onChange={(v) => 改("项目", { ownerId: v })} />
+            <Select style={{ width: "100%" }} value={d.项目.ownerId || undefined} options={负责人选项} onChange={(v) => 改("项目", { ownerId: v })} />
           ))}
           {一行("金额", (
             <Space.Compact style={{ width: "100%" }}>

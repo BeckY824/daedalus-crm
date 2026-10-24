@@ -6,7 +6,7 @@ import type { Prisma } from "@/generated/prisma";
 import { prisma } from "../prisma";
 import { 查完再写 } from "../check-then-write";
 import { 改节点问题, 原因上限, 下一步, 节点序号, type 位置 } from "./nodes";
-import { 还差, 节点推进生效, 按必填走, 节点必填, type 必填数据 } from "./required";
+import { 还差, 必填叫法, 节点推进生效, 按必填走, 节点必填, type 必填数据 } from "./required";
 import { 规整项目, 规整沟通, type 向导项目, type 向导跟进 } from "./wizard";
 import { 持有上限of, type 组织规则 } from "./org-rules";
 import { 企业版 } from "@/lib/enterprise/switch";
@@ -225,7 +225,7 @@ export async function 改节点(
       return {
         ok: false as const,
         error: 差.length
-          ? `「${p.node}」填齐必填后自动往前推，还差：${差.join("、")}；要先推请找老板或主管`
+          ? `「${p.node}」填齐必填后自动往前推，还差：${差.map(必填叫法).join("、")}；要先推请找老板或主管`
           : `「${p.node}」的必填已经齐了，保存一下就会自动往前推`,
       };
     }

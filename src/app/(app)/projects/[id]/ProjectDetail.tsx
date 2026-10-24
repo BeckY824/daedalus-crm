@@ -3,8 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { App, Alert, Button, Card, Checkbox, Input, Modal, Popconfirm, Progress, Select, Space, Tag, Timeline } from "antd";
+import { App, Alert, Button, Card, Checkbox, Input, Modal, Popconfirm, Progress, Select, Space, Tag, Timeline, Tooltip } from "antd";
 import DatePicker from "@/components/BusinessDatePicker";
+import { 必填叫法 } from "@/lib/project/required";
 import { PageHead, CustomerLink, FollowTypeCell } from "@/components/ui";
 import { useBusiness } from "@/lib/business-client";
 import { dayjs, fmtDateTime } from "@/lib/utils";
@@ -249,9 +250,14 @@ export default function ProjectDetail({
               options={去处们(当前, !!p.必填?.只能靠填齐 || !!p.不给推)}
               onChange={(v: string | null) => v && 改到(JSON.parse(v) as 位置)}
             />
-            <Button type="primary" disabled={!节点可改 || 忙 || !下 || !!p.必填?.只能靠填齐 || !!p.不给推} title={节点不能改 ?? p.不给推 ?? (p.必填?.只能靠填齐 ? "这个节点填齐必填后自动往前推；要先推请找老板或主管" : 下 ? undefined : p.result ? "先改回某个节点再往前推" : "这是最后一个节点了，接下来点结局")} onClick={() => 下 && 改到(下)}>
-              {下 ? `下一步：${下.phase === p.phase ? 下.node : `${下.phase}·${下.node}`}` : "下一步"}
-            </Button>
+            {/* 灰掉的按钮收不到鼠标事件，外面包一层 span 才能悬停出原因 */}
+            <Tooltip title={节点不能改 ?? p.不给推 ?? (p.必填?.只能靠填齐 ? "这个节点填齐必填后自动往前推；要先推请找老板或主管" : 下 ? undefined : p.result ? "先改回某个节点再往前推" : "这是最后一个节点了，接下来点结局")}>
+              <span>
+                <Button type="primary" disabled={!节点可改 || 忙 || !下 || !!p.必填?.只能靠填齐 || !!p.不给推} onClick={() => 下 && 改到(下)}>
+                  {下 ? `下一步：${下.phase === p.phase ? 下.node : `${下.phase}·${下.node}`}` : "下一步"}
+                </Button>
+              </span>
+            </Tooltip>
           </Space>
         </div>
         <Progress
@@ -264,7 +270,7 @@ export default function ProjectDetail({
         {p.必填 && (
           <div style={{ marginTop: 12, color: p.必填.还差.length ? "var(--text-muted)" : "var(--success-text)", overflowWrap: "anywhere" }}>
             {p.必填.还差.length
-              ? `这个节点填齐必填后自动往前推，还差：${p.必填.还差.join("、")}`
+              ? `这个节点填齐必填后自动往前推，还差：${p.必填.还差.map(必填叫法).join("、")}`
               : "这个节点的必填都齐了"}
           </div>
         )}
