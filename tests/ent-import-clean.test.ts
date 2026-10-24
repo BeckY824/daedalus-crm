@@ -239,7 +239,32 @@ describe("清洗：商机", () => {
     expect(值.o3).toMatchObject({ stage: "赢单成交", status: "WON", probability: 100 });
     expect(值.o4).toMatchObject({ stage: "谈判审核", probability: 65 });
     expect(值.o5).toMatchObject({ amount: 0, status: "WON", stage: "赢单成交", remark: "金额：面议" });
-    expect(问题.map((p) => [p.外部ID, p.类别])).toEqual([["o5", "格式不对"]]);
+    expect(问题.filter((p) => p.类别 !== "缺日期").map((p) => [p.外部ID, p.类别])).toEqual([["o5", "格式不对"]]);
+    expect(值.o1.closedAt).toBeNull();
+  });
+
+  it("赢单 / 输单的结单日期：有就用，没有退预计成交日期，都没有提醒", () => {
+    const 映 = 映射样();
+    映.列.opportunity = { ...映.列.opportunity, 结单: "closedAt" };
+    const { 待写, 问题 } = 清洗(
+      [
+        甲,
+        条("opportunity", { 外部: "o1", 客户ID: "c1", 名称: "A", 阶段: "成交", 结单: "2025-03-05" }),
+        条("opportunity", { 外部: "o2", 客户ID: "c1", 名称: "B", 阶段: "丢单", 预计: "2025-04-01" }),
+        条("opportunity", { 外部: "o3", 客户ID: "c1", 名称: "C", 阶段: "成交" }),
+        条("opportunity", { 外部: "o4", 客户ID: "c1", 名称: "D", 阶段: "需求确认", 结单: "2025-03-05" }),
+      ],
+      映,
+    );
+    const 值 = Object.fromEntries(待写.filter((w) => w.实体 === "opportunity").map((w) => [w.外部ID, w.值]));
+    expect(new Date(String(值.o1.closedAt)).getMonth()).toBe(2);
+    expect(new Date(String(值.o2.closedAt)).getMonth()).toBe(3);
+    expect(值.o3.closedAt).toBeNull();
+    expect(值.o4.closedAt).toBeNull();
+    expect(问题.map((p) => [p.外部ID, p.类别, p.级别])).toEqual([
+      ["o2", "缺日期", "提醒"],
+      ["o3", "缺日期", "提醒"],
+    ]);
   });
 
   it("阶段对不上：按默认阶段写、提醒", () => {

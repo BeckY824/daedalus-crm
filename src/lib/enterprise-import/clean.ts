@@ -7,7 +7,7 @@
  *   - 按列映射把原列落到标准字段；映射成「进备注」的列拼成「表头：值」进备注（跟进进内容），一格不丢
  *   - 负责人、阶段、线索状态、跟进方式、跟进状态按映射换成我们的值；对不上的用默认值 + 记一笔「提醒」
  *   - 电话、日期、金额、赢率按我们的格式认；认不出的原样进备注 + 提醒，不硬塞
- *   - 同一批里同名同号、外部 ID 不同 → 认作同一家，后一条并进前一条；名字很像但号不同 → 疑似重名，照写、提醒
+ *   - 同一批里同号、外部 ID 不同 → 认作同一家，后一条并进前一条（名字不同另提醒）；名字很像但号不同 → 疑似重名，照写、提醒
  *   - 联系人 / 商机 / 跟进挂客户：先认所属客户 ID，再认客户名（本批里唯一、或我们这边唯一）；认不出整条跳过
  *   - 客户：对照表里有 → 落到那条；没导过但我们这边有同号客户 → 连上它（只补空格子）；否则新建
  */
@@ -230,8 +230,8 @@ export function 清洗(记录: readonly 原始记录[], m: 映射, 本地: 本�
   for (const e of 实体顺序) {
     const 列 = m.列[e] ?? {};
     const 见过ID = new Map<string, 原始记录>();
-    /** 客户本批去重：名键 + 号键 → 外部 ID；公司名键 → 第一条 */
-    const 同名同号 = new Map<string, 待写>();
+    /** 客户本批去重：号键 → 第一条；公司名键 → 第一条 */
+    const 同号 = new Map<string, 待写>();
     const 像名 = new Map<string, 原始记录>();
 
     for (const r of 按类[e]) {
@@ -265,11 +265,19 @@ export function 清洗(记录: readonly 原始记录[], m: 映射, 本地: 本�
           level,
           website: s.值.website ?? null,
         };
-        // 同名同号：并进前一条（外部 ID 不同，原系统里重复建了）
-        const 键 = phone ? `${名键(s.值.name)}|${号键(phone)}` : "";
-        const 前 = 键 ? 同名同号.get(键) : undefined;
+        // 同号：并进前一条（外部 ID 不同，原系统里重复建了）。和我们这边「一个号一位客户」的查重一个口径，名字不同也并，提醒人看
+        const 键 = phone ? 号键(phone) : "";
+        const 前 = 键 ? 同号.get(键) : undefined;
         if (前) {
-          出问题(r, "提醒", "重名", `和${前.行号 ? `第 ${前.行号} 行` : `「${前.外部ID}」`}同名同号，认作同一家，合成一条`);
+          const 哪条 = 前.行号 ? `第 ${前.行号} 行` : `「${前.外部ID}」`;
+          出问题(
+            r,
+            "提醒",
+            "重名",
+            名键(String(前.值.name)) === 名键(s.值.name)
+              ? `和${哪条}同名同号，认作同一家，合成一条`
+              : `和${哪条}「${前.值.name}」同号、名字不同，按同一家合成一条，请人看一眼`,
+          );
           const w = 收(r, 值, { 并入: 前.外部ID, 目标 });
           批客户.set(r.外部ID, w);
           continue;
@@ -277,11 +285,11 @@ export function 清洗(记录: readonly 原始记录[], m: 映射, 本地: 本�
         // 没导过、我们这边有同号客户：连上它
         let 落 = 目标;
         if (!落 && phone) {
-          const 同号 = 本地.客户号.get(号键(phone)) ?? [];
-          if (同号.length === 1) {
-            落 = { 本地ID: 同号[0], 方式: "同号" };
+          const 本地同号 = 本地.客户号.get(号键(phone)) ?? [];
+          if (本地同号.length === 1) {
+            落 = { 本地ID: 本地同号[0], 方式: "同号" };
             出问题(r, "提醒", "重名", `我们这边已有同号客户，连上它，只补空着的格子`);
-          } else if (同号.length > 1) 出问题(r, "提醒", "疑似重名", `我们这边有 ${同号.length} 个客户是这个号，照新建，请人工合并`);
+          } else if (本地同号.length > 1) 出问题(r, "提醒", "疑似重名", `我们这边有 ${本地同号.length} 个客户是这个号，照新建，请人工合并`);
         }
         if (!落) {
           const k = 公司名键(s.值.name);
@@ -291,7 +299,7 @@ export function 清洗(记录: readonly 原始记录[], m: 映射, 本地: 本�
           if (!像 && (本地.客户名.get(名键(s.值.name)) ?? []).length) 出问题(r, "提醒", "疑似重名", `我们这边已经有叫「${s.值.name}」的客户，照新建，请人看一眼`);
         }
         const w = 收(r, 值, { 目标: 落 });
-        if (键) 同名同号.set(键, w);
+        if (键) 同号.set(键, w);
         批客户.set(r.外部ID, w);
         const nk = 名键(s.值.name);
         批客户名.set(nk, [...(批客户名.get(nk) ?? []), r.外部ID]);
@@ -372,6 +380,27 @@ export function 清洗(记录: readonly 原始记录[], m: 映射, 本地: 本�
             出问题(r, "提醒", "格式不对", `预计成交日期「${s.值.expectedDealAt}」认不出，原样放进了备注`);
           }
         }
+        // 赢单 / 输单要有个历史日期，不然看板会把它算成本月的成交
+        let closedAt: string | null = null;
+        if (status !== "OPEN") {
+          const d = s.值.closedAt ? 认日期(s.值.closedAt) : null;
+          if (d) closedAt = d.toISOString();
+          else if (s.值.closedAt) {
+            附加.push(`结单日期：${s.值.closedAt}`);
+            出问题(r, "提醒", "格式不对", `结单日期「${s.值.closedAt}」认不出，原样放进了备注`);
+          }
+          if (!closedAt) {
+            closedAt = expectedDealAt;
+            出问题(
+              r,
+              "提醒",
+              "缺日期",
+              expectedDealAt
+                ? `${status === "WON" ? "赢单" : "输单"}没有结单日期，按预计成交日期记`
+                : `${status === "WON" ? "赢单" : "输单"}没有结单日期，会按导入当天算进看板`,
+            );
+          }
+        }
         const w = 收(
           r,
           {
@@ -381,6 +410,7 @@ export function 清洗(记录: readonly 原始记录[], m: 映射, 本地: 本�
             status,
             probability,
             expectedDealAt,
+            closedAt,
             ownerId: 负责人(r, s.值.owner),
             remark: 拼备注(s.值.remark, ...附加),
           },

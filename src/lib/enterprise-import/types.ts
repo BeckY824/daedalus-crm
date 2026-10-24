@@ -44,7 +44,7 @@ export const 标准字段 = {
   customer: ["id", "name", "phone", "owner", "followStatus", "remark", "email", "wechat", "whatsapp", "country", "source", "level", "website"],
   contact: ["id", "customerRef", "customerName", "name", "position", "phone", "email", "wechat", "isPrimary", "remark"],
   lead: ["id", "name", "contact", "phone", "email", "industry", "source", "status", "owner", "remark"],
-  opportunity: ["id", "customerRef", "customerName", "name", "amount", "stage", "status", "probability", "expectedDealAt", "owner", "remark"],
+  opportunity: ["id", "customerRef", "customerName", "name", "amount", "stage", "status", "probability", "expectedDealAt", "closedAt", "owner", "remark"],
   followup: ["id", "customerRef", "customerName", "opportunityRef", "opportunityName", "type", "title", "content", "occurredAt", "owner", "status"],
 } as const satisfies Record<实体, readonly string[]>;
 export type 标准字段名<E extends 实体 = 实体> = (typeof 标准字段)[E][number];
@@ -74,6 +74,7 @@ export const 字段中文: Record<string, string> = {
   stage: "阶段",
   probability: "赢率",
   expectedDealAt: "预计成交",
+  closedAt: "成交 / 输单日期",
   opportunityRef: "所属商机 ID",
   opportunityName: "所属商机名称",
   type: "跟进方式",
@@ -119,7 +120,7 @@ export type 值对照名 = keyof 映射["值"];
 /** 清洗时发现的问题。跳过 = 这一条不写；提醒 = 照写，但要人看一眼 */
 export type 问题 = {
   级别: "跳过" | "提醒";
-  类别: "缺必填" | "重名" | "疑似重名" | "负责人对不上" | "阶段对不上" | "值对不上" | "找不到客户" | "客户不唯一" | "找不到商机" | "格式不对" | "ID 重复";
+  类别: "缺必填" | "重名" | "疑似重名" | "负责人对不上" | "阶段对不上" | "值对不上" | "找不到客户" | "客户不唯一" | "找不到商机" | "格式不对" | "缺日期" | "ID 重复";
   实体: 实体;
   外部ID: string;
   行号?: number;
@@ -136,7 +137,7 @@ export type 待写 = {
   父客户?: { 外部ID: string } | { 本地ID: string };
   父商机?: { 外部ID: string } | { 本地ID: string };
   /**
-   * 同一批里认出是同一家（同名同号、外部 ID 不同）：并到这个外部 ID 那条上，自己不另建。
+   * 同一批里认出是同一家（同号、外部 ID 不同）：并到这个外部 ID 那条上，自己不另建。
    * 写入时只记一条对照（这个外部 ID 也指向同一条记录），子记录挂它也能挂上
    */
   并入?: string;
