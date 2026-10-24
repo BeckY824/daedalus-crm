@@ -1,4 +1,4 @@
-import { 号码脱敏器 } from "@/lib/shared-ws/current";
+import { 号码脱敏器, 当前是共享区 } from "@/lib/shared-ws/current";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { 线索关键词条件 } from "@/lib/search-keyword";
@@ -6,6 +6,9 @@ import { getBusiness } from "@/lib/business";
 import LeadsView from "./LeadsView";
 import type { Prisma } from "@/generated/prisma";
 import { 负责人候选 } from "@/lib/owners";
+import { 规则开着 } from "@/lib/enterprise/rules";
+import { 读组织 } from "@/lib/enterprise/org";
+import { 能分配 } from "@/lib/enterprise/lead-assign";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +56,8 @@ export default async function LeadsPage({
   const 候选 = users.some((u) => u.id === me.id) ? users : [...users, { id: me.id, name: me.name, email: me.email }];
 
   const 号 = await 号码脱敏器();
+  // 企业版「线索分配和配额」开着、我能分配（老板、总管理员、市场管理）才摆「自动分配」按钮；服务端还会再查一遍
+  const 能自动分配 = (await 规则开着("线索分配")) && !(await 当前是共享区()) && 能分配(await 读组织(), me);
   return (
     <LeadsView
       总数={总数}
@@ -60,6 +65,7 @@ export default async function LeadsPage({
       users={候选}
       filters={{ keyword: sp.keyword ?? "", status: sp.status ?? "", ownerId: sp.ownerId ?? "", source: sp.source ?? "" }}
       来源们={来源们}
+      能自动分配={能自动分配}
       rows={rows.map((l) => ({
         id: l.id,
         name: l.name,
