@@ -38,6 +38,7 @@ import { 同邮箱条件, 同微信条件, 同阿里条件, 邮箱键 } from "@/
 import type { 带走数, 转走项目预览 } from "@/lib/carry-over";
 import { 带走没做完的, 带走并记下, 还项目, 数转走的项目, type 带走的 } from "@/lib/carry-over-db";
 import { 记换负责人 } from "@/lib/owner-log-db";
+import { 企业版 } from "@/lib/enterprise/switch";
 import { setOppStatus } from "../opportunities/actions";
 import { 认得 } from "@/lib/project/hook";
 import { 客户的项目数 } from "@/lib/project/db";
@@ -749,10 +750,11 @@ export type BulkResult =
 
 /**
  * 转之前先列出会一起转走的项目（企业版 D-36）：批量分配、改负责人、公海领取 / 分配之前界面先问这一下，
- * 有项目才弹确认框。只读，不改任何东西
+ * 有项目才弹确认框。只读，不改任何东西。不是企业版一律回 0 个 = 不弹，和原来一样直接转
  */
 export async function 转走项目预览of(ids: string[], 新负责人?: string): Promise<转走项目预览> {
   const me = await requireUser();
+  if (!企业版()) return { 项目数: 0, 项目: [] };
   // 不传 = 转给自己（公海领取）
   const 新 = 新负责人 ?? me.id;
   if (!Array.isArray(ids) || typeof 新 !== "string" || !新) return { 项目数: 0, 项目: [] };

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { 收藏了吗 } from "@/lib/favorites";
 import { prisma, defaultClient } from "@/lib/prisma";
 import { 历史负责人of } from "@/lib/owner-log-db";
+import { 企业版 } from "@/lib/enterprise/switch";
 import { requireUser } from "@/lib/auth";
 import RecordView from "./RecordView";
 import { followHistoryInclude, followHistoryOrder, serializeFollowHistory } from "./follow-history-query";
@@ -85,7 +86,8 @@ export default async function CustomerDetailPage({
       aiEnabled={await llmEnabled()}
       已收藏={await 收藏了吗(me.id, id)}
       能放公海={管全队客户(me.role) || customer.salesOwnerId === me.id}
-      换负责人记录={await 历史负责人of(customer.id)}
+      // 历史负责人只企业版摆；记录不管开没开都记着（换负责人那一刻写，开了以后之前的也看得到）
+      换负责人记录={企业版() ? await 历史负责人of(customer.id) : []}
       // 团队开了互看、这位是同事的：只能看和加跟进（lib/team-scope.ts）
       只读={await 只读客户(defaultClient, customer)}
       customer={{

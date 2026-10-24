@@ -3,8 +3,9 @@
  *   - 每条换负责人的路（改负责人、批量分配、公海领取 / 分配、成员停用、两种撤销）都留一行：谁转的、从谁到谁、什么时候
  *   - 原负责人记为历史负责人，停用的人名字照旧显示
  *   - 转之前数出来的「会一起转走的 N 个项目」和真转走的对得上
+ *   - 不是企业版：记录照记，但转之前不问（预览回 0 个）
  */
-import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   user: { id: "", name: "甲", email: "a@x", role: "ADMIN", title: "管理员", avatar: null },
@@ -45,7 +46,9 @@ beforeEach(async () => {
   乙 = (await prisma.user.create({ data: { email: "yi", name: "乙", title: "", role: "SALES", password: "x" } })).id;
   丙 = (await prisma.user.create({ data: { email: "bing", name: "丙", title: "", role: "SALES", password: "x" } })).id;
   mocks.user = { ...mocks.user, id: 甲, role: "ADMIN" };
+  vi.stubEnv("CRM_ENTERPRISE", "1");
 });
+afterEach(() => { vi.unstubAllEnvs(); });
 
 afterAll(async () => { await prisma.$disconnect(); });
 
@@ -168,6 +171,15 @@ describe("转之前先列出会一起转走的项目", () => {
     const 列 = Array.from({ length: 预览列几个 }, (_, i) => ({ name: `项目${i}`, 客户: "李总" }));
     expect(转走项目说法({ 项目数: 预览列几个, 项目: 列 })).toEqual({ 标题: `会一起转走的 ${预览列几个} 个项目`, 行: 列.map((x) => `${x.name}（李总）`), 还有: "" });
     expect(转走项目说法({ 项目数: 12, 项目: 列 })?.还有).toBe("等共 12 个");
+  });
+
+  it("不是企业版：不问（0 个、不弹），转了照样记一行", async () => {
+    vi.stubEnv("CRM_ENTERPRISE", "");
+    const c = await 客户("乙的", 乙);
+    await 项目("乙负责", 乙, c.id);
+    expect(await 转走项目预览of([c.id], 丙)).toEqual({ 项目数: 0, 项目: [] });
+    expect((await assignSalesOwner([c.id], 丙)).ok).toBe(true);
+    expect(await 记录of(c.id)).toMatchObject([{ fromOwnerId: 乙, toOwnerId: 丙, kind: "assign" }]);
   });
 
   it("名下项目多于列的个数：只取前几个，总数照实", async () => {
