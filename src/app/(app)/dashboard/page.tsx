@@ -31,7 +31,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   // 公海：开了「N 天没跟进自动放进公海」就一天扫一次（lib/pool-db.ts）。首页是每天第一眼，在这儿扫
   await 自动掉公海(user);
   // 企业版超时回收：项目在节点上超过处理时长没跟进，回到项目公海（lib/project/db.ts，没开不扫）
-  if ((await getBusiness()).projectMode === true) await 公海超时收回(user);
+  if ((await getBusiness()).projectMode === true) await 公海超时收回(user).catch((e) => console.error("[超时回收] 扫的时候出错，这次先不收", e));
   /*
     地址上的 ?c= 指哪条对话。在服务端读，不在浏览器里再取一次：
     翻一条老对话时不该先看见一屏空白再看见内容。
