@@ -6,6 +6,7 @@
  *
  *   - 数据：e2e-layout/种子.ts，照真客户的样子（一整句英文商机名、英国公司全大写长名、长供应商名、T/T 30/70、US$ 1,234,567.89、一位客户挂好几个商机 / 订单）；
  *     e2e-layout/长选项.ts 起服务前写好外贸模版 + 二十多个长来源 / 职级 / 行业选项 + 长字段名（10-22 排版普查）
+ *     D-25 起再加一批长商机（整段询盘、长网址、长中文、中英混排，一个长英文名同事挂大额卡）
  *   - 窗口：Windows 常见的 1024 / 1280 / 1366 宽（高 680：任务栏 + 标题栏之后剩的），每个宽度三种摆法：默认、右边 AI 栏常驻、左栏拖到最宽
  *   - 页面：首页、客户列表、客户记录页（名单 + 详情）、商机列表 / 看板、订单列表 / 详情、跟进记录、计划、待跟名单、供应商、设置各页、团队页
  *   - 每页量（e2e/layout-audit.ts）：盒子里有东西伸出去（撑出 / 被裁，有意横滚的区域不算）、按钮链接被切一半（出界）、
@@ -21,7 +22,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { 连库, 我的id, 进门 } from "../e2e-desktop/helpers";
 import { 查排版, 说问题, type 排版问题 } from "../e2e/layout-audit";
-import { 灌真客户 } from "./种子";
+import { 灌真客户, 灌长商机, 长名同事 } from "./种子";
 import { 关掉弹窗, 切外贸 } from "./外贸模版";
 import 现存问题 from "./现存问题.json";
 
@@ -103,14 +104,24 @@ async function 滚到(page: Page, 比例: number) {
 test.beforeAll(async ({ browser }) => {
   const db = 连库();
   try {
-    await 灌真客户(db, await 我的id(db));
+    const 我 = await 我的id(db);
+    await 灌真客户(db, 我);
+    await 灌长商机(db, 我);
   } finally {
     await db.$disconnect();
   }
   await 切外贸(browser);
 });
 
-test.afterAll(() => {
+test.afterAll(async () => {
+  // 长名同事只在这一份里用：别留给团队页等别的用例（成员数、名单都会变）
+  const db = 连库();
+  try {
+    await db.customer.deleteMany({ where: { id: "gate-longopp" } });
+    await db.user.deleteMany({ where: { id: 长名同事.id } });
+  } finally {
+    await db.$disconnect();
+  }
   // 单跑某一组时别的组才有的问题本来就看不到：整轮九组都跑完再信这份名单
   const 好了 = [...已知.keys()].filter((k) => !见过的已知.has(k));
   if (好了.length) console.log(`\n排版闸门：现存问题清单里这 ${好了.length} 条这一轮没再出现，整轮确认修好后从 e2e-layout/现存问题.json 删掉：\n${好了.map((k) => `  - ${k}`).join("\n")}`);

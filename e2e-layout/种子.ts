@@ -105,3 +105,30 @@ export async function 灌混排订单(db: PrismaClient, 我: string) {
   const f = await db.followUp.create({ data: { customerId: "gate-mixorder", ownerId: 我, type: "OTHER", title: "", status: "已完成", occurredAt: new Date(现在 - 600_000), content: "客户确认了唛头和装柜时间" } });
   await db.followUpOrder.create({ data: { followUpId: f.id, orderId: "gate-mixorder-t0", nodeIdx: 0 } });
 }
+
+/**
+ * D-25 验收后进闸门的长商机（2026-10-22）：商机名直接贴进一整段询盘、长网址、长中文、中英混排，各一条；
+ * 再加一个长英文名的同事挂一张大额卡，团队数据下管道卡片底行才画负责人。商机看板、商机列表都会量到。
+ * 金额只放到 8 位（US$ 12,345,678.90）：9 位美元在 1280 一排五列时还会多出几像素，审 #87 时记成建议，没算进这批
+ */
+export const 长段商机 = "Inquiry from website form: We are looking for a reliable supplier of frozen chicken breast BFQ skinless boneless, IQF, 150-250g per piece, packed 10kg/carton, Halal certified, for monthly shipments of 4 x 40ft reefer containers to Mersin, Turkey, starting December. Please quote CIF and FOB with payment terms.";
+export const 长网址商机 = "https://www.scandipak-europe.example.co.uk/procurement/rfq/2026/10/frozen-chicken-breast-bfq-exw-10kg-box-turkmenistan-tadjikistan?ref=whatsapp&lang=en";
+export const 长中文商机 = "冷冻去骨去皮鸡胸肉单冻每块一百五十到二百五十克十公斤一箱清真认证每月四个四十尺冷柜发往土耳其梅尔辛港十二月开始要求报到岸价和离岸价并注明付款方式和交期";
+export const 混排商机 = "【年度框架】Frozen chicken feet grade A 35g+ · 冷冻凤爪 A 级 · CIF 香港 HK$ · T/T 30/70 · 每月 2×40'RF · 客户编号 ALRASHID-JAFZA-2026-Q4-000987";
+export const 长名同事 = { id: "gate-long-owner", 名: "Konstantin-Alexandrovich Vasilyev-Rimsky-Korsakov" };
+
+export async function 灌长商机(db: PrismaClient, 我: string) {
+  await db.customer.deleteMany({ where: { id: "gate-longopp" } });
+  await db.user.upsert({ where: { id: 长名同事.id }, create: { id: 长名同事.id, email: "long-owner@e2e.local", name: 长名同事.名, password: "x", role: "SALES", title: "业务员" }, update: { active: true, name: 长名同事.名 } });
+  const 现在 = Date.now();
+  await db.customer.create({ data: { id: "gate-longopp", name: "LONG OPPORTUNITY NAMES TRADING LIMITED", phone: "+44 20 7946 2510", salesOwnerId: 我, followStatus: "跟进中", lastFollowAt: new Date(现在) } });
+  const 商机们 = [
+    { id: "gate-longopp-o1", name: 长段商机, amount: 456789.12, stage: "初步沟通", ownerId: 我 },
+    { id: "gate-longopp-o2", name: 长网址商机, amount: 98765.43, stage: "需求确认", ownerId: 我 },
+    { id: "gate-longopp-o3", name: 长中文商机, amount: 12345678.9, stage: "方案报价", ownerId: 长名同事.id },
+    { id: "gate-longopp-o4", name: 混排商机, amount: 1234567.89, stage: "谈判审核", ownerId: 长名同事.id },
+  ];
+  for (const o of 商机们) {
+    await db.opportunity.create({ data: { ...o, customerId: "gate-longopp", probability: 40, expectedDealAt: new Date(现在 + 30 * 天), activityAt: new Date(现在 - 天), money: { create: { currency: "USD" } } } });
+  }
+}
