@@ -43,3 +43,23 @@ export async function 要<T = (...a: any[]) => any>(模块: string, 名: string,
 export async function 可有<T = (...a: any[]) => any>(模块: string, 名: string): Promise<T | null> {
   return ((await 载入(模块))?.[名] as T | undefined) ?? null;
 }
+
+/** 「开关开」剧本用到的全部第四节接口；链上没齐（中间那几个 PR）整组跳过，齐了才跑、红清单才生效 */
+export const 第四节接口: [string, string][] = [
+  ["app/(app)/leads/assign-actions", "分配线索"],
+  ["app/(app)/leads/assign-actions", "设配额"],
+  ["app/(app)/leads/assign-actions", "本月分配情况"],
+  ["app/(app)/leads/assign-actions", "我分出去的线索"],
+  ["app/(app)/leads/assign-actions", "自动分配线索"],
+  ["app/(app)/projects/actions", "记项目沟通Action"],
+  ["app/(app)/projects/actions", "预览超时回收"],
+  ["lib/project/db", "公海超时收回"],
+  ["lib/project/db", "持有数"],
+  ["app/(app)/settings/actions", "停用清点"],
+  ["app/(app)/settings/actions", "批量停用"],
+];
+export async function 接口都在(): Promise<boolean> {
+  if (!企业版都在) return false;
+  for (const [m, n] of 第四节接口) if ((await 载入(m))?.[n] === undefined) return false;
+  return true;
+}
