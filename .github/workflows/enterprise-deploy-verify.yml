@@ -1,11 +1,14 @@
 name: Enterprise deploy verify
 
 # 企业版私有部署包（deploy/enterprise）在干净的 Linux 上真起一遍（2026-10-24）。
-# 本机不开 Docker，compose 的验证都放这里：用这次检出的代码就地打镜像，照部署手册的样子写 .env，
-#   docker compose up -d → 等 crm 容器健康 → 经 Caddy 走 HTTPS 打 /api/health → 核容器里 CRM_ENTERPRISE=1
-#   → 备份脚本出一份加密备份 → 删一个标记文件 → 恢复脚本恢复 → 标记回来了、应用又健康 → down -v。
+# 本机不开 Docker，compose 的验证都放这里：
+#   1. 用这次检出的代码就地打镜像（版本号带 -ci 后缀，和已发布的版本区分开），导出成离线镜像包，和给客户的包一个样
+#   2. 照部署手册写 .env，先装 GHCR 上最新发布的版本（客户现在跑的就是已发布的版本）
+#   3. tools/verify-upgrade.sh 用离线包升级 → 回滚 → 再升级，每步经 HTTPS 核版本、核数据表一张没少
+#   4. 升到一个起不来的版本号，核 upgrade.sh 自动退回
+#   5. 在新版本上：HTTPS 健康、容器里 CRM_ENTERPRISE=1、状态脚本、备份 → 删标记 → 恢复 → 标记回来 → down -v
 # DOMAIN=localhost 时 Caddy 用自带 CA 发证书，不去 Let's Encrypt，所以 curl 带 -k。
-# 只读：不推镜像、不碰 GHCR、不碰任何服务器。正式机上的实跑等测试机。
+# 只读：只从 GHCR 拉公开镜像，不推镜像、不碰任何服务器。正式机上的实跑在测试机（tools/UPGRADE-RUNBOOK.md）。
 on:
   pull_request:
     paths:
@@ -30,28 +33,53 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
+      - name: 定版本号
+        working-directory: .
+        run: |
+          # 不带 run 号：package.json 每次都一样，依赖层的缓存才命中
+          echo "CIV=$(jq -r .version package.json)-ci" >> "$GITHUB_ENV"
+          echo "IMAGE=ghcr.io/becky824/daedalus-crm" >> "$GITHUB_ENV"
+      - name: 这次的代码打成 ${{ env.CIV }}
+        working-directory: .
+        run: npm pkg set version="$CIV"
       - name: 就地打镜像
         uses: docker/build-push-action@v6
         with:
           context: .
           load: true
-          tags: crm-enterprise-ci:local
+          tags: ${{ env.IMAGE }}:${{ env.CIV }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: 导出离线镜像包（和 pack.sh 出的一样带 .sha256），本机镜像删掉，只能靠包导入
+        run: |
+          B="$RUNNER_TEMP/crm-images-$CIV.tar.gz"
+          docker save "$IMAGE:$CIV" | gzip > "$B"
+          ( cd "$RUNNER_TEMP" && sha256sum "$(basename "$B")" > "$(basename "$B").sha256" )
+          docker rmi "$IMAGE:$CIV"
+          ls -lh "$RUNNER_TEMP"/crm-images-*
 
-      - name: 写 .env（和 install.sh 生成的一样，只是镜像换成刚打的）
+      - name: 拉 GHCR 上最新发布的版本
+        run: |
+          docker pull "$IMAGE:latest"
+          REL="$(docker inspect -f '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$IMAGE:latest")"
+          echo "最新发布：${REL}"
+          [ -n "$REL" ] && [ "$REL" != "$CIV" ] || { echo "::error::读不到最新发布的版本号"; exit 1; }
+          docker tag "$IMAGE:latest" "$IMAGE:$REL"
+          echo "REL=$REL" >> "$GITHUB_ENV"
+
+      - name: 写 .env（和 install.sh 生成的一样），先装已发布的版本
         run: |
           cp .env.example .env
           sed -i \
-            -e "s|^CRM_VERSION=.*|CRM_VERSION=local|" \
+            -e "s|^CRM_VERSION=.*|CRM_VERSION=$REL|" \
             -e "s|^DOMAIN=.*|DOMAIN=localhost|" \
             -e "s|^INIT_PASSWORD=.*|INIT_PASSWORD=$(openssl rand -hex 16)|" \
             .env
-          echo "CRM_IMAGE=crm-enterprise-ci" >> .env
           mkdir -p certs
           docker compose config --quiet
+          ./scripts/backup-password.sh >/dev/null
 
-      - name: docker compose up -d
+      - name: docker compose up -d（已发布的版本）
         run: docker compose up -d
 
       - name: 等 crm 容器健康（最多 5 分钟）
@@ -65,6 +93,20 @@ jobs:
           done
           echo "::error::crm 容器没有变健康"
           exit 1
+
+      - name: 升级 → 回滚 → 再升级（tools/verify-upgrade.sh，和测试机上跑的同一个）
+        run: CRM_DIR="$PWD" ../tools/verify-upgrade.sh --load "$RUNNER_TEMP/crm-images-$CIV.tar.gz"
+
+      - name: 新版本起不来时 upgrade.sh 自动退回
+        run: |
+          # 同一个镜像换个版本号：健康检查报的还是 $CIV，对不上，upgrade.sh 应当判失败并退回
+          docker tag "$IMAGE:$CIV" "$IMAGE:0.0.0-bad"
+          if SKIP_BACKUP=1 UPGRADE_TIMEOUT=30 ./scripts/upgrade.sh 0.0.0-bad; then
+            echo "::error::升到起不来的版本，upgrade.sh 却报成功"; exit 1
+          fi
+          grep -qx "CRM_VERSION=$CIV" .env || { echo "::error::.env 没退回 $CIV"; cat .env | grep CRM_VERSION; exit 1; }
+          test "$(cat .previous-version)" = "$REL" || { echo "::error::.previous-version 应当还是 $REL"; exit 1; }
+          curl -kfsS --resolve localhost:443:127.0.0.1 https://localhost/api/health | grep -q "\"version\":\"$CIV\""
 
       - name: 经 Caddy 走 HTTPS 打健康检查
         run: |
@@ -83,7 +125,6 @@ jobs:
 
       - name: 备份 → 删标记 → 恢复 → 标记回来
         run: |
-          ./scripts/backup-password.sh
           docker compose exec -T -u 0 crm sh -c 'echo ci > /data/ci-marker'
           ./scripts/backup.sh
           ls -l backups/

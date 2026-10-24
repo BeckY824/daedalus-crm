@@ -68,3 +68,25 @@ describe("首启建哪些账号", () => {
     expect(读("prisma/seed.ts")).toMatch(/const 名单外 = 企业版\(\) \? \[\] :/);
   });
 });
+
+describe("升级先在测试机验证", () => {
+  const 验证 = 读("deploy/enterprise/tools/verify-upgrade.sh");
+  const 打包 = 读("deploy/enterprise/tools/pack.sh");
+
+  it("验证脚本调的是客户手里同一套 upgrade.sh / rollback.sh，不另写升级逻辑", () => {
+    expect(验证).toMatch(/scripts\/upgrade\.sh/);
+    expect(验证).toMatch(/scripts\/rollback\.sh/);
+    expect(验证).not.toMatch(/docker compose up/);
+  });
+
+  it("我方的 tools/ 不进给客户的交付包", () => {
+    expect(打包).not.toMatch(/\$HERE\/tools/);
+    expect(打包).toMatch(/cp -R "\$HERE\/scripts"/);
+  });
+
+  it("CI 从已发布的版本升到这次的代码，再验自动退回", () => {
+    const ci = 读(".github/workflows/enterprise-deploy-verify.yml");
+    expect(ci).toMatch(/tools\/verify-upgrade\.sh --load/);
+    expect(ci).toMatch(/UPGRADE_TIMEOUT=\d+ \.\/scripts\/upgrade\.sh/);
+  });
+});
