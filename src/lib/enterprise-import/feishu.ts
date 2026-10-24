@@ -116,7 +116,7 @@ export class 飞书适配器 implements 适配器 {
     const 类型 = new Map<string, number>();
     let page_token: string | undefined;
     do {
-      const d = await this.调(`读「${表名(表)}」的列`, "GET", `/open-apis/bitable/v1/apps/${表.appToken}/tables/${表.tableId}/fields`, { page_size: "100", page_token });
+      const d = await this.调(`读「${表名(表)}」的列`, "GET", `${表路径(表)}/fields`, { page_size: "100", page_token });
       for (const f of (d.items as { field_name?: string; type?: number }[] | undefined) ?? []) {
         if (f.field_name && typeof f.type === "number") 类型.set(f.field_name, f.type);
       }
@@ -133,7 +133,7 @@ export class 飞书适配器 implements 适配器 {
       const d = await this.调(
         `拉「${表名(表)}」`,
         "POST",
-        `/open-apis/bitable/v1/apps/${表.appToken}/tables/${表.tableId}/records/search`,
+        `${表路径(表)}/records/search`,
         { page_size: "500", page_token },
         { ...(表.viewId ? { view_id: 表.viewId } : {}), automatic_fields: true },
       );
@@ -159,6 +159,8 @@ export class 飞书适配器 implements 适配器 {
 }
 
 const 表名 = (表: 飞书表) => 表.名 ?? `${实体名[表.实体]}表`;
+/** appToken / tableId 是客户填的，编码了再拼，带了 / ? # 也不会拼到别的接口上 */
+const 表路径 = (表: 飞书表) => `/open-apis/bitable/v1/apps/${encodeURIComponent(表.appToken)}/tables/${encodeURIComponent(表.tableId)}`;
 
 /** 子记录才挂父：联系人 / 商机 / 跟进挂客户，跟进还挂商机（客户表里的「上级客户」之类不当父） */
 function 父列(子: 实体, 父: 实体): "客户ID" | "商机ID" | null {
