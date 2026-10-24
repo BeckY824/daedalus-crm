@@ -394,7 +394,7 @@ export async function 放回公海(me: 谁, projectId: string): Promise<结果> 
   });
 }
 
-const 领走了 = { ok: false as const, error: "这个项目已经被人领走了" };
+const 领走了 = { ok: false as const, error: "这个项目已经被人领走了，刷新看看" };
 
 /**
  * 从公海领取：谁都能领；放回去的那位企业版里能领回（10-24 定），别的版本照旧不能自己领回。领了就是新负责人，记一行 pool-claim。

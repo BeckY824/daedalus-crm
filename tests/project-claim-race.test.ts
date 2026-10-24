@@ -54,7 +54,7 @@ describe("两人同时领同一个公海项目", () => {
     expect(await 领取公海项目(丙, p.id)).toEqual({ ok: true });
     藏.ids.add(p.id); // 现在是丙的，乙带限定看不到
     const r = await 领取公海项目(乙, p.id);
-    expect(r).toEqual({ ok: false, error: "这个项目已经被人领走了" });
+    expect(r).toEqual({ ok: false, error: "这个项目已经被人领走了，刷新看看" });
     藏.ids.clear();
     expect(await prisma.project.findUniqueOrThrow({ where: { id: p.id } })).toMatchObject({ ownerId: 丙.id, pooledAt: null });
   });
