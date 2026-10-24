@@ -207,6 +207,44 @@ jobs:
           path: test-results/
           retention-days: 7
 
+  off-diff:
+    name: 企业版开关关着：和 main 逐字段一致
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma generate --schema=prisma/control.prisma
+        env:
+          CONTROL_DATABASE_URL: file:/tmp/control-ci.db
+      # 25 人公司 7 天的同一批操作（tests/off-diff/scenario.test.ts）：这次改动跑一遍，main 跑一遍，
+      # 整库和每一步的返回逐字段比。场景用的是 main 已有的操作，拷进 main 的副本里跑
+      - name: 这次改动跑一遍
+        run: npx vitest run tests/off-diff
+        env:
+          TZ: Asia/Shanghai
+          OFF_DIFF_OUT: /tmp/off-head.json
+      - name: main 跑同一批操作
+        run: |
+          git worktree add --detach /tmp/off-base origin/main
+          rm -rf /tmp/off-base/tests/off-diff
+          cp -R tests/off-diff /tmp/off-base/tests/
+          ln -s "$GITHUB_WORKSPACE/node_modules" /tmp/off-base/node_modules
+          cd /tmp/off-base
+          npx prisma generate
+          CONTROL_DATABASE_URL=file:/tmp/control-ci.db npx prisma generate --schema=prisma/control.prisma
+          npx vitest run tests/off-diff
+        env:
+          TZ: Asia/Shanghai
+          OFF_DIFF_OUT: /tmp/off-main.json
+      - run: node tests/off-diff/compare.mjs /tmp/off-main.json /tmp/off-head.json
+
   e2e:
     name: E2E
     needs: [e2e-web, e2e-layout, e2e-hosted]
