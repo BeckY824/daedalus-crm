@@ -167,6 +167,17 @@ describe("自动分配线索", () => {
     expect(await 批量自动分配([ids[0]])).toMatchObject({ ok: false, error: expect.stringMatching(/只有老板/) });
   });
 
+  it("批量按营销线索分：企划设成不算数时照样看配额、记成营销", async () => {
+    await setSetting(企划线索计数key, false);
+    await prisma.entLeadQuota.createMany({ data: [内贸, 外贸, 两边].map((userId) => ({ userId, quota: 0, setById: 老板 })) });
+    const L = await 建线索("L");
+    const r = await 批量自动分配([L]);
+    expect(r.ok && r.结果[0]).toMatchObject({ ok: false, error: expect.stringMatching(/^都已满额/) });
+    await prisma.entLeadQuota.update({ where: { userId: 两边 }, data: { quota: 1 } });
+    expect(await 批量自动分配([L])).toMatchObject({ ok: true, 结果: [{ ok: true, toUserId: 两边 }] });
+    expect(await prisma.entLeadAssign.findFirstOrThrow({ where: { leadId: L } })).toMatchObject({ kind: "营销", counted: true });
+  });
+
   it("暂停参与的不再挑；恢复后照常挑", async () => {
     当(老板, "ADMIN");
     expect(await 设自动分配参与(内贸, false)).toEqual({ ok: true });
@@ -239,6 +250,15 @@ describe("参与自动分配开关", () => {
     await 设自动分配参与(内贸, false);
     await 设自动分配参与(内贸, false);
     expect(await prisma.auditLog.count({ where: { entity: "EntLeadAssign", summary: { contains: "暂停 内贸小王" } } })).toBe(1);
+  });
+
+  it("同时拨两个人的开关都留下；名单按内容比，存坏的重复项会被理顺", async () => {
+    await Promise.all([设自动分配参与(内贸, false), 设自动分配参与(外贸, false)]);
+    expect(((await getSetting<string[]>(自动分配不参与key)) ?? []).sort()).toEqual([内贸, 外贸].sort());
+    // 名单长度不变但内容变了，也要写
+    await setSetting(自动分配不参与key, [内贸, 内贸]);
+    await 设自动分配参与(两边, false);
+    expect(await getSetting(自动分配不参与key)).toEqual([内贸, 两边]);
   });
 
   it("规则关着拒", async () => {
@@ -390,6 +410,7 @@ describe("配额", () => {
     expect(全.find((r) => r.userId === 外贸)).toMatchObject({ 已分: 1, 配额: 5, line: "外贸", 持有: 1, 参与: true, 能设配额: false, 能改参与: false });
     // 持有只数待跟进、跟进中的
     await prisma.lead.create({ data: { name: "放弃", ownerId: 外贸, status: "已放弃" } });
+    await prisma.lead.create({ data: { name: "转了", ownerId: 外贸, status: "已转化" } });
     await prisma.lead.create({ data: { name: "跟进", ownerId: 外贸, status: "跟进中" } });
     当(老板, "ADMIN");
     await 设自动分配参与(内贸, false);
@@ -402,6 +423,9 @@ describe("配额", () => {
     expect(经理看).toHaveLength(5);
     expect(经理看.filter((r) => r.能设配额).map((r) => r.userId)).toEqual([外贸]);
     expect(经理看.every((r) => r.能改参与)).toBe(true);
+    // 按进池先后排（和自动分配挑人的先后一样）
+    for (const [i, id] of [两边, 外贸, 内贸, 虚线经理, 销售经理].entries()) await prisma.user.update({ where: { id }, data: { createdAt: new Date(2026, 0, i + 1) } });
+    expect((await 本月分配情况())!.map((r) => r.userId)).toEqual([两边, 外贸, 内贸, 虚线经理, 销售经理]);
     当(内贸);
     expect(await 本月分配情况()).toEqual([]);
   });

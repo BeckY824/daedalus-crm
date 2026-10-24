@@ -10,7 +10,7 @@ import { prisma, defaultClient } from "@/lib/prisma";
 import { requireUser, type SessionUser } from "@/lib/auth";
 import { recordAudit } from "@/lib/audit";
 import { 不在了 } from "@/lib/not-there";
-import { getSetting, setSetting } from "@/lib/settings";
+import { getSetting, invalidateSettingsCache } from "@/lib/settings";
 import { 规则, 规则开着 } from "@/lib/enterprise/rules";
 import { 读组织, type 组织 } from "@/lib/enterprise/org";
 import { 查完再写 } from "@/lib/check-then-write";
@@ -102,9 +102,11 @@ export type 自动分配结果 =
   | { ok: false; error: string };
 
 /** 不参与名单：Setting 里存的值不是数组（没设、被手改坏）都当没人不参与 */
-async function 不参与名单(): Promise<string[]> {
-  const v = await getSetting<unknown>(自动分配不参与key);
+function 认名单(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+}
+async function 不参与名单(): Promise<string[]> {
+  return 认名单(await getSetting<unknown>(自动分配不参与key));
 }
 
 /**
@@ -211,11 +213,21 @@ export async function 设自动分配参与(userId: string, 参与: boolean): Pr
     const org = await 读组织();
     if (!能改参与(org, me)) return { ok: false, error: "只有老板、总管理员、销售管理能改谁参与自动分配" };
     if (接手问题(org, userId, null)) return { ok: false, error: "这个人不在组织里、已经停用，或者不是销售 / 销售管理" };
-    const 现在 = await 不参与名单();
-    const 新 = 参与 ? 现在.filter((x) => x !== userId) : [...new Set([...现在, userId])];
-    // 本来就是这样：不写设置、不留痕
-    if (新.length === 现在.length) return { ok: true };
-    await setSetting(自动分配不参与key, 新);
+    // 读-改-写放进一个事务：两个人同时拨不同人的开关，后写的不会把先写的盖掉
+    const 变了 = await 查完再写(async (tx) => {
+      const 行 = await tx.setting.findUnique({ where: { key: 自动分配不参与key } });
+      let 原值: unknown = null;
+      try { 原值 = 行 ? JSON.parse(行.value) : null; } catch { /* 被手改坏：当没人不参与 */ }
+      const 现在 = 认名单(原值);
+      const 新 = 参与 ? 现在.filter((x) => x !== userId) : [...new Set([...现在, userId])];
+      // 按内容比：本来就是这样就不写设置、不留痕
+      if (JSON.stringify(新) === JSON.stringify(现在)) return false;
+      const value = JSON.stringify(新);
+      await tx.setting.upsert({ where: { key: 自动分配不参与key }, update: { value }, create: { key: 自动分配不参与key, value } });
+      return true;
+    });
+    if (!变了) return { ok: true };
+    invalidateSettingsCache();
     const 人 = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
     await recordAudit({
       user: me, action: "update", entity: "EntLeadAssign", entityId: userId,
