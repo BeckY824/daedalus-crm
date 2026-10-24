@@ -14,12 +14,12 @@ import { getSetting } from "@/lib/settings";
 import { 规则, 规则开着 } from "@/lib/enterprise/rules";
 import { 读组织 } from "@/lib/enterprise/org";
 import {
-  企划线索计数key, 我分出去的, 月份, 本月已分, 满了, 接手问题, 能分配, 能设配额, 线索种类, 计不计数, 配额of,
+  企划线索计数key, 我分出去的, 月份, 本月已分, 满了, 接手问题, 能分配, 能设配额, 线索种类, 计不计数, 配额of, 挑接手人, 自动分配不参与key,
   type 分出去的线索, type 线,
 } from "@/lib/enterprise/lead-assign";
 
 type 结果 = { ok: true } | { ok: false; error: string };
-const 没开: 结果 = { ok: false, error: `规则「${规则.线索分配.名}」没开：老板或总管理员在 设置 → 组织架构 里打开` };
+const 没开: { ok: false; error: string } = { ok: false, error: `规则「${规则.线索分配.名}」没开：老板或总管理员在 设置 → 组织架构 里打开` };
 
 /** 规则开着才放行；共享试用区不让分 */
 async function 进门() {
@@ -70,6 +70,46 @@ export async function 分配线索(input: { leadId: string; toUserId: string; li
     });
     revalidatePath("/leads");
     return { ok: true };
+  } catch (e) {
+    return 不在了(e);
+  }
+}
+
+/**
+ * 自动分配（D-38）：在职、能接这条线、参与自动分配、本月没分满的人里，挑本月已分最少的；并列给最早进池的。
+ * 挑中以后走 分配线索()，权限、配额、留痕和手动分一样
+ */
+export async function 自动分配线索(leadId: string, opts: { line?: 线 | null; kind?: 线索种类 } = {}): Promise<{ ok: true; toUserId: string } | { ok: false; error: string }> {
+  const me = await 进门();
+  if (!me) return 没开;
+  const line = opts.line ?? null;
+  const kind = opts.kind ?? "营销";
+  if (line !== null && !是线(line)) return { ok: false, error: "业务线只能是内贸或外贸" };
+  if (!线索种类.includes(kind)) return { ok: false, error: "线索种类只能是营销或营销企划" };
+  try {
+    const org = await 读组织();
+    if (!能分配(org, me)) return { ok: false, error: "只有老板、总管理员、市场管理能分配线索" };
+    const lead = await prisma.lead.findFirst({ where: { id: leadId }, select: { ownerId: true, status: true } });
+    if (!lead) return { ok: false, error: "这条线索已经不在了（或者你看不到它），刷新看看" };
+    if (lead.status === "已转化") return { ok: false, error: "已转化的线索不用再分" };
+
+    const 人们 = [...org.成员.keys()].filter((id) => id !== lead.ownerId && 接手问题(org, id, line) === null);
+    const 月 = 月份();
+    const [计数, 配额, 建号, 不参与, 企划算数] = await Promise.all([
+      prisma.entLeadAssign.groupBy({ by: ["toUserId"], where: { month: 月, counted: true, toUserId: { in: 人们 } }, _count: { _all: true } }),
+      prisma.entLeadQuota.findMany({ where: { userId: { in: 人们 } } }),
+      prisma.user.findMany({ where: { id: { in: 人们 } }, select: { id: true, createdAt: true } }),
+      getSetting<string[]>(自动分配不参与key),
+      getSetting<boolean>(企划线索计数key),
+    ]);
+    const 数 = new Map(计数.map((c) => [c.toUserId, c._count._all]));
+    const 额 = new Map(配额.map((q) => [q.userId, q.quota]));
+    const 候选 = 建号.map((u) => ({ userId: u.id, 已分: 数.get(u.id) ?? 0, 配额: 额.get(u.id) ?? null, 进池: u.createdAt }));
+    const 谁 = 挑接手人(候选, new Set(Array.isArray(不参与) ? 不参与 : []), 计不计数(kind, 企划算数));
+    if (!谁) return { ok: false, error: "没有能接的人：都分满了、不参与自动分配，或者业务线对不上" };
+    const r = await 分配线索({ leadId, toUserId: 谁, line, kind });
+    if (!r.ok) return r;
+    return { ok: true, toUserId: 谁 };
   } catch (e) {
     return 不在了(e);
   }

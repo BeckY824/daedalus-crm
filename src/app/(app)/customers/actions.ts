@@ -45,6 +45,7 @@ import { 客户的项目数 } from "@/lib/project/db";
 import { 写签约的订单, 订单说不通, type 订单附加 } from "@/lib/order-contract";
 import { 外贸键, 外贸字段名, 外贸至少一种, 规整外贸格, 规整外贸档案, 规整阿里ID, 认国家, type 外贸档案 } from "@/lib/customer-extra";
 import { 写外贸档案 } from "@/lib/customer-extra-db";
+import { 挡字段, 客户列字段, type 字段名 } from "@/lib/enterprise/field-perm";
 import { 团队订单前缀 } from "@/lib/order";
 import { 读团队 } from "@/lib/sync/client";
 import type { Prisma } from "@/generated/prisma";
@@ -366,6 +367,19 @@ export async function saveCustomer(input: CustomerInput, 接着?: unknown): Prom
     referrerCustomerId: input.referrerCustomerId,
     ...attribution,
   };
+
+  // 企业版字段权限（规则没开不读库）：编辑时动了「只能看」的字段就拒；新建不拦，电话是必填的
+  if (改前) {
+    const 同 = (a: unknown, b: unknown) => (a instanceof Date ? a.getTime() : a ?? "") === (b instanceof Date ? b.getTime() : b ?? "");
+    const 动了 = Object.entries(客户列字段).flatMap(([列, 名]): 字段名[] =>
+      列 in data && !同((data as Record<string, unknown>)[列], (改前 as Record<string, unknown>)[列]) ? [名] : []);
+    if (档案.data.whatsapp !== undefined) {
+      const 原 = await prisma.customerExtra.findUnique({ where: { customerId: 改前.id }, select: { whatsapp: true } });
+      if (!同(档案.data.whatsapp, 原?.whatsapp)) 动了.push("电话");
+    }
+    const 挡 = await 挡字段(me.id, 动了);
+    if (挡) return { ok: false, error: 挡 };
+  }
 
   if (!input.id) {
     /*
@@ -768,6 +782,8 @@ export async function assignSalesOwner(ids: string[], salesOwnerId: string): Pro
   if (!ids.length) return { ok: true, updated: 0, unchanged: 0, missing: 0 };
 
   if (!(await 在职(salesOwnerId))) return { ok: false, error: "该成员不存在或已停用，请选择一位在职成员" };
+  const 挡 = await 挡字段(me.id, ["销售负责人"]);
+  if (挡) return { ok: false, error: 挡 };
 
   // 本来就归他的不算「改动」，分开统计才对得上操作人看到的选中条数
   const already = await prisma.customer.count({ where: { id: { in: ids }, salesOwnerId } });
@@ -852,6 +868,8 @@ export async function bulkFollowStatus(ids: string[], followStatus: string): Pro
   if (!ids.length) return { ok: true, updated: 0, unchanged: 0, missing: 0 };
   const 状态错 = 跟进不对(followStatus);
   if (状态错) return { ok: false, error: 状态错 };
+  const 挡 = await 挡字段(me.id, ["跟进状态"]);
+  if (挡) return { ok: false, error: 挡 };
 
   const already = await prisma.customer.count({ where: { id: { in: ids }, followStatus } });
   // 先记下每位原来的状态，给撤销用（排查 D1）
@@ -1235,6 +1253,8 @@ export async function patchCustomer(id: string, key: PatchableKey, value: string
   if (!PATCHABLE.includes(key)) return { ok: false, error: "这个字段不能在这里改" };
   // 团队互看：同事的客户读得到、改不了（lib/team-scope.ts），外贸档案那几格也一样
   if (await 同事的客户(defaultClient, id)) return { ok: false, error: new 只读错误().message };
+  const 挡 = 客户列字段[key] ? await 挡字段(me.id, [客户列字段[key]]) : null;
+  if (挡) return { ok: false, error: 挡 };
   // 动到归属的几格（负责人、渠道负责人、来源、推荐人）之前先钉住老签约（排查 X1 / 复查 R）
   if (["salesOwnerId", "channelOwnerId", "channelId", "referrerCustomerId"].includes(key)) await 钉住老签约();
 
