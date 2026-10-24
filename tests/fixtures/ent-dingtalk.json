@@ -1,0 +1,289 @@
+{
+  "说明": "钉钉开放平台 CRM 接口的返回，结构照官方文档的响应示例（oauth2/accessToken、personalCustomers + objectMeta、customObjects datas/query、oapi objectmeta describe、followrecord/query、v2/user/get，2026-10-24 核对），数据是编的。键 = 方法 + 路径 + 认页的参数；同一个键给多条时按顺序一条条给，最后一条一直给。",
+  "路由": {
+    "POST /v1.0/oauth2/accessToken": [
+      { "body": { "accessToken": "dt-fake-1", "expireIn": 7200 } },
+      { "body": { "accessToken": "dt-fake-2", "expireIn": 7200 } }
+    ],
+
+    "GET /v1.0/crm/personalCustomers/objectMeta?relationType=crm_customer_personal": [
+      {
+        "body": {
+          "name": "crm_customer_personal",
+          "customized": false,
+          "code": "PROC-FAKE-CUST",
+          "status": "PUBLISHED",
+          "fields": [
+            { "name": "customer_name", "label": "客户名称", "type": "TextField", "nillable": false },
+            { "name": "customer_phone", "label": "电话", "type": "PhoneField", "nillable": true },
+            { "name": "DDSelectField_1A2B", "label": "行业", "type": "DDSelectField", "nillable": true, "selectOptions": [{ "key": "option_0", "value": "制造业" }, { "key": "option_1", "value": "物流" }] },
+            { "name": "TextField_ADDR", "label": "地址", "type": "TextField", "nillable": true }
+          ]
+        }
+      }
+    ],
+    "GET /v1.0/crm/personalCustomers/objectMeta?relationType=crm_customer": [
+      {
+        "body": {
+          "name": "crm_customer",
+          "customized": false,
+          "code": "PROC-FAKE-CORP",
+          "status": "PUBLISHED",
+          "fields": [
+            { "name": "customer_name", "label": "客户名称", "type": "TextField", "nillable": false },
+            { "name": "customer_phone", "label": "电话", "type": "PhoneField", "nillable": true }
+          ]
+        }
+      }
+    ],
+    "GET /v1.0/crm/personalCustomers?relationType=crm_customer_personal": [
+      {
+        "body": {
+          "hasMore": true,
+          "nextToken": "nt2",
+          "maxResults": 100,
+          "values": [
+            {
+              "instanceId": "dtCust1",
+              "objectType": "crm_customer_personal",
+              "creatorUserId": "u001",
+              "creatorNick": "张伟",
+              "data": {
+                "customer_name": "星河精密制造有限公司",
+                "customer_phone": "13800000001",
+                "DDSelectField_1A2B": { "value": "制造业", "extendValue": "{\"label\":\"制造业\",\"key\":\"option_0\"}" },
+                "TextField_ADDR": "浙江省杭州市西湖区文三路 100 号"
+              },
+              "extendData": {},
+              "permission": { "ownerStaffIds": ["u001"], "participantStaffIds": [] },
+              "procInstStatus": "COMPLETED",
+              "procOutResult": "agree",
+              "gmtCreate": "2026-10-01T09:00Z",
+              "gmtModified": "2026-10-20T09:30Z"
+            },
+            {
+              "instanceId": "dtCust2",
+              "objectType": "crm_customer_personal",
+              "creatorUserId": "u002",
+              "creatorNick": "李娜",
+              "data": {
+                "customer_name": "远帆物流科技有限公司",
+                "customer_phone": "13800000002",
+                "DDSelectField_1A2B": { "value": "物流", "extendValue": "{\"label\":\"物流\",\"key\":\"option_1\"}" }
+              },
+              "extendData": {},
+              "permission": { "ownerStaffIds": ["u002"], "participantStaffIds": ["u001"] },
+              "gmtCreate": "2026-10-01T09:00Z",
+              "gmtModified": "2026-10-23T08:45Z"
+            }
+          ]
+        }
+      }
+    ],
+    "GET /v1.0/crm/personalCustomers?relationType=crm_customer_personal&nextToken=nt2": [
+      {
+        "body": {
+          "hasMore": false,
+          "nextToken": "",
+          "maxResults": 100,
+          "values": [
+            {
+              "instanceId": "dtCust3",
+              "objectType": "crm_customer_personal",
+              "creatorUserId": "u003",
+              "data": { "customer_name": "青禾食品有限公司" },
+              "extendData": {},
+              "permission": { "ownerStaffIds": ["u003"], "participantStaffIds": [] },
+              "gmtCreate": "2026-10-01T09:00Z",
+              "gmtModified": "2026-10-21T06:00Z"
+            }
+          ]
+        }
+      }
+    ],
+    "GET /v1.0/crm/personalCustomers?relationType=crm_customer": [
+      {
+        "body": {
+          "hasMore": false,
+          "maxResults": 100,
+          "values": [
+            {
+              "instanceId": "dtCorp1",
+              "objectType": "crm_customer",
+              "creatorUserId": "u001",
+              "data": { "customer_name": "远山建材有限公司", "customer_phone": "057100000004" },
+              "extendData": {},
+              "permission": { "ownerStaffIds": [], "participantStaffIds": [] },
+              "gmtCreate": "2026-10-01T09:00Z",
+              "gmtModified": "2026-10-18T00:00Z"
+            }
+          ]
+        }
+      }
+    ],
+
+    "POST /topapi/crm/objectmeta/contact/describe": [
+      {
+        "body": {
+          "errcode": 0,
+          "errmsg": "ok",
+          "request_id": "fake-req-1",
+          "result": {
+            "name": "crm_contact",
+            "customized": false,
+            "fields": [
+              { "name": "contact_name", "label": "姓名", "type": "TextField", "nillable": false },
+              { "name": "contact_related_customer", "label": "所属客户", "type": "RelateField", "nillable": false, "reference_to": "crm_customer" },
+              { "name": "contact_phone", "label": "手机", "type": "PhoneField", "nillable": true },
+              { "name": "contact_position", "label": "职位", "type": "TextField", "nillable": true }
+            ]
+          }
+        }
+      }
+    ],
+    "POST /v1.0/crm/customObjects/contacts/datas/query?nextToken=0": [
+      {
+        "body": {
+          "result": {
+            "hasMore": false,
+            "nextToken": "",
+            "values": [
+              {
+                "instanceId": "dtCont1",
+                "objectType": "crm_contact",
+                "data": {
+                  "contact_name": "王磊",
+                  "contact_related_customer": { "value": "星河精密制造有限公司", "extendValue": "{\"list\":[{\"instanceId\":\"dtCust1\",\"name\":\"星河精密制造有限公司\",\"bizType\":\"crm_customer_personal\"}]}" },
+                  "contact_phone": "13900000001",
+                  "contact_position": "采购经理"
+                },
+                "permission": { "ownerUserIds": ["u001"], "participantUserIds": [] }
+              },
+              {
+                "instanceId": "dtCont2",
+                "objectType": "crm_contact",
+                "data": {
+                  "contact_name": "陈静",
+                  "contact_related_customer": { "value": "青禾食品有限公司", "extendValue": "{\"list\":[{\"instanceId\":\"dtCust3\",\"name\":\"青禾食品有限公司\"}]}" }
+                },
+                "permission": { "ownerUserIds": ["u003"], "participantUserIds": [] }
+              }
+            ]
+          }
+        }
+      }
+    ],
+
+    "POST /topapi/crm/objectmeta/describe?name=PROC-FAKE-OPP": [
+      {
+        "body": {
+          "errcode": 0,
+          "errmsg": "ok",
+          "result": {
+            "name": "PROC-FAKE-OPP",
+            "customized": true,
+            "fields": [
+              { "name": "TextField_OPP", "label": "商机名称", "type": "TextField", "nillable": false },
+              { "name": "RelateField_CUST", "label": "客户", "type": "RelateField", "nillable": false, "reference_to": "crm_customer" },
+              { "name": "MoneyField_AMT", "label": "金额", "type": "MoneyField", "nillable": true },
+              { "name": "DDSelectField_STAGE", "label": "阶段", "type": "DDSelectField", "nillable": true },
+              { "name": "DDDateField_EXP", "label": "预计成交日期", "type": "DDDateField", "nillable": true }
+            ]
+          }
+        }
+      }
+    ],
+    "POST /v1.0/crm/customObjects/datas/query?nextToken=0&name=PROC-FAKE-OPP": [
+      {
+        "body": {
+          "result": {
+            "hasMore": false,
+            "nextToken": "",
+            "values": [
+              {
+                "instanceId": "dtOpp1",
+                "objectType": "PROC-FAKE-OPP",
+                "data": {
+                  "TextField_OPP": "二期产线改造",
+                  "RelateField_CUST": "{\"value\":\"星河精密制造有限公司\",\"extendValue\":\"{\\\"list\\\":[{\\\"instanceId\\\":\\\"dtCust1\\\",\\\"name\\\":\\\"星河精密制造有限公司\\\"}]}\"}",
+                  "MoneyField_AMT": "120000",
+                  "DDSelectField_STAGE": { "value": "方案报价", "extendValue": "{\"label\":\"方案报价\",\"key\":\"option_2\"}" },
+                  "DDDateField_EXP": "2026-11-08"
+                },
+                "permission": { "ownerUserIds": ["u001"], "participantUserIds": [] }
+              }
+            ]
+          }
+        }
+      }
+    ],
+
+    "POST /topapi/crm/objectmeta/followrecord/describe": [
+      {
+        "body": {
+          "errcode": 0,
+          "errmsg": "ok",
+          "result": {
+            "name": "crm_follow_record",
+            "customized": false,
+            "fields": [
+              { "name": "follow_record_related_customer", "label": "客户", "type": "RelateField", "nillable": false, "reference_to": "crm_customer" },
+              { "name": "RelateField_OPP", "label": "关联商机", "type": "RelateField", "nillable": true, "reference_to": "PROC-FAKE-OPP" },
+              { "name": "TextareaField_NOTE", "label": "跟进内容", "type": "TextareaField", "nillable": true },
+              { "name": "DDSelectField_WAY", "label": "跟进方式", "type": "DDSelectField", "nillable": true },
+              { "name": "DDDateField_AT", "label": "跟进时间", "type": "DDDateField", "nillable": true }
+            ]
+          }
+        }
+      }
+    ],
+    "POST /topapi/crm/objectdata/followrecord/query?cursor=0": [
+      {
+        "body": {
+          "errcode": 0,
+          "errmsg": "ok",
+          "success": true,
+          "request_id": "fake-req-2",
+          "result": {
+            "has_more": true,
+            "next_cursor": "c2",
+            "values": [
+              {
+                "instance_id": "dtFol1",
+                "creator_userid": "u001",
+                "gmt_create": "2026-10-22 10:15:00",
+                "gmt_modified": "2026-10-22 10:15:00",
+                "data": "{\"follow_record_related_customer\":{\"value\":\"星河精密制造有限公司\",\"extendValue\":\"{\\\"list\\\":[{\\\"instanceId\\\":\\\"dtCust1\\\",\\\"name\\\":\\\"星河精密制造有限公司\\\"}]}\"},\"RelateField_OPP\":{\"value\":\"二期产线改造\",\"extendValue\":\"{\\\"list\\\":[{\\\"instanceId\\\":\\\"dtOpp1\\\",\\\"name\\\":\\\"二期产线改造\\\"}]}\"},\"TextareaField_NOTE\":\"电话沟通报价，客户要求下周给方案\",\"DDSelectField_WAY\":{\"value\":\"电话\",\"extendValue\":\"{\\\"label\\\":\\\"电话\\\",\\\"key\\\":\\\"option_0\\\"}\"},\"DDDateField_AT\":\"2026-10-22 10:15\"}",
+                "permission": { "owner_userid_list": ["u001"], "participant_userid_list": [] }
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "POST /topapi/crm/objectdata/followrecord/query?cursor=c2": [
+      {
+        "body": {
+          "errcode": 0,
+          "errmsg": "ok",
+          "success": true,
+          "result": {
+            "has_more": false,
+            "values": [
+              {
+                "instance_id": "dtFol2",
+                "creator_userid": "u002",
+                "data": "{\"follow_record_related_customer\":{\"value\":\"远帆物流科技有限公司\",\"extendValue\":\"{\\\"list\\\":[{\\\"instanceId\\\":\\\"dtCust2\\\",\\\"name\\\":\\\"远帆物流科技有限公司\\\"}]}\"},\"TextareaField_NOTE\":\"上门拜访，见到物流总监\",\"DDSelectField_WAY\":{\"value\":\"拜访\"},\"DDDateField_AT\":\"2026-10-21 14:00\"}",
+                "permission": { "owner_userid_list": [], "participant_userid_list": [] }
+              }
+            ]
+          }
+        }
+      }
+    ],
+
+    "POST /topapi/v2/user/get?userid=u001": [{ "body": { "errcode": 0, "errmsg": "ok", "result": { "userid": "u001", "name": "张伟", "active": true } } }],
+    "POST /topapi/v2/user/get?userid=u002": [{ "body": { "errcode": 0, "errmsg": "ok", "result": { "userid": "u002", "name": "李娜", "active": true } } }],
+    "POST /topapi/v2/user/get?userid=u003": [{ "body": { "errcode": 60121, "errmsg": "找不到该用户" } }]
+  }
+}

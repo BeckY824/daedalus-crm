@@ -1,0 +1,254 @@
+{
+  "说明": "飞书开放平台多维表格接口的返回，结构照官方文档的响应示例（tenant_access_token/internal、bitable fields、records/search，2026-10-24 核对），数据是编的。键 = 方法 + 路径 + 认页的参数；同一个键给多条时按顺序一条条给，最后一条一直给。",
+  "路由": {
+    "POST /open-apis/auth/v3/tenant_access_token/internal": [
+      { "body": { "code": 0, "msg": "ok", "tenant_access_token": "t-fake-1", "expire": 7200 } },
+      { "body": { "code": 0, "msg": "ok", "tenant_access_token": "t-fake-2", "expire": 7200 } }
+    ],
+
+    "GET /open-apis/bitable/v1/apps/bascnFake/tables/tblCust/fields": [
+      {
+        "body": {
+          "code": 0,
+          "msg": "success",
+          "data": {
+            "has_more": false,
+            "page_token": "",
+            "total": 6,
+            "items": [
+              { "field_id": "fld001", "field_name": "客户名称", "is_primary": true, "property": null, "type": 1, "ui_type": "Text" },
+              { "field_id": "fld002", "field_name": "行业", "is_primary": false, "property": { "options": [{ "color": 0, "id": "optA", "name": "制造业" }, { "color": 1, "id": "optB", "name": "物流" }] }, "type": 3, "ui_type": "SingleSelect" },
+              { "field_id": "fld003", "field_name": "负责人", "is_primary": false, "property": { "multiple": false }, "type": 11, "ui_type": "User" },
+              { "field_id": "fld004", "field_name": "电话", "is_primary": false, "property": null, "type": 13, "ui_type": "Phone" },
+              { "field_id": "fld005", "field_name": "地址", "is_primary": false, "property": { "location": { "input_type": "not_limit" } }, "type": 22, "ui_type": "Location" },
+              { "field_id": "fld006", "field_name": "创建时间", "is_primary": false, "property": { "date_formatter": "yyyy/MM/dd HH:mm" }, "type": 1001, "ui_type": "CreatedTime" }
+            ]
+          }
+        }
+      }
+    ],
+    "POST /open-apis/bitable/v1/apps/bascnFake/tables/tblCust/records/search": [
+      {
+        "body": {
+          "code": 0,
+          "msg": "success",
+          "data": {
+            "has_more": true,
+            "page_token": "p2",
+            "total": 3,
+            "items": [
+              {
+                "record_id": "recCust1",
+                "created_time": 1790816400000,
+                "last_modified_time": 1792459800000,
+                "created_by": { "id": "ou_fake01", "name": "张伟", "email": "", "en_name": "" },
+                "fields": {
+                  "客户名称": [{ "text": "星河精密", "type": "text" }, { "text": "制造有限公司", "type": "text" }],
+                  "行业": "制造业",
+                  "负责人": [{ "avatar_url": "https://example.invalid/a.png", "email": "zhangwei@example.invalid", "en_name": "", "id": "ou_fake01", "name": "张伟" }],
+                  "电话": "13800000001",
+                  "地址": { "address": "文三路 100 号", "adname": "西湖区", "cityname": "杭州市", "full_address": "浙江省杭州市西湖区文三路 100 号", "location": "120.10,30.27", "name": "示例科技园", "pname": "浙江省" },
+                  "创建时间": 1790816400000
+                }
+              },
+              {
+                "record_id": "recCust2",
+                "created_time": 1790816400000,
+                "last_modified_time": 1792745100000,
+                "created_by": { "id": "ou_fake02", "name": "李娜", "email": "", "en_name": "" },
+                "fields": {
+                  "客户名称": [{ "text": "远帆物流科技有限公司", "type": "text" }],
+                  "行业": "物流",
+                  "负责人": [{ "avatar_url": "", "email": "lina@example.invalid", "en_name": "Lina", "id": "ou_fake02", "name": "李娜" }],
+                  "电话": "13800000002",
+                  "创建时间": 1790816400000
+                }
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "POST /open-apis/bitable/v1/apps/bascnFake/tables/tblCust/records/search?page_token=p2": [
+      {
+        "body": {
+          "code": 0,
+          "msg": "success",
+          "data": {
+            "has_more": false,
+            "total": 3,
+            "items": [
+              {
+                "record_id": "recCust3",
+                "created_time": 1790816400000,
+                "last_modified_time": 1792562400000,
+                "fields": {
+                  "客户名称": [{ "text": "青禾食品有限公司", "type": "text" }],
+                  "创建时间": 1790816400000
+                }
+              }
+            ]
+          }
+        }
+      }
+    ],
+
+    "GET /open-apis/bitable/v1/apps/bascnFake/tables/tblCont/fields": [
+      {
+        "body": {
+          "code": 0,
+          "msg": "success",
+          "data": {
+            "has_more": false,
+            "total": 4,
+            "items": [
+              { "field_id": "fld101", "field_name": "姓名", "is_primary": true, "property": null, "type": 1, "ui_type": "Text" },
+              { "field_id": "fld102", "field_name": "所属客户", "is_primary": false, "property": { "multiple": false, "table_id": "tblCust", "table_name": "客户" }, "type": 18, "ui_type": "SingleLink" },
+              { "field_id": "fld103", "field_name": "手机", "is_primary": false, "property": null, "type": 13, "ui_type": "Phone" },
+              { "field_id": "fld104", "field_name": "职位", "is_primary": false, "property": null, "type": 1, "ui_type": "Text" }
+            ]
+          }
+        }
+      }
+    ],
+    "POST /open-apis/bitable/v1/apps/bascnFake/tables/tblCont/records/search": [
+      {
+        "body": {
+          "code": 0,
+          "msg": "success",
+          "data": {
+            "has_more": false,
+            "total": 2,
+            "items": [
+              {
+                "record_id": "recCont1",
+                "last_modified_time": 1792459800000,
+                "fields": {
+                  "姓名": [{ "text": "王磊", "type": "text" }],
+                  "所属客户": { "link_record_ids": ["recCust1"] },
+                  "手机": "13900000001",
+                  "职位": [{ "text": "采购经理", "type": "text" }]
+                }
+              },
+              {
+                "record_id": "recCont2",
+                "last_modified_time": 1792745100000,
+                "fields": {
+                  "姓名": [{ "text": "陈静", "type": "text" }],
+                  "所属客户": [{ "record_ids": ["recCust3"], "table_id": "tblCust", "text": "青禾食品有限公司", "text_arr": ["青禾食品有限公司"], "type": "text" }]
+                }
+              }
+            ]
+          }
+        }
+      }
+    ],
+
+    "GET /open-apis/bitable/v1/apps/bascnFake/tables/tblOpp/fields": [
+      {
+        "body": {
+          "code": 0,
+          "msg": "success",
+          "data": {
+            "has_more": false,
+            "total": 7,
+            "items": [
+              { "field_id": "fld201", "field_name": "商机名称", "is_primary": true, "property": null, "type": 1, "ui_type": "Text" },
+              { "field_id": "fld202", "field_name": "客户", "is_primary": false, "property": { "back_field_name": "商机", "multiple": false, "table_id": "tblCust" }, "type": 21, "ui_type": "DuplexLink" },
+              { "field_id": "fld203", "field_name": "金额", "is_primary": false, "property": { "formatter": "0.00" }, "type": 2, "ui_type": "Number" },
+              { "field_id": "fld204", "field_name": "阶段", "is_primary": false, "property": { "options": [{ "id": "optS1", "name": "方案报价" }] }, "type": 3, "ui_type": "SingleSelect" },
+              { "field_id": "fld205", "field_name": "预计成交日期", "is_primary": false, "property": { "date_formatter": "yyyy/MM/dd", "auto_fill": false }, "type": 5, "ui_type": "DateTime" },
+              { "field_id": "fld206", "field_name": "负责人", "is_primary": false, "property": { "multiple": false }, "type": 11, "ui_type": "User" },
+              { "field_id": "fld207", "field_name": "客户行业", "is_primary": false, "property": null, "type": 19, "ui_type": "Lookup" }
+            ]
+          }
+        }
+      }
+    ],
+    "POST /open-apis/bitable/v1/apps/bascnFake/tables/tblOpp/records/search": [
+      {
+        "body": {
+          "code": 0,
+          "msg": "success",
+          "data": {
+            "has_more": false,
+            "total": 1,
+            "items": [
+              {
+                "record_id": "recOpp1",
+                "last_modified_time": 1792745100000,
+                "fields": {
+                  "商机名称": [{ "text": "二期产线改造", "type": "text" }],
+                  "客户": { "link_record_ids": ["recCust1"] },
+                  "金额": 120000,
+                  "阶段": "方案报价",
+                  "预计成交日期": 1794067200000,
+                  "负责人": [{ "email": "zhangwei@example.invalid", "en_name": "", "id": "ou_fake01", "name": "张伟" }],
+                  "客户行业": { "type": 3, "value": ["制造业"] }
+                }
+              }
+            ]
+          }
+        }
+      }
+    ],
+
+    "GET /open-apis/bitable/v1/apps/bascnFake/tables/tblFol/fields": [
+      {
+        "body": {
+          "code": 0,
+          "msg": "success",
+          "data": {
+            "has_more": false,
+            "total": 6,
+            "items": [
+              { "field_id": "fld301", "field_name": "跟进内容", "is_primary": true, "property": null, "type": 1, "ui_type": "Text" },
+              { "field_id": "fld302", "field_name": "关联客户", "is_primary": false, "property": { "multiple": false, "table_id": "tblCust" }, "type": 18, "ui_type": "SingleLink" },
+              { "field_id": "fld303", "field_name": "关联商机", "is_primary": false, "property": { "multiple": false, "table_id": "tblOpp" }, "type": 18, "ui_type": "SingleLink" },
+              { "field_id": "fld304", "field_name": "跟进方式", "is_primary": false, "property": { "options": [{ "id": "optF1", "name": "电话" }, { "id": "optF2", "name": "拜访" }] }, "type": 3, "ui_type": "SingleSelect" },
+              { "field_id": "fld305", "field_name": "跟进人", "is_primary": false, "property": { "multiple": false }, "type": 11, "ui_type": "User" },
+              { "field_id": "fld306", "field_name": "跟进时间", "is_primary": false, "property": { "date_formatter": "yyyy/MM/dd HH:mm" }, "type": 5, "ui_type": "DateTime" }
+            ]
+          }
+        }
+      }
+    ],
+    "POST /open-apis/bitable/v1/apps/bascnFake/tables/tblFol/records/search": [
+      {
+        "body": {
+          "code": 0,
+          "msg": "success",
+          "data": {
+            "has_more": false,
+            "total": 2,
+            "items": [
+              {
+                "record_id": "recFol1",
+                "last_modified_time": 1792745100000,
+                "fields": {
+                  "跟进内容": [{ "text": "电话沟通报价，客户要求下周给方案", "type": "text" }],
+                  "关联客户": { "link_record_ids": ["recCust1"] },
+                  "关联商机": { "link_record_ids": ["recOpp1"] },
+                  "跟进方式": "电话",
+                  "跟进人": [{ "email": "zhangwei@example.invalid", "en_name": "", "id": "ou_fake01", "name": "张伟" }],
+                  "跟进时间": 1792635300000
+                }
+              },
+              {
+                "record_id": "recFol2",
+                "last_modified_time": 1792459800000,
+                "fields": {
+                  "跟进内容": [{ "text": "上门拜访，见到物流总监", "type": "text" }],
+                  "关联客户": { "link_record_ids": ["recCust2"] },
+                  "跟进方式": "拜访",
+                  "跟进人": [{ "email": "lina@example.invalid", "en_name": "Lina", "id": "ou_fake02", "name": "李娜" }],
+                  "跟进时间": 1792562400000
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}
