@@ -15,6 +15,7 @@ import { 负责人候选, 唯一负责人 } from "@/lib/owners";
 import { 看全部 } from "@/lib/team-scope";
 import { 号键 } from "@/lib/phone";
 import { 不掉公海的状态, 公海截止 } from "@/lib/pool";
+import { 预演, type 预演计数 } from "./apply";
 import { 清洗, 数一数, 名键, type 本地索引, type 清洗结果 } from "./clean";
 import { 成记录, type 读出的表 } from "./excel";
 import { 猜映射, 说明键, 值对照, 值说法, 进备注, type 建议器, type 成员, type 表概要 } from "./mapping";
@@ -52,6 +53,11 @@ export type 试跑报告 = {
   样例: Partial<Record<实体, Omit<待写, "原始" | "指纹">[]>>;
   /** 开了自动掉公海才有 */
   公海: { 天数: number; 会掉: number } | null;
+  /**
+   * 按正式导入的写法真写一遍再回滚数出来的：正式导入写完的数就是这个（合计.跳过 已含清洗时跳过的）。
+   * 计划太大、增量同步、或没跑成时为 null
+   */
+  预演: { 按类: Partial<Record<实体, 预演计数>>; 合计: 预演计数 } | null;
 };
 
 /* ───────────────────────── 我们这边已有的 ───────────────────────── */
@@ -65,10 +71,10 @@ export async function 读本地索引(源: 来源): Promise<本地索引> {
     Promise.all([
       prisma.customer.findMany({ select: { id: true, name: true, phone: true } }),
       prisma.opportunity.findMany({ select: { id: true, customerId: true, name: true } }),
-      prisma.entExternalRef.findMany({ where: { source: 源 }, select: { entity: true, externalId: true, targetId: true } }),
+      prisma.entExternalRef.findMany({ where: { source: 源 }, select: { entity: true, externalId: true, targetId: true, fingerprint: true } }),
     ]),
   );
-  const 索引: 本地索引 = { 引用: new Map(), 客户名: new Map(), 客户号: new Map(), 商机名: new Map() };
+  const 索引: 本地索引 = { 引用: new Map(), 指纹: new Map(), 客户名: new Map(), 客户号: new Map(), 商机名: new Map() };
   const 加 = (m: Map<string, string[]>, k: string, id: string) => {
     if (!k) return;
     const a = m.get(k);
@@ -80,7 +86,10 @@ export async function 读本地索引(源: 来源): Promise<本地索引> {
     if (c.phone) 加(索引.客户号, 号键(c.phone), c.id);
   }
   for (const o of 商机们) 加(索引.商机名, `${o.customerId}|${名键(o.name)}`, o.id);
-  for (const r of 对照们) 索引.引用.set(`${r.entity}|${r.externalId}`, r.targetId);
+  for (const r of 对照们) {
+    索引.引用.set(`${r.entity}|${r.externalId}`, r.targetId);
+    索引.指纹!.set(`${r.entity}|${r.externalId}`, r.fingerprint);
+  }
   return 索引;
 }
 
@@ -118,7 +127,9 @@ export async function 试跑(p: 试跑参数): Promise<试跑结果> {
   const 概要: 表概要[] = 能用的表.length ? 能用的表.map((t) => ({ 实体: t.实体, 表头: t.表头, 行: t.行 })) : 记录成概要(p.记录 ?? []);
   const 粗记录 = 能用的表.length ? 能用的表.flatMap((t) => 成记录(t, t.实体, {})) : (p.记录 ?? []);
   const 候选: 成员[] = await 负责人候选();
-  const 默认负责人Id = p.已有映射?.默认负责人Id || (await 唯一负责人()) || p.用户Id;
+  // 默认负责人要是能当负责人的人：管理员 / 停用的写的时候会被换掉，报告上就得先换好，免得报告说给 A、实际落到 B
+  const 能任 = (id?: string | null) => !!id && 候选.some((c) => c.id === id);
+  const 默认负责人Id = [p.已有映射?.默认负责人Id, await 唯一负责人(), p.用户Id, 候选[0]?.id].find(能任) ?? p.用户Id;
   const 猜 = await 猜映射({
     表: 概要,
     记录: 粗记录,
@@ -148,6 +159,21 @@ export async function 试跑(p: 试跑参数): Promise<试跑结果> {
   }
 
   const 报告 = 成报告({ 来源: p.来源, 表们, 概要, 记录数: 记录.length, 结果, m, 候选, 提醒, 公海 });
+  const 计划 = JSON.stringify(结果.待写);
+  // 增量同步拉完马上就写，不用先演一遍
+  if ((p.类型 ?? "full") === "full") {
+    try {
+      // 用存进批次的那份（过一遍 JSON），和正式导入读到的一模一样
+      const 按类 = await 预演(p.来源, m, JSON.parse(计划), { id: p.用户Id, name: "" });
+      if (按类) {
+        const 合计: 预演计数 = { 新建: 0, 更新: 0, 跳过: 报告.合计.跳过, 冲突: 0, 失败: 0 };
+        for (const c of Object.values(按类)) for (const k of Object.keys(合计) as (keyof 预演计数)[]) 合计[k] += c[k];
+        报告.预演 = { 按类, 合计 };
+      } else 报告.提醒.push(`这次要写 ${结果.待写.length} 条，太多了没先演一遍：下面的新建 / 更新是按清洗分的，写的时候有的会变成冲突或跳过`);
+    } catch (e) {
+      报告.提醒.push(`没能先演一遍（${e instanceof Error ? e.message.split("\n").pop() : String(e)}）：下面的新建 / 更新是按清洗分的，写的时候有的会变成冲突或跳过`);
+    }
+  }
 
   const 存 = {
     source: p.来源,
@@ -158,7 +184,7 @@ export async function 试跑(p: 试跑参数): Promise<试跑结果> {
     // 留原样给「改映射重新试跑」：Excel 存表；接口来的首次导入存原始记录（同步那批直接写，不留）
     raw: 表们.length ? JSON.stringify(表们) : p.记录?.length && (p.类型 ?? "full") === "full" ? JSON.stringify({ 记录: p.记录 }) : null,
     mapping: JSON.stringify(m),
-    plan: JSON.stringify(结果.待写),
+    plan: 计划,
     total: 结果.待写.length,
     skipped: 报告.合计.跳过,
   };
@@ -352,6 +378,7 @@ function 成报告(p: {
     映射: { 列, 值, 负责人, 默认负责人: { id: m.默认负责人Id, 名: 名字.get(m.默认负责人Id) ?? "" } },
     样例,
     公海: p.公海,
+    预演: null,
   };
 }
 
