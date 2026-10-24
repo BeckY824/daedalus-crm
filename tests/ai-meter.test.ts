@@ -96,6 +96,7 @@ describe("会调模型的按钮都挂着「1 次」", () => {
   });
 
   it("首页和 ⌘J 面板（同一个 HomeChat）输入框下那行字", () => {
-    expect(读("app/(app)/dashboard/HomeChat.tsx")).toMatch(/<AiRemaining \/>/);
+    // 2026-10-24 输入框从 HomeChat 拆出去了，那行字在 ComposerParts 里
+    expect(读("app/(app)/dashboard/ComposerParts.tsx")).toMatch(/<AiRemaining \/>/);
   });
 });
