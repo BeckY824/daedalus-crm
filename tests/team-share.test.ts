@@ -145,7 +145,7 @@ describe("开着", () => {
     // 限定的我 还是小王（写照旧限定），读的我 = 不限
     expect(await 限定的我(raw)).toBe(小王);
     expect(await 读的我(raw)).toBeNull();
-    expect(await 只读客户(raw, { salesOwnerId: 小李 })).toBe(true);
+    expect(await 只读客户(raw, { salesOwnerId: 小李 })).toBe("加跟进");
     expect(await 只读客户(raw, { salesOwnerId: 小王 })).toBe(false);
     expect(await 只读客户(raw, { salesOwnerId: 小李, pool: { customerId: "x" } })).toBe(false);
   });
