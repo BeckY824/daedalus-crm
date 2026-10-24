@@ -3,8 +3,9 @@
  *   转交 —— 全给接手人（原来的做法），他负责、挂在别人客户上的没结局项目也一起转
  *   公海 —— 客户进客户公海、线索 / 商机阶段项目回项目公海；已签约 / 已流失、名下有订单阶段项目的客户和订单阶段项目给接手人
  * 停用前的清点和停用本身同一套分法，数要对得上；200 条以内一次做完不卡
+ * 不是企业版（CRM_ENTERPRISE 不设）：没有公海方式、不清点，转交和原来一样（别处的项目不动）
  */
-import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   user: { id: "", name: "甲", email: "a@x", role: "ADMIN", title: "管理员", avatar: null },
@@ -41,9 +42,37 @@ beforeEach(async () => {
   乙 = (await prisma.user.create({ data: { email: "yi", name: "乙", title: "", role: "SALES", password: "x" } })).id;
   丙 = (await prisma.user.create({ data: { email: "bing", name: "丙", title: "", role: "SALES", password: "x" } })).id;
   mocks.user = { ...mocks.user, id: 甲, role: "ADMIN" };
+  vi.stubEnv("CRM_ENTERPRISE", "1");
 });
+afterEach(() => { vi.unstubAllEnvs(); });
 
 afterAll(async () => { await prisma.$disconnect(); });
+
+describe("不是企业版", () => {
+  beforeEach(() => { vi.stubEnv("CRM_ENTERPRISE", ""); });
+
+  it("放进公海方式直接拒，什么都不动；清点也不给", async () => {
+    const c = await 客户("乙的客户", 乙);
+    const p = await 项目("乙的", 乙, c.id);
+    expect(await deactivateUser(乙, 丙, "公海")).toMatchObject({ ok: false, error: expect.stringContaining("企业版") });
+    expect((await 客户of(c.id))).toMatchObject({ salesOwnerId: 乙, pool: null });
+    expect((await 项目of(p.id)).ownerId).toBe(乙);
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: 乙 } })).active).toBe(true);
+    expect(await 停用清点(乙)).toMatchObject({ ok: false, error: expect.stringContaining("企业版") });
+  });
+
+  it("转交和原来一样：项目只跟着转走的客户走，他挂在别人客户上的项目留着", async () => {
+    const c = await 客户("乙的客户", 乙);
+    const 丙的客户 = await 客户("丙的客户", 丙);
+    const p1 = await 项目("乙的", 乙, c.id);
+    const p2 = await 项目("别处的", 乙, 丙的客户.id);
+    expect(await deactivateUser(乙, 甲)).toEqual({ ok: true });
+    expect((await 客户of(c.id)).salesOwnerId).toBe(甲);
+    expect((await 项目of(p1.id)).ownerId).toBe(甲);
+    expect((await 项目of(p2.id)).ownerId).toBe(乙);
+    expect(await prisma.customerPool.count()).toBe(0);
+  });
+});
 
 describe("转交（默认）", () => {
   it("客户、活、项目全给接手人；他挂在别人客户上的没结局项目也转，有结局的留着；跟进和建档人照旧", async () => {

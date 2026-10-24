@@ -19,6 +19,9 @@ import { 能进公海的阶段 } from "@/lib/project/db";
  *
  * 不管哪种方式，他负责、挂在别人客户上的项目也一起处理（原来不动，要老板一个个手动转）——
  * 一次处理完一个人名下全部。只动没结局的；有结局的是历史，同赢单丢单的商机，留在他名下
+ *
+ * 这两样（公海方式、别处的项目）只企业版有：企业 = false 时只按原来的转交分（项目只跟着转走的客户走），
+ * 调用方传 企业版()，这里不读环境变量，方便测
  */
 export type 停用方式 = "转交" | "公海";
 export const 停用方式们: readonly 停用方式[] = ["转交", "公海"];
@@ -48,8 +51,8 @@ export type 停用分拣结果 = {
 
 type 读库 = Pick<Prisma.TransactionClient, "customer" | "opportunity" | "task" | "followPlan" | "lead" | "channel" | "project">;
 
-export async function 停用分拣(db: 读库, id: string, 方式: 停用方式): Promise<停用分拣结果> {
-  const 公海 = 方式 === "公海";
+export async function 停用分拣(db: 读库, id: string, 方式: 停用方式, 企业: boolean): Promise<停用分拣结果> {
+  const 公海 = 企业 && 方式 === "公海";
   const [客户们, 商机们, 待办们, 计划们, 线索们, 渠道们, 他的项目] = await Promise.all([
     db.customer.findMany({ where: { salesOwnerId: id }, select: { id: true, followStatus: true, pool: { select: { customerId: true } } } }),
     db.opportunity.findMany({ where: { ownerId: id, status: "OPEN" }, select: { id: true, customerId: true } }),
@@ -57,7 +60,7 @@ export async function 停用分拣(db: 读库, id: string, 方式: 停用方式)
     db.followPlan.findMany({ where: { ownerId: id, done: false }, select: { id: true, customerId: true } }),
     db.lead.findMany({ where: { ownerId: id }, select: { id: true } }),
     db.channel.findMany({ where: { channelOwnerId: id }, select: { id: true } }),
-    db.project.findMany({ where: { ownerId: id, pooledAt: null, result: null }, select: { id: true, customerId: true, phase: true } }),
+    企业 ? db.project.findMany({ where: { ownerId: id, pooledAt: null, result: null }, select: { id: true, customerId: true, phase: true } }) : [],
   ]);
   const 可进公海阶段 = 能进公海的阶段 as readonly string[];
 

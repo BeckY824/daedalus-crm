@@ -32,12 +32,15 @@ export default function MembersTab({
   me,
   isAdmin,
   用邮箱登录,
+  企业版 = false,
 }: {
   users: Row[];
   me: SessionUser;
   isAdmin: boolean;
   /** 托管版：成员的登录标识是邮箱，不是用户名。见下面表单里那段注释 */
   用邮箱登录: boolean;
+  /** 企业版才有离职交接（选放进公海、先清点）；别的版本停用对话框和原来一样 */
+  企业版?: boolean;
 }) {
   const router = useRouter();
   const { message, modal } = App.useApp();
@@ -126,20 +129,24 @@ export default function MembersTab({
       return;
     }
     if (清点中) return;
-    // 先数一下两种方式各会转走、放进公海多少（离职交接 D-36），对话框里照实说
-    set清点中(r.id);
-    const 点 = await 停用清点(r.id).catch(() => null);
-    set清点中(null);
-    if (!点?.ok) {
-      message.error(点 && "error" in 点 ? 点.error : "清点没成功，刷新再试");
-      return;
+    // 企业版先数一下两种方式各会转走、放进公海多少（离职交接 D-36），对话框里照实说
+    let 点: Parameters<typeof OffboardForm>[0]["点"] | null = null;
+    if (企业版) {
+      set清点中(r.id);
+      const 清 = await 停用清点(r.id).catch(() => null);
+      set清点中(null);
+      if (!清?.ok) {
+        message.error(清 && "error" in 清 ? 清.error : "清点没成功，刷新再试");
+        return;
+      }
+      点 = 清;
     }
     let target = others[0].id;
     let 方式: 停用方式 = "转交";
     modal.confirm({
       title: `停用成员「${r.name}」`,
       width: 480,
-      content: (
+      content: 点 ? (
         <OffboardForm
           name={r.name}
           点={点}
@@ -147,6 +154,22 @@ export default function MembersTab({
           defaultTarget={target}
           onChange={(v) => { target = v.target; 方式 = v.方式; }}
         />
+      ) : (
+        <div style={{ marginTop: 12 }}>
+          {/* 说清转交的是往后要跟的活、历史业绩不动（排查 B2）。原来只写「名下 N 个客户、N 个商机」，叫法还写死成「客户」 */}
+          <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 8 }}>
+            {r.customerCount} 位{b.customer}，连同进行中的商机、没做完的计划和待办、线索、渠道，一起转交给：
+          </Typography.Paragraph>
+          <Select
+            defaultValue={target}
+            style={{ width: "100%" }}
+            onChange={(v) => (target = v)}
+            options={others.map((u) => ({ value: u.id, label: `${u.name}（${u.title}）` }))}
+          />
+          <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginTop: 8, marginBottom: 0 }}>
+            {外贸订单(b) ? "已经下的订单、转了订单和丢单的商机" : "已经签下的业绩、赢单和丢单的商机"}，还算在「{r.name}」头上。
+          </Typography.Paragraph>
+        </div>
       ),
       okText: "确认停用",
       okButtonProps: { danger: true },

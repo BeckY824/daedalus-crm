@@ -5,6 +5,7 @@ import { 补来源 } from "@/lib/customer-extra-db";
 
 import { 钉住老签约 } from "@/lib/contract-owner";
 import { 转项目 } from "@/lib/carry-over-db";
+import { 企业版 } from "@/lib/enterprise/switch";
 import { 停用分拣, 停用方式们, 停用进公海理由, 停用项目进公海理由, type 停用方式 } from "@/lib/offboard-db";
 import { 转让痕 } from "@/lib/project/db";
 import bcrypt from "bcryptjs";
@@ -282,6 +283,7 @@ export async function saveUser(input: {
 export async function deactivateUser(id: string, transferToId: string, 方式: 停用方式 = "转交") {
   const me = await requireAdmin();
   if (!停用方式们.includes(方式)) return { ok: false as const, error: "交接方式不对，刷新再试" };
+  if (方式 === "公海" && !企业版()) return { ok: false as const, error: "放进公海交接是企业版的功能" };
   // 必须在业务库转交、停用之前拒绝，不能写到一半才发现永久 OWNER 身份丢失。
   if (托管版()) {
     const t = await resolveCurrentTenant();
@@ -322,7 +324,7 @@ export async function deactivateUser(id: string, transferToId: string, 方式: �
   // 函数式事务：数组式在托管版的工作区代理下会抛错，而且抛之前已经写了（2026-10-02 排查 A3）。
   // 分拣也放在事务里：清点到写完之间有人改了负责人，不会漏转、错转。一个人名下一两百条，给足时间
   const 转走了 = await prisma.$transaction(async (tx) => {
-    const 分 = await 停用分拣(tx, id, 方式);
+    const 分 = await 停用分拣(tx, id, 方式, 企业版());
     await tx.customer.updateMany({ where: { id: { in: 分.客户 } }, data: { salesOwnerId: transferToId } });
     await 转交商机(tx, { id: { in: 分.商机 }, ownerId: id, status: "OPEN" }, transferToId);
     await tx.task.updateMany({ where: { id: { in: 分.待办 } }, data: { ownerId: transferToId } });
@@ -334,7 +336,7 @@ export async function deactivateUser(id: string, transferToId: string, 方式: �
      */
     await tx.lead.updateMany({ where: { id: { in: 分.线索 } }, data: { ownerId: transferToId } });
     await tx.channel.updateMany({ where: { id: { in: 分.渠道 } }, data: { channelOwnerId: transferToId } });
-    // 项目：跟着转走的客户整体转（同转让客户，跟着客户转的项目），加上他负责、挂在别人客户上的
+    // 项目：跟着转走的客户整体转（同转让客户，跟着客户转的项目），企业版再加上他负责、挂在别人客户上的
     const 项目 = 分.项目.length ? await 转项目(tx, { id: { in: 分.项目 }, pooledAt: null }, transferToId, me.id) : [];
     if (分.进公海客户.length) {
       await tx.customerPool.createMany({ data: 分.进公海客户.map((customerId) => ({ customerId, userId: me.id, reason: 停用进公海理由 })) });
@@ -379,12 +381,13 @@ export async function deactivateUser(id: string, transferToId: string, 方式: �
 }
 
 /**
- * 停用前清点（离职交接对话框用）：两种方式各会转走、放进公海多少，和停用时同一套分法（停用分拣）。
- * 只是数个数，真停用时在事务里重新分
+ * 停用前清点（离职交接对话框用，企业版才有）：两种方式各会转走、放进公海多少，和停用时同一套分法（停用分拣）。
+ * 只是数个数，真停用时在事务里重新分。不是企业版对话框照原来的说，不来清点
  */
 export async function 停用清点(id: string) {
   await requireAdmin();
   if (typeof id !== "string" || !id) return { ok: false as const, error: "这个成员已不存在，请刷新重试" };
+  if (!企业版()) return { ok: false as const, error: "离职交接是企业版的功能" };
   const 数 = (分: Awaited<ReturnType<typeof 停用分拣>>) => ({
     客户: 分.客户.length,
     进公海客户: 分.进公海客户.length + 分.本来在公海.length,
@@ -392,7 +395,7 @@ export async function 停用清点(id: string) {
     进公海项目: 分.进公海项目.length,
     订单项目: 分.订单项目,
   });
-  const [转交, 公海] = await Promise.all([停用分拣(prisma, id, "转交"), 停用分拣(prisma, id, "公海")]);
+  const [转交, 公海] = await Promise.all([停用分拣(prisma, id, "转交", true), 停用分拣(prisma, id, "公海", true)]);
   return { ok: true as const, 转交: 数(转交), 公海: 数(公海) };
 }
 
