@@ -10,7 +10,9 @@
  *
  *   npx playwright test -c playwright.parity.config.ts
  *
- * 判红：某块像素差超过 0.1%（每个通道差 > 16 才算一个点不一样，抗锯齿的毛边不算），或者两边块的尺寸、块数不一样。
+ * 判红：某块像素差超过 0.1%（每个通道差 > 16 才算一个点不一样），或者两边块的尺寸、块数不一样。
+ * 字和线边上的抗锯齿毛边（两边各自渲染、亚像素位置差一点就不一样）按 pixelmatch 的认法剔掉，见 毛边()；
+ * 剔掉的点数照样进报告，差图里标黄。阈值、容差都没动。
  * 有意的差别（e2e-parity/有意的差别.json）：设计上就只有桌面端有的那几块。不是放宽——照样比、照样进报告，
  * 只是不判红；某条一整轮都一样了，输出里提示「可以从清单删掉」。
  * 报告写进 E2E_SHOT_DIR（默认 test-results/parity）：报告.md、报告.json，差了的块存「网页 / 桌面 / 差」三张图
@@ -93,7 +95,7 @@ const 对们: [身份, 身份][] = [
   [{ 名: "Windows 网页", ua: Win }, { 名: "Windows 桌面端", ua: 壳(Win), 壳: "win" }],
 ];
 
-type 结果 = { 宽: number; 页: string; 对: string; 块: string; 差: number; 说明?: string; 有意?: string };
+type 结果 = { 宽: number; 页: string; 对: string; 块: string; 差: number; 毛边?: number; 说明?: string; 有意?: string };
 const 结果们: 结果[] = [];
 const 有意 = new Map(有意的差别.map((x) => [x.块, x.原因]));
 const 见过的有意 = new Set<string>();
@@ -202,6 +204,34 @@ async function 去(page: Page, 址: string) {
   await page.evaluate(() => document.fonts.ready);
   await page.mouse.move(0, 0);
   await page.waitForTimeout(500);
+  await 等布局稳(page);
+}
+
+/**
+ * 等布局连续 10 帧不动再拍（10-24 #143 第一轮：「记一笔」输入框按 scrollHeight 自己长高，没长完就截了，Mac 1440 差 9.4%）。
+ * 量的是左栏和正文里每个元素的位置尺寸、整页高度；最多等 5 秒，到点还在动就照拍（真在动的页面本来就该红）
+ */
+async function 等布局稳(page: Page) {
+  await page.evaluate(async () => {
+    const 样 = () => {
+      const 们 = document.querySelectorAll("main.main *, .rail-top, .rail-nav, .rail-more, .rail-fav, .rail-foot");
+      let s = `${document.documentElement.scrollHeight}`;
+      for (const el of 们) {
+        const r = el.getBoundingClientRect();
+        s += `|${r.x},${r.y},${r.width},${r.height}`;
+      }
+      return s;
+    };
+    const 帧 = () => new Promise((r) => requestAnimationFrame(r));
+    const 止 = performance.now() + 5_000;
+    let 上 = 样();
+    for (let 连 = 0; 连 < 10 && performance.now() < 止; ) {
+      await 帧();
+      const 这 = 样();
+      连 = 这 === 上 ? 连 + 1 : 0;
+      上 = 这;
+    }
+  });
 }
 
 /**
@@ -231,23 +261,78 @@ async function 拍(page: Page): Promise<Map<string, Buffer>> {
   return 图;
 }
 
-async function 比(甲: Buffer, 乙: Buffer): Promise<{ 差: number; 说明?: string; 差图?: Buffer }> {
+/** 亮度（YIQ 的 Y），pixelmatch 判毛边用的就是它 */
+const 亮 = (d: Buffer, i: number) => d[i] * 0.29889531 + d[i + 1] * 0.58662247 + d[i + 2] * 0.11448223;
+
+/** (x, y) 周围 8 格里和它一模一样的超过 2 格：在平的一片里，不是边 */
+function 平(d: Buffer, x: number, y: number, w: number, h: number) {
+  const c = (y * w + x) * 4;
+  let 同 = x === 0 || x === w - 1 || y === 0 || y === h - 1 ? 1 : 0;
+  for (let yy = Math.max(y - 1, 0); yy <= Math.min(y + 1, h - 1); yy++) {
+    for (let xx = Math.max(x - 1, 0); xx <= Math.min(x + 1, w - 1); xx++) {
+      if (xx === x && yy === y) continue;
+      const n = (yy * w + xx) * 4;
+      if (d[c] === d[n] && d[c + 1] === d[n + 1] && d[c + 2] === d[n + 2] && d[c + 3] === d[n + 3]) 同++;
+      if (同 > 2) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * 这一点在 甲 里像抗锯齿的毛边（pixelmatch 的认法，Vyšniauskas 2009）：周围最多 2 格和它一样亮，
+ * 同时有更亮和更暗的邻居（夹在两种颜色中间），而且最亮或最暗的那个邻居在两张图里都处在平的一片里——
+ * 也就是字、线的边缘，两边底色和字色一样，只是边上那一圈过渡色没对齐
+ */
+function 毛边(甲: Buffer, 乙: Buffer, x: number, y: number, w: number, h: number) {
+  const c = (y * w + x) * 4;
+  const 中 = 亮(甲, c);
+  let 零 = x === 0 || x === w - 1 || y === 0 || y === h - 1 ? 1 : 0;
+  let 最暗 = 0, 最亮 = 0, 暗x = 0, 暗y = 0, 亮x = 0, 亮y = 0;
+  for (let yy = Math.max(y - 1, 0); yy <= Math.min(y + 1, h - 1); yy++) {
+    for (let xx = Math.max(x - 1, 0); xx <= Math.min(x + 1, w - 1); xx++) {
+      if (xx === x && yy === y) continue;
+      const d = 中 - 亮(甲, (yy * w + xx) * 4);
+      if (d === 0) {
+        if (++零 > 2) return false;
+      } else if (d < 最暗) {
+        最暗 = d; 暗x = xx; 暗y = yy;
+      } else if (d > 最亮) {
+        最亮 = d; 亮x = xx; 亮y = yy;
+      }
+    }
+  }
+  if (最暗 === 0 || 最亮 === 0) return false;
+  return (平(甲, 暗x, 暗y, w, h) && 平(乙, 暗x, 暗y, w, h)) || (平(甲, 亮x, 亮y, w, h) && 平(乙, 亮x, 亮y, w, h));
+}
+
+async function 比(甲: Buffer, 乙: Buffer): Promise<{ 差: number; 毛边: number; 说明?: string; 差图?: Buffer }> {
   const [a, b] = await Promise.all([甲, 乙].map((x) => sharp(x).ensureAlpha().raw().toBuffer({ resolveWithObject: true })));
   if (a.info.width !== b.info.width || a.info.height !== b.info.height) {
-    return { 差: 1, 说明: `尺寸不同：网页 ${a.info.width}×${a.info.height}，桌面端 ${b.info.width}×${b.info.height}` };
+    return { 差: 1, 毛边: 0, 说明: `尺寸不同：网页 ${a.info.width}×${a.info.height}，桌面端 ${b.info.width}×${b.info.height}` };
   }
   const { width: w, height: h } = a.info;
   const 差图 = Buffer.alloc(w * h * 4);
   let 点 = 0;
+  let 边 = 0;
   for (let i = 0; i < w * h * 4; i += 4) {
-    const 不同 = Math.abs(a.data[i] - b.data[i]) > 容差 || Math.abs(a.data[i + 1] - b.data[i + 1]) > 容差 || Math.abs(a.data[i + 2] - b.data[i + 2]) > 容差;
-    if (不同) 点++;
-    // 一样的地方淡灰底，不一样的标红
+    let 不同 = Math.abs(a.data[i] - b.data[i]) > 容差 || Math.abs(a.data[i + 1] - b.data[i + 1]) > 容差 || Math.abs(a.data[i + 2] - b.data[i + 2]) > 容差;
+    let 是毛边 = false;
+    if (不同) {
+      const x = (i / 4) % w;
+      const y = Math.floor(i / 4 / w);
+      是毛边 = 毛边(a.data, b.data, x, y, w, h) || 毛边(b.data, a.data, x, y, w, h);
+      if (是毛边) {
+        边++;
+        不同 = false;
+      } else 点++;
+    }
+    // 一样的地方淡灰底，不一样的标红，认成毛边的标黄
     const 灰 = 255 - Math.round((255 - (a.data[i] + a.data[i + 1] + a.data[i + 2]) / 3) * 0.25);
-    差图.set(不同 ? [255, 0, 0, 255] : [灰, 灰, 灰, 255], i);
+    差图.set(不同 ? [255, 0, 0, 255] : 是毛边 ? [255, 200, 0, 255] : [灰, 灰, 灰, 255], i);
   }
   const 差 = 点 / (w * h);
-  return { 差, 差图: 差 > 0 ? await sharp(差图, { raw: { width: w, height: h, channels: 4 } }).png().toBuffer() : undefined };
+  return { 差, 毛边: 边, 差图: 差 > 0 ? await sharp(差图, { raw: { width: w, height: h, channels: 4 } }).png().toBuffer() : undefined };
 }
 
 const 文件名 = (s: string) => s.replace(/[\\/:*?"<>|\s]+/g, "_");
@@ -283,7 +368,7 @@ test("网页对桌面", async () => {
             continue;
           }
           const r = await 比(a, b);
-          记({ 差: r.差, 说明: r.说明 });
+          记({ 差: r.差, 说明: r.说明, ...(r.毛边 ? { 毛边: r.毛边 } : {}) });
           if (r.差 > 阈值 || r.说明) {
             const 目录 = path.join(出处, String(宽), 文件名(页.名), 文件名(`${桌.壳}-${块}`));
             mkdirSync(目录, { recursive: true });
