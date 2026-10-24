@@ -14,8 +14,8 @@
  * 增量：多维表格按修改时间筛要表里有「修改时间」列，不一定有，所以拉全表、按 last_modified_time 在这边筛，
  * 没变的本来也靠指纹跳过。权限：应用要开「查看多维表格」，并被加进这几张多维表格。
  */
-import type { 适配器 } from "./adapter";
-import { 接口出错, 最多重试, 退避, 北京时间串, 读JSON, 真联网, type 联网 } from "./net";
+import type { 适配器, 现有列 } from "./adapter";
+import { 接口出错, 最多重试, 退避, 北京时间串, 读JSON, 请求, 真联网, type 联网 } from "./net";
 import { 实体名, type 原始记录, type 实体 } from "./types";
 
 export type 飞书表 = {
@@ -57,6 +57,7 @@ type 飞书记录 = { record_id: string; fields?: Record<string, unknown>; last_
 export class 飞书适配器 implements 适配器 {
   来源 = "feishu" as const;
   private 令牌: { 值: string; 到期: number } | null = null;
+  private 列们: 现有列 = {};
 
   constructor(
     private 配置: 飞书配置,
@@ -69,13 +70,24 @@ export class 飞书适配器 implements 适配器 {
 
   private async 取令牌(): Promise<string> {
     if (this.令牌 && this.令牌.到期 > this.网.现在()) return this.令牌.值;
-    const res = await this.网.fetch(`${this.基址}/open-apis/auth/v3/tenant_access_token/internal`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json; charset=utf-8" },
-      body: JSON.stringify({ app_id: this.配置.appId, app_secret: this.配置.appSecret }),
-    });
-    const j = await 读JSON(res);
-    const code = typeof j?.code === "number" ? j.code : undefined;
+    let res: Response;
+    let j: Record<string, unknown> | null;
+    let code: number | undefined;
+    // 拿令牌的接口也会限流（一个应用每秒有上限），和别的接口一样退避重试
+    for (let 第几次 = 0; ; 第几次++) {
+      res = await 请求(this.网, "飞书", `${this.基址}/open-apis/auth/v3/tenant_access_token/internal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({ app_id: this.配置.appId, app_secret: this.配置.appSecret }),
+      });
+      j = await 读JSON(res, "飞书");
+      code = typeof j?.code === "number" ? j.code : undefined;
+      if ((res.status === 429 || (code !== undefined && 限流.has(code))) && 第几次 < 最多重试) {
+        await this.网.等(退避(第几次));
+        continue;
+      }
+      break;
+    }
     if (!res.ok || code !== 0 || typeof j?.tenant_access_token !== "string") {
       throw new 接口出错(`飞书拿不到访问令牌（HTTP ${res.status}${code !== undefined ? `，code ${code}` : ""}）：${(code !== undefined && 说人话[code]) || String(j?.msg ?? "没有返回内容")}`);
     }
@@ -91,12 +103,12 @@ export class 飞书适配器 implements 适配器 {
     for (let 第几次 = 0; ; 第几次++) {
       const url = new URL(this.基址 + 路径);
       for (const [k, v] of Object.entries(参数)) if (v !== undefined && v !== "") url.searchParams.set(k, v);
-      const res = await this.网.fetch(url.toString(), {
+      const res = await 请求(this.网, "飞书", url.toString(), {
         method: 方法,
         headers: { Authorization: `Bearer ${await this.取令牌()}`, "Content-Type": "application/json; charset=utf-8" },
         body: 体 === undefined ? undefined : JSON.stringify(体),
       });
-      const j = await 读JSON(res);
+      const j = await 读JSON(res, "飞书");
       const code = typeof j?.code === "number" ? j.code : undefined;
       if ((res.status === 429 || (code !== undefined && 限流.has(code))) && 第几次 < 最多重试) {
         await this.网.等(退避(第几次));
@@ -127,6 +139,8 @@ export class 飞书适配器 implements 适配器 {
 
   private async 拉表(表: 飞书表, since: Date | null): Promise<原始记录[]> {
     const 类型 = await this.字段类型(表);
+    const 列 = (this.列们[表.实体] ??= new Set());
+    for (const k of Object.keys(飞书成记录(表, 类型, { record_id: "" }).字段)) 列.add(k);
     const 出: 原始记录[] = [];
     let page_token: string | undefined;
     do {
@@ -153,8 +167,13 @@ export class 飞书适配器 implements 适配器 {
 
   async 拉变化(since: Date | null) {
     const 出: 原始记录[] = [];
+    this.列们 = {};
     for (const 表 of this.配置.表们) 出.push(...(await this.拉表(表, since)));
     return 出;
+  }
+
+  现有列() {
+    return this.列们;
   }
 }
 
