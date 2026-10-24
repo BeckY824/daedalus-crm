@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- 经 stdin 交给 node - 跑，只能是 CommonJS */
 // 【我方用】数据卷指纹：在 crm 容器里用 node --experimental-sqlite 跑（tools/restore-drill.sh 调）。
 // 每行一项，两次输出 diff 为空 = 数据一模一样：
 //   integrity <结果>                 PRAGMA integrity_check

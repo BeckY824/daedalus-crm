@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- 经 stdin 交给 node - 跑，只能是 CommonJS */
 // 【我方用】核心业务表的内容哈希：在 crm 容器里用 node --experimental-sqlite 跑（tools/verify-upgrade.sh 调）。
 // 升级会加列、回滚后库里留着新列，所以只按「起点时就有的列」算：
 //   第一次（BASE 为 null）：第一行打出起点各表的列 JSON，后面每行「hash 表名 行数 sha256」

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- 经 stdin 交给 node - 跑，只能是 CommonJS */
 // 【我方用，只在 CI / 测试机演练时用，别在客户服务器上跑】往库里每张表灌演练数据，再在 /data 下放几个附件样的文件。
 // 在 crm 容器里用 node --experimental-sqlite 跑（tools/restore-drill.sh --fill 调）。
 // 目的是让「逐表比对」每张表都有东西可比，并带上容易在备份恢复里出岔子的值：

@@ -94,8 +94,8 @@ describe("升级先在测试机验证", () => {
   });
 
   it("每一步都核核心业务表的内容哈希，不只看行数；空库直接不验", () => {
-    expect(验证).toMatch(/drill\/core-hash\.js/);
-    expect(验证).toMatch(/drill\/fill\.js/);
+    expect(验证).toMatch(/\$DRILL\/core-hash\.js/);
+    expect(验证).toMatch(/\$DRILL\/fill\.js/);
     expect(验证).toMatch(/库是空的/);
     expect(验证).toMatch(/CORE_SKIP/);
   });
@@ -135,5 +135,24 @@ describe("备份真能恢复（恢复演练）", () => {
   it("CI 用这次打的镜像打交付包，不去拉 GHCR 上的同名版本", () => {
     expect(打包).toMatch(/LOCAL_APP_IMAGE/);
     expect(ci).toMatch(/LOCAL_APP_IMAGE=1 deploy\/enterprise\/tools\/pack\.sh/);
+  });
+});
+
+describe("status.sh 的行家检查", () => {
+  const 状态 = 读("deploy/enterprise/scripts/status.sh");
+
+  it("磁盘：部署目录和 Docker 数据目录都看，85% 或剩不到 5G 提示", () => {
+    expect(状态).toMatch(/DockerRootDir/);
+    expect(状态).toMatch(/-ge 85/);
+    expect(状态).toMatch(/-lt 5242880/);
+  });
+
+  it("证书：读正在用的那张，14 天内过期提示", () => {
+    expect(状态).toMatch(/openssl s_client -connect 127\.0\.0\.1:443/);
+    expect(状态).toMatch(/-checkend 1209600/);
+  });
+
+  it("时钟：没和时间服务器同步就提示", () => {
+    expect(状态).toMatch(/NTPSynchronized/);
   });
 });
