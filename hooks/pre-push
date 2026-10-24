@@ -1,23 +1,104 @@
 #!/usr/bin/env sh
 # 推送前的自动关卡。
 #
-# 推送前的本地关卡。CI（.github/workflows/ci.yml）会再跑一遍并加上 E2E 与密钥扫描，
-# 但等 CI 红了再改要多一个来回——这里 30 秒先把最常见的三类问题挡在本机。
+# 分两档（10-24）：
+#   推 main 或 tag：照旧跑全套——类型检查 + 整库代码检查 + 全部单测。
+#   推功能分支：类型检查照跑；代码检查只查相对 origin/main 改过的文件；单测只跑和改动相关的
+#     （import 链上的用 vitest related 找，按路径读源码的用例用文件名在 tests/ 里搜）。
+#     改到会影响整套的文件（vitest 配置、测试库建表、prisma、依赖、tsconfig、eslint 配置、钩子本身）
+#     就退回全套。全套交给 CI，CI 照旧一条不少地跑并加上 E2E 与密钥扫描。
+#   想在功能分支上也跑全套：PREPUSH_FULL=1 git push …
 #
-# 启用（每台机器只需一次）：
-#     git config core.hooksPath hooks
-#
-# 只跑快的三件，合计约 30 秒。E2E 要起 dev server、跑两分半，不进钩子——
-# 维持「合并后手跑 + 部署后线上复验」。
+# 启用：git config core.hooksPath hooks
 set -e
 
-echo "▶ 1/3 类型检查…"
-npx tsc --noEmit
+FULL=${PREPUSH_FULL:-}
+# 别继承环境变量里的同名值
+BASE=
+ZERO="0000000000000000000000000000000000000000"
+CHANGED=$(mktemp)
+TESTS=$(mktemp)
+LOG=$(mktemp)
+trap 'rm -f "$CHANGED" "$TESTS" "$LOG"' EXIT
 
-echo "▶ 2/3 代码检查…"
-npx eslint .
+# 每步只打一行结论；失败才把最后 40 行吐出来（10-24：推送输出要短）
+step() {
+  label=$1; shift
+  started=$(date +%s)
+  if "$@" > "$LOG" 2>&1; then
+    summary=$(grep -E '^ *(Test Files|Tests) ' "$LOG" | sed 's/^ *//' | tr -s ' ' | awk 'NR>1{printf "，"} {printf "%s", $0}')
+    echo "  ✓ $label（$(( $(date +%s) - started ))s）${summary:+ $summary}"
+  else
+    echo "  ✗ $label 没过，最后 40 行："
+    tail -40 "$LOG"
+    exit 1
+  fi
+}
 
-echo "▶ 3/3 单元测试…"
-npx vitest run
+# git 从标准输入给：<本地 ref> <本地 sha> <远端 ref> <远端 sha>，一次推几个就几行
+ANY_REF=
+ONLY_DELETE=
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # 删远端分支，不用查
+  if [ "$local_sha" = "$ZERO" ]; then ONLY_DELETE=1; continue; fi
+  case "$remote_ref" in
+    refs/heads/main | refs/tags/*) FULL=1 ;;
+  esac
+  ANY_REF=1
+  if [ -z "$FULL" ]; then
+    [ -n "$BASE" ] || { git fetch -q origin main 2>/dev/null || true; }
+    BASE=$(git merge-base origin/main "$local_sha" 2>/dev/null) || FULL=1
+    [ -n "$BASE" ] && git -c core.quotePath=false diff --name-only --diff-filter=d "$BASE" "$local_sha" >> "$CHANGED"
+  fi
+done
+if [ -z "$ANY_REF" ]; then
+  # 这次只删分支：没有代码要查
+  [ -n "$ONLY_DELETE" ] && exit 0
+  # 读不出要推什么就别冒险，跑全套
+  FULL=1
+fi
 
-echo "✅ 预推送检查通过"
+if [ -z "$FULL" ] && grep -Eq '^(vitest\.config\.|tests/setup-db\.ts$|scripts/build-template\.mjs$|prisma/|package(-lock)?\.json$|tsconfig\.json$|eslint\.config\.|hooks/pre-push$)' "$CHANGED"; then
+  echo "▶ 改到了影响整套的文件，照全套跑"
+  FULL=1
+fi
+
+if [ -n "$FULL" ]; then
+  echo "▶ 预推送：全套"
+  step 类型检查 npx tsc --noEmit
+  step 代码检查 npx eslint .
+  step 单元测试 npx vitest run --reporter=dot
+  echo "✅ 预推送检查通过"
+  exit 0
+fi
+
+echo "▶ 功能分支：只跑相关用例，全套交 CI"
+sort -u -o "$CHANGED" "$CHANGED"
+
+step 类型检查 npx tsc --noEmit
+
+LINT_FILES=$(grep -E '\.(ts|tsx|js|jsx|mjs|cjs)$' "$CHANGED" || true)
+if [ -n "$LINT_FILES" ]; then
+  # 被 eslint 配置忽略的（desktop/、生成代码）不报警告
+  step "代码检查（$(printf '%s\n' "$LINT_FILES" | wc -l | tr -d ' ') 个改过的文件）" \
+    sh -c 'printf "%s\n" "$1" | tr "\n" "\0" | xargs -0 npx eslint --no-warn-ignored --' _ "$LINT_FILES"
+else
+  echo "  - 代码检查：没有改过的脚本文件"
+fi
+
+# 改过的用例本身
+grep -E '^tests/.+\.test\.ts$' "$CHANGED" >> "$TESTS" || true
+# 不走 import、直接按路径读源码的用例（readFileSync("../desktop/main.js") 之类）：
+# 用「仓库内路径」和「上一级目录/文件名」两种写法在 tests/ 里搜
+while IFS= read -r f; do
+  case "$f" in tests/*) continue ;; esac
+  grep -rlF -e "$f" -e "$(basename "$(dirname "$f")")/$(basename "$f")" tests --include='*.test.ts' >> "$TESTS" 2>/dev/null || true
+done < "$CHANGED"
+sort -u -o "$TESTS" "$TESTS"
+# vitest related 顺着 import 找到其余相关用例；传进去的用例文件自己也会跑
+if [ -s "$CHANGED" ]; then
+  step 单元测试（相关用例） sh -c 'cat "$1" "$2" | sort -u | tr "\n" "\0" | xargs -0 npx vitest related --run --passWithNoTests --reporter=dot' _ "$CHANGED" "$TESTS"
+else
+  echo "  - 单元测试：和 origin/main 没有差别，不用跑"
+fi
+echo "✅ 预推送检查通过（功能分支，全套交 CI）"

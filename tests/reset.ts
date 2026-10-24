@@ -18,6 +18,12 @@ export async function resetDb() {
   await prisma.auditLog.deleteMany();
   // 导入批次（ImportRow 随批次级联删）
   await prisma.importBatch.deleteMany();
+  // 企业版数据接入（EntImportRow 随批次级联删；其余不挂外键，各自清）
+  await prisma.entImportBatch.deleteMany();
+  await prisma.entExternalRef.deleteMany();
+  await prisma.entConflict.deleteMany();
+  await prisma.entTrash.deleteMany();
+  await prisma.entSnapshot.deleteMany();
   await prisma.task.deleteMany();
   await prisma.followPlan.deleteMany();
   await prisma.followUpSource.deleteMany();
@@ -42,5 +48,10 @@ export async function resetDb() {
   await prisma.channel.deleteMany();
   // 供应商不挂在客户和人下面，不会被级联带走（2026-10-03 加；比价、订单采购随它和商机 / 订单级联）
   await prisma.supplier.deleteMany();
+  // 企业版组织架构（迁移 044）：不建外键，不会被级联带走（2026-10-24）
+  await prisma.entMember.deleteMany();
+  await prisma.entLeadAssign.deleteMany();
+  await prisma.entLeadQuota.deleteMany();
+  await prisma.entDept.deleteMany();
   await prisma.user.deleteMany();
 }

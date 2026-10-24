@@ -2,7 +2,7 @@
  * 企业版组织架构（2026-10-24）：直属 / 虚线上级、下属、管理员三类的纯函数。
  */
 import { expect, it } from "vitest";
-import { 建组织, 推业务角色, 直属上级of, 虚线上级of, 实线下属, 虚线下属, 管理员类别of, type 组织部门 } from "@/lib/enterprise/org";
+import { 建组织, 推业务角色, 直属上级of, 虚线上级of, 实线下属, 虚线下属, 管理员类别of, 部门层数, 部门挪动问题, 上级设置问题, 部门树, type 组织部门 } from "@/lib/enterprise/org";
 
 const 部门: 组织部门[] = [
   { id: "nei", name: "内贸部", parentId: null, sort: 0 },
@@ -143,4 +143,54 @@ it("管理员三类：总管理员 / 销售管理 / 市场管理；其余角色�
   expect(管理员类别of(org, "s")).toBeNull();
   expect(管理员类别of(org, "ops")).toBeNull();
   expect(管理员类别of(org, "nobody")).toBeNull();
+});
+
+const 部门表 = new Map(部门.map((d) => [d.id, d]));
+
+it("部门层数：一级 = 1，顶上 = 0；断链、成环 = Infinity", () => {
+  expect(部门层数(部门表, null)).toBe(0);
+  expect(部门层数(部门表, "nei")).toBe(1);
+  expect(部门层数(部门表, "nei-1-a")).toBe(3);
+  expect(部门层数(部门表, "loop-1")).toBe(Infinity);
+  expect(部门层数(部门表, "deleted")).toBe(Infinity);
+});
+
+it("部门挪动问题：建在第三层底下、挪了以后整棵子树超过三层、挪到自己下面、上级不存在都不行", () => {
+  expect(部门挪动问题(部门表, null, null)).toBeNull();
+  expect(部门挪动问题(部门表, null, "nei-1")).toBeNull();
+  expect(部门挪动问题(部门表, null, "nei-1-a")).toBe("部门最多 3 层");
+  expect(部门挪动问题(部门表, null, "nope")).toBe("上级部门不存在");
+  expect(部门挪动问题(部门表, "nei-1", "wai")).toBeNull(); // 两层的子树挪到一级底下 = 三层，正好
+  expect(部门挪动问题(部门表, "nei", "wai")).toBe("部门最多 3 层"); // 三层的子树再往下压一层
+  expect(部门挪动问题(部门表, "nei", "nei-1-a")).toBe("不能挪到自己或自己的下级部门底下");
+  expect(部门挪动问题(部门表, "nei", "nei")).toBe("不能挪到自己或自己的下级部门底下");
+  expect(部门挪动问题(部门表, "nei-1-a", null)).toBeNull();
+  expect(部门挪动问题(部门表, "loop-1", null)).toBeNull(); // 成环的拎到顶上是救它，不转圈
+  expect(部门挪动问题(部门表, "nope", null)).toBe("部门不存在");
+});
+
+it("上级设置问题：不能是自己、停用的人、自己链上的下属；清掉总是可以", () => {
+  const org = 建组织(
+    [人("top"), 人("mgr"), 人("s"), 人("d"), 人("off", "SALES", false)],
+    [
+      行({ userId: "top", deptId: "nei", bizRole: "sales_mgr" }),
+      行({ userId: "mgr", deptId: "nei-1", bizRole: "sales_mgr" }),
+      行({ userId: "s", deptId: "nei-1" }),
+      行({ userId: "d", dottedManagerId: "s" }),
+    ],
+    部门,
+  );
+  expect(上级设置问题(org, "s", null, "直属")).toBeNull();
+  expect(上级设置问题(org, "s", "top", "直属")).toBeNull();
+  expect(上级设置问题(org, "s", "s", "直属")).toBe("上级不能是自己");
+  expect(上级设置问题(org, "s", "off", "直属")).toBe("选的上级不在职");
+  expect(上级设置问题(org, "off", "top", "直属")).toBe("这个人不在职");
+  expect(上级设置问题(org, "top", "s", "直属")).toMatch(/是他的下属/); // s 按部门推到 mgr，mgr 推到 top
+  expect(上级设置问题(org, "s", "d", "虚线")).toMatch(/是他的虚线下属/);
+  expect(上级设置问题(org, "s", "d", "直属")).toBeNull(); // 虚线和实线各算各的
+});
+
+it("部门树：先父后子、同级按 sort；断链、成环的放最后当一级并标出来", () => {
+  const 行们 = 部门树([...部门, { id: "orphan", name: "孤儿", parentId: "deleted", sort: 0 }]);
+  expect(行们.map((x) => `${x.d.id}:${x.层}${x.断 ? "!" : ""}`)).toEqual(["nei:1", "nei-1:2", "nei-1-a:3", "wai:1", "orphan:1!", "loop-1:1!", "loop-2:2"]);
 });
