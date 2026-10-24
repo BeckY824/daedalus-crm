@@ -13,6 +13,8 @@ import { 企业版 } from "@/lib/enterprise/switch";
 import { 规则开着, 规则名们 } from "@/lib/enterprise/rules";
 import { 文字里号码打码 } from "@/lib/utils";
 import { 读组织, 直属上级of, 虚线上级of, 管理员类别of } from "@/lib/enterprise/org";
+import { 规整字段配置, 字段权限key } from "@/lib/enterprise/field-perm";
+import { getSetting } from "@/lib/settings";
 import type { 组织架构 } from "./OrgTab";
 
 /**
@@ -74,7 +76,8 @@ export default async function SettingsBody() {
     ? await Promise.all([
         读组织(),
         Promise.all(规则名们.map(async (n) => [n, await 规则开着(n)] as const)).then((xs) => Object.fromEntries(xs) as Record<(typeof 规则名们)[number], boolean>),
-      ]).then(([org, 开关]) => {
+        getSetting<unknown>(字段权限key).then(规整字段配置),
+      ]).then(([org, 开关, 字段权限]) => {
         const 名 = new Map(users.map((u) => [u.id, u.name]));
         return {
           部门: [...org.部门.values()],
@@ -92,6 +95,7 @@ export default async function SettingsBody() {
           能改: !共享区 && (me.role === "ADMIN" || 管理员类别of(org, me.id) === "总管理员"),
           是老板: me.role === "ADMIN" && !共享区,
           规则开着: 开关,
+          字段权限,
         };
       })
     : null;
