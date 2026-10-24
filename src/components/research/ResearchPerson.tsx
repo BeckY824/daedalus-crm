@@ -10,7 +10,7 @@
  * 只列和做生意有关的公开页面（公司官网、名录、B2B 平台、LinkedIn、Facebook 公司页），私人社交不列。
  */
 import { useEffect, useState } from "react";
-import { App } from "antd";
+import { useCopy } from "@/lib/clipboard";
 import { ToolCard, Ref } from "./ResearchCard";
 import { AutoStart } from "./ResearchRun";
 import { useJob, clearJob } from "@/lib/ai-jobs";
@@ -126,16 +126,13 @@ function Confirm({ 名, 电话, onStart, onAsCompany, onCancel }: { 名?: string
 }
 
 export function PersonCard({ s, running, error, onPick, onStop, onRetry }: { s: 背调状态; running: boolean; error?: string; onPick?: (c: 候选公司) => void; onStop?: () => void; onRetry?: () => void }) {
-  const { message } = App.useApp();
   const [都不是, set都不是] = useState(false);
   const 人 = s.人!;
   const 候选 = 人.候选 ?? [];
   const 找完 = !running && 人.出现 !== undefined;
   const 简版 = 找完 && (!候选.length || 都不是);
-  const 复制 = async () => {
-    await navigator.clipboard.writeText(报告文本(s));
-    message.success("已复制");
-  };
+  const 拷 = useCopy();
+  const 复制 = () => 拷(报告文本(s), "已复制");
   return (
     <section className="rs-card" aria-label={`找 ${人.名 ?? 人.号.号} 的公司`}>
       <div className="rs-head">
