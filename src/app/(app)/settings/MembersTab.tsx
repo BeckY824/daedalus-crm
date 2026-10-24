@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Table, Button, Space, Tag, Modal, Form, Input, Select, Switch, Row as 行, Col, App, Alert, Typography } from "antd";
+import { Table, Button, Space, Tag, Modal, Form, Input, Select, Switch, Row as 行, Col, App, Alert, Typography, Radio } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { PlusOutlined, EditOutlined, StopOutlined, UndoOutlined } from "@ant-design/icons";
 import { UserCell } from "@/components/ui";
@@ -10,7 +10,8 @@ import { ROLES } from "@/lib/constants";
 import { useBusiness } from "@/lib/business-client";
 import { 外贸订单 } from "@/lib/business-config";
 import type { SessionUser } from "@/lib/auth";
-import { saveUser, deactivateUser, reactivateUser } from "./actions";
+import { saveUser, deactivateUser, reactivateUser, 停用清点 } from "./actions";
+import type { 停用方式 } from "@/lib/offboard-db";
 
 /** 设置 · 团队成员：谁能进、谁是管理员。新增、编辑、停用（停用要先把名下的客户转交出去） */
 
@@ -31,12 +32,15 @@ export default function MembersTab({
   me,
   isAdmin,
   用邮箱登录,
+  企业版 = false,
 }: {
   users: Row[];
   me: SessionUser;
   isAdmin: boolean;
   /** 托管版：成员的登录标识是邮箱，不是用户名。见下面表单里那段注释 */
   用邮箱登录: boolean;
+  /** 企业版才有离职交接（选放进公海、先清点）；别的版本停用对话框和原来一样 */
+  企业版?: boolean;
 }) {
   const router = useRouter();
   const { message, modal } = App.useApp();
@@ -117,16 +121,40 @@ export default function MembersTab({
     });
   }
 
-  function onDeactivate(r: Row) {
+  const [清点中, set清点中] = useState<string | null>(null);
+  async function onDeactivate(r: Row) {
     const others = users.filter((u) => u.active && u.id !== r.id);
     if (!others.length) {
       message.error("没有可接手的成员");
       return;
     }
+    if (清点中) return;
+    // 企业版先数一下两种方式各会转走、放进公海多少（离职交接 D-36），对话框里照实说
+    let 点: Parameters<typeof OffboardForm>[0]["点"] | null = null;
+    if (企业版) {
+      set清点中(r.id);
+      const 清 = await 停用清点(r.id).catch(() => null);
+      set清点中(null);
+      if (!清?.ok) {
+        message.error(清 && "error" in 清 ? 清.error : "清点没成功，刷新再试");
+        return;
+      }
+      点 = 清;
+    }
     let target = others[0].id;
+    let 方式: 停用方式 = "转交";
     modal.confirm({
       title: `停用成员「${r.name}」`,
-      content: (
+      width: 480,
+      content: 点 ? (
+        <OffboardForm
+          name={r.name}
+          点={点}
+          others={others}
+          defaultTarget={target}
+          onChange={(v) => { target = v.target; 方式 = v.方式; }}
+        />
+      ) : (
         <div style={{ marginTop: 12 }}>
           {/* 说清转交的是往后要跟的活、历史业绩不动（排查 B2）。原来只写「名下 N 个客户、N 个商机」，叫法还写死成「客户」 */}
           <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 8 }}>
@@ -147,9 +175,9 @@ export default function MembersTab({
       okButtonProps: { danger: true },
       cancelText: "取消",
       async onOk() {
-        const res = await deactivateUser(r.id, target);
+        const res = await deactivateUser(r.id, target, 方式);
         if (res.ok) {
-          message.success("已停用并转交");
+          message.success(方式 === "公海" ? "已停用，名下的放进了公海" : "已停用并转交");
           router.refresh();
         } else message.error(res.error);
       },
@@ -206,6 +234,7 @@ export default function MembersTab({
                 danger
                 icon={<StopOutlined />}
                 disabled={r.id === me.id}
+                loading={清点中 === r.id}
                 onClick={() => onDeactivate(r)}
               />
             ) : (
@@ -358,5 +387,68 @@ export default function MembersTab({
         </Form>
       </Modal>
     </>
+  );
+}
+
+type 清点 = { 客户: number; 进公海客户: number; 项目: number; 进公海项目: number; 订单项目: number };
+
+/**
+ * 停用对话框的正文：选交接方式（转交给一个人 / 放进公海）、选接手人，照清点的数说清会怎样。
+ * 默认转交，和原来一样；公海方式下订单阶段的项目、已签约的客户还是给接手人，所以接手人两种方式都要选
+ */
+function OffboardForm({ name, 点, others, defaultTarget, onChange }: {
+  name: string;
+  点: { 转交: 清点; 公海: 清点 };
+  others: Row[];
+  defaultTarget: string;
+  onChange: (v: { target: string; 方式: 停用方式 }) => void;
+}) {
+  const b = useBusiness();
+  const [方式, set方式] = useState<停用方式>("转交");
+  const [target, setTarget] = useState(defaultTarget);
+  const 数 = 点[方式];
+  const 改 = (v: { target?: string; 方式?: 停用方式 }) => {
+    const 新 = { target: v.target ?? target, 方式: v.方式 ?? 方式 };
+    setTarget(新.target);
+    set方式(新.方式);
+    onChange(新);
+  };
+  const 小字 = { fontSize: 13, marginBottom: 8 } as const;
+  return (
+    <div style={{ marginTop: 12 }}>
+      <Radio.Group
+        value={方式}
+        onChange={(e) => 改({ 方式: e.target.value })}
+        style={{ marginBottom: 12 }}
+        options={[
+          { value: "转交", label: "全部转交给一个人" },
+          { value: "公海", label: "放进公海，谁领谁接" },
+        ]}
+      />
+      {方式 === "转交" ? (
+        <Typography.Paragraph type="secondary" style={小字}>
+          {/* 说清转交的是往后要跟的活、历史业绩不动（排查 B2）。原来只写「名下 N 个客户、N 个商机」，叫法还写死成「客户」 */}
+          {数.客户} 位{b.customer}{数.项目 ? `、${数.项目} 个项目` : ""}，连同进行中的商机、没做完的计划和待办、线索、渠道，一起转交给：
+        </Typography.Paragraph>
+      ) : (
+        <Typography.Paragraph type="secondary" style={小字}>
+          {数.进公海客户} 位{b.customer}放进公海{数.进公海项目 ? `、${数.进公海项目} 个项目放回项目公海` : ""}，
+          「{name}」在这些{b.customer}上没做完的活和项目，谁领了跟谁走。
+          {数.客户 ? `已签约、已流失或有订单阶段项目的 ${数.客户} 位${b.customer}、` : ""}
+          {数.项目 ? `${数.项目} 个项目${数.订单项目 ? `（含 ${数.订单项目} 个订单阶段的，不能放公海）` : ""}、` : ""}
+          线索、渠道，交给：
+        </Typography.Paragraph>
+      )}
+      <Select
+        value={target}
+        style={{ width: "100%" }}
+        onChange={(v) => 改({ target: v })}
+        options={others.map((u) => ({ value: u.id, label: `${u.name}（${u.title}）` }))}
+      />
+      <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginTop: 8, marginBottom: 0 }}>
+        {外贸订单(b) ? "已经下的订单、转了订单和丢单的商机" : "已经签下的业绩、赢单和丢单的商机"}、已有结局的项目，还算在「{name}」头上；
+        TA 写过的跟进、建的档照旧显示是 TA。
+      </Typography.Paragraph>
+    </div>
   );
 }

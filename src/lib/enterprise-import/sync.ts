@@ -15,11 +15,12 @@ import { prisma } from "../prisma";
 import { getSetting, setSetting } from "../settings";
 import type { Actor } from "../audit";
 import { 企业版 } from "../enterprise/switch";
-import { 取适配器, 还没接 } from "./adapter";
+import { 取适配器, 还没接, type 现有列 } from "./adapter";
 import { 写一批 } from "./apply";
 import { 试跑, type 试跑结果 } from "./report";
 import { 别的在写 } from "./revert";
-import { 来源名, type 来源, type 映射, type 原始记录 } from "./types";
+import { 进备注 } from "./mapping";
+import { 来源名, 实体名, 实体顺序, type 来源, type 映射, type 原始记录 } from "./types";
 
 export type 同步频率 = "每小时" | "每晚";
 export type 同步结果类别 = "成功" | "没变化" | "没接" | "出错" | "跳过";
@@ -31,7 +32,7 @@ export type 同步设置 = {
   几点: number;
   /** 开同步的人：定时同步写进操作日志时记在他名下 */
   开的人Id: string | null;
-  /** 下次拉变化从这个时间起（上次成功那次「开始拉」的时间；拉的过程中原系统又改的，下次会再拉到，靠指纹跳过） */
+  /** 下次拉变化从这个时间起（上次成功那次「开始拉」的时间；拉的过程中原系统又改的，下次会再拉到，靠指纹跳过）。真拉时再往前多拉 拉变化回看毫秒 */
   拉到: string | null;
   上次: { 时间: string; 结果: 同步结果类别; 话: string; 批次Id?: string } | null;
   /** 切换日：之后不再同步 */
@@ -40,6 +41,8 @@ export type 同步设置 = {
 
 export const 能同步的来源: 来源[] = ["feishu", "dingtalk"];
 const 键 = (源: 来源) => `entSync.${源}`;
+/** 拉变化往前多拉这么久：原系统和我们的钟对不齐、或改动晚几秒才记上修改时间的，也拉得到；多拉的靠指纹跳过 */
+export const 拉变化回看毫秒 = 5 * 60_000;
 const 默认: 同步设置 = { 开: false, 频率: "每晚", 几点: 2, 开的人Id: null, 拉到: null, 上次: null, 切换: null };
 
 export async function 读同步设置(源: 来源): Promise<同步设置> {
@@ -85,9 +88,11 @@ export async function 改同步设置(源: 来源, 改: { 开?: boolean; 频率?
 
 /** 接口来的首次导入：拉全量 → 试跑出报告（人看过、改好映射再正式导入，和 Excel 同一页） */
 export async function 拉全量试跑(源: 来源, 用户Id: string): Promise<试跑结果> {
-  const 记录 = await 取适配器(源).拉全量();
+  const 适配 = 取适配器(源);
+  const 记录 = await 适配.拉全量();
   if (!记录.length) throw new Error(`${来源名[源]}那边一条都没拉到，看一下给的权限是不是能读客户、联系人、商机和跟进记录`);
-  return 试跑({ 来源: 源, 用户Id, 记录, 已有映射: await 已认映射(源), 留AI: true });
+  // 原系统改了列名：旧名从认过的映射里去掉，新名按规则重新认；不然旧名一直留着，同步每次都报「列不见了」
+  return 试跑({ 来源: 源, 用户Id, 记录, 已有映射: 去掉不见的列(await 已认映射(源), 现有列们(适配.现有列?.() ?? null, 记录)), 留AI: true });
 }
 
 /* ───────────────────────── 同步一次 ───────────────────────── */
@@ -120,13 +125,17 @@ export async function 同步一次(源: 来源, opts: { 用户?: Actor; 现在?:
   const m = await 已认映射(源);
   if (!m) return 记({ 结果: "跳过", 话: `还没从${来源名[源]}正式导入过，先做一次首次导入` });
 
+  const 适配 = 取适配器(源);
   let 记录: 原始记录[];
   try {
-    记录 = await 取适配器(源).拉变化(设置.拉到 ? new Date(设置.拉到) : null);
+    记录 = await 适配.拉变化(设置.拉到 ? new Date(new Date(设置.拉到).getTime() - 拉变化回看毫秒) : null);
   } catch (e) {
     if (e instanceof 还没接) return 记({ 结果: "没接", 话: e.message });
     return 记({ 结果: "出错", 话: `从${来源名[源]}拉数据没成功：${错话(e)}` });
   }
+  // 认过的列在原系统里没了（改名或删了）：照旧映射写会把那一列当没有，先停下，不写也不往前挪
+  const 缺 = 不见的列(m, 适配.现有列?.() ?? null, 记录);
+  if (缺) return 记({ 结果: "出错", 话: `${来源名[源]}${缺}（可能改了名或删了），这次没写。先重新拉全量试跑、认好列再正式导入一次，同步才接着走` });
   if (!记录.length) return 记({ 结果: "没变化", 话: "原系统没有新改动" }, 开始.toISOString());
   // 拉的时候有人点了切换：这批不写了（快照已经按切换那一刻留了）
   if ((await 读同步设置(源)).切换) return { 结果: "跳过", 话: "已经切换，不再同步" };
@@ -135,6 +144,46 @@ export async function 同步一次(源: 来源, opts: { 用户?: Actor; 现在?:
   const { 批次Id } = await 试跑({ 来源: 源, 用户Id: 用户.id, 记录, 建议器: null, 已有映射: m, 留AI: true, 类型: "sync" });
   const r = await 写完(批次Id, 用户, `拉到 ${记录.length} 条`);
   return 记(r, r.结果 === "出错" ? undefined : 开始.toISOString());
+}
+
+/**
+ * 映射里落到字段的列（不用的、拼进备注的不算），原系统现在还有没有。
+ * 现有 = 适配器按列描述报的列，再并上这次拉到的记录里出现的列；适配器报不了的，只看拉到记录的那几类。
+ * 都在返回 null；缺了返回一句「「客户」表里『手机』列不见了」。
+ */
+export function 不见的列(m: 映射, 现有: 现有列 | null, 记录: 原始记录[]): string | null {
+  const 有 = 现有列们(现有, 记录);
+  const 话: string[] = [];
+  for (const e of 实体顺序) {
+    const 列 = 有[e];
+    if (!列) continue;
+    const 缺 = Object.entries(m.列[e] ?? {})
+      .filter(([头, 字段]) => 字段 && 字段 !== 进备注 && !列.has(头))
+      .map(([头]) => `『${头}』`);
+    if (缺.length) 话.push(`「${实体名[e]}」表里${缺.slice(0, 5).join("、")}${缺.length > 5 ? ` 等 ${缺.length} 列` : "列"}不见了`);
+  }
+  return 话.length ? 话.join("；") : null;
+}
+
+/** 适配器按列描述报的列，并上拉到的记录里出现的列 */
+function 现有列们(现有: 现有列 | null, 记录: 原始记录[]): 现有列 {
+  const 有: 现有列 = {};
+  for (const [e, 列] of Object.entries(现有 ?? {}) as [keyof 现有列, Set<string>][]) 有[e] = new Set(列);
+  for (const r of 记录) {
+    const 列 = (有[r.实体] ??= new Set());
+    for (const k of Object.keys(r.字段)) 列.add(k);
+  }
+  return 有;
+}
+
+/** 认过的映射里，原系统现在没有的列去掉（只动这次拉到了的那几类） */
+function 去掉不见的列(m: 映射 | null, 有: 现有列): 映射 | null {
+  if (!m) return m;
+  const 新 = structuredClone(m);
+  for (const [e, 列] of Object.entries(有) as [keyof 现有列, Set<string>][]) {
+    if (新.列[e]) 新.列[e] = Object.fromEntries(Object.entries(新.列[e]!).filter(([头]) => 列.has(头)));
+  }
+  return 新;
 }
 
 async function 写完(批次Id: string, 用户: Actor, 前话: string): Promise<同步一次结果> {
