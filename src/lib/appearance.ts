@@ -54,6 +54,8 @@ export function 挂外观(a: 外观, el: HTMLElement = document.documentElement)
 
 /**
  * 首次绘制前跑的那段。写成字符串塞进 <head>，它跑的时候 React 还没起来，所以不能 import 任何东西；
- * 认值的规矩和 读外观 同一套（tests/appearance.test.ts 两边对一遍）
+ * 认值的规矩和 读外观 同一套（tests/appearance.test.ts 两边对一遍）。
+ * Windows 上（网页和桌面端都算）顺手挂 os-win：globals.css 只有「压深默认主题浅灰字」那条不限 .shell-desktop，
+ * 网页版在 Windows 上也要同样的字色；别的 os-win 规则都限在 .shell-desktop 里，网页不受影响
  */
-export const 外观预设脚本 = `(function(){try{var d=${JSON.stringify(默认外观)},v={};try{v=JSON.parse(localStorage.getItem(${JSON.stringify(外观键)})||"{}")||{};}catch(_){}var P=${JSON.stringify(底色表.map((x) => x.key))},S=${JSON.stringify(主题表.map((x) => x.key))};var e=document.documentElement;e.dataset.paper=P.indexOf(v.paper)>-1?v.paper:d.paper;e.dataset.skin=S.indexOf(v.skin)>-1?v.skin:d.skin;}catch(_){}})();`;
+export const 外观预设脚本 = `(function(){try{var d=${JSON.stringify(默认外观)},v={};try{v=JSON.parse(localStorage.getItem(${JSON.stringify(外观键)})||"{}")||{};}catch(_){}var P=${JSON.stringify(底色表.map((x) => x.key))},S=${JSON.stringify(主题表.map((x) => x.key))};var e=document.documentElement;e.dataset.paper=P.indexOf(v.paper)>-1?v.paper:d.paper;e.dataset.skin=S.indexOf(v.skin)>-1?v.skin:d.skin;if(/Windows/.test(navigator.userAgent))e.classList.add("os-win");}catch(_){}})();`;
