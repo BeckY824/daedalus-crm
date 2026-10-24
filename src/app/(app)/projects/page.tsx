@@ -5,7 +5,7 @@ import { getBusiness } from "@/lib/business";
 import { 搜索词 } from "@/lib/search-keyword";
 import { 负责人候选 } from "@/lib/owners";
 import { 看板分列, type 项目行 } from "@/lib/project/board";
-import { 看得到的客户, 露客户 } from "@/lib/project/db";
+import { 看得到的客户, 露客户, 公海超时收回 } from "@/lib/project/db";
 import ProjectsView from "./ProjectsView";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +14,8 @@ export const dynamic = "force-dynamic";
 export default async function ProjectsPage({ searchParams }: { searchParams: Promise<{ keyword?: string; ownerId?: string; pool?: string }> }) {
   const me = await requireUser();
   if ((await getBusiness()).projectMode !== true) notFound();
+  // 企业版超时回收：先收再列，列表里看到的就是收完的样子
+  await 公海超时收回(me).catch((e) => console.error("[超时回收] 扫的时候出错，这次先不收", e));
   const sp = await searchParams;
   const 词 = 搜索词(sp.keyword);
   const rows = await prisma.project.findMany({

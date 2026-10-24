@@ -43,7 +43,8 @@ import { deactivateUser } from "@/app/(app)/settings/actions";
 import { 建公司, type 公司 } from "./sim/公司";
 import { 开始假时间, 拨到, 停掉假时间 } from "./sim/时钟";
 import { 当前人, type 会话人 } from "./sim/身份";
-import { 企业版都在, 要, 可有 } from "./sim/适配";
+import { 接口都在, 要, 可有 } from "./sim/适配";
+const 开关开能跑 = await 接口都在();
 import { 红清单 } from "./sim/红清单";
 
 // ———————————————————— 检查点（开关开那组）：id → 规则号 + 断言什么 ————————————————————
@@ -465,7 +466,10 @@ async function 剧本开() {
   拨到("2026-02-01 09:00");
   await 查("D7-自动分配", async () => {
     const 自动 = await 要("app/(app)/leads/assign-actions", "自动分配线索", "D-38");
-    得(await 作为("市场经理", () => 自动(线索id["L4"])), "自动分配 L4");
+    const r = 得(await 作为("市场经理", () => 自动(线索id["L4"])), "自动分配 L4") as { toUserId: string };
+    // 2 月刚清零：除了上面手动分了 L5 的内销1，能接的人都是 0 条，并列给进池最早的——
+    // 销售、销售管理里建号最早的是内贸经理（老板、总管理是 director，不接线索）
+    expect(公.名[r.toUserId]).toBe("内贸经理");
   });
   await 查("D7-两人同时领只一个", async () => {
     const 两人 = ["外销2", "外销3"] as const;
@@ -540,7 +544,7 @@ async function 剧本关() {
 
 // ———————————————————— 两组 ————————————————————
 
-describe.skipIf(!企业版都在)("一周模拟 · 开关开（第四节规则）", () => {
+describe.skipIf(!开关开能跑)("一周模拟 · 开关开（第四节规则）", () => {
   beforeAll(async () => { await 剧本开(); }, 120_000);
   afterAll(() => { 停掉假时间(); vi.unstubAllEnvs(); });
 

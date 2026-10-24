@@ -12,6 +12,7 @@
  *
  * 纯函数在上半截（测试直接用），下半截读写库。权限、规则开关的检查在 leads/assign-actions.ts。
  */
+import type { Prisma } from "@/generated/prisma";
 import { prisma, defaultClient } from "@/lib/prisma";
 import { 管理员类别of, 直属上级of, 虚线上级of, type 组织 } from "./org-core";
 
@@ -79,13 +80,16 @@ export function 挑接手人(候选: 候选人[], 不参与: ReadonlySet<string>
 
 // —— 读库 ——
 
+/** 查完再写 的事务里传 tx 进来，查的和写的落在同一个事务 */
+type 库 = Pick<Prisma.TransactionClient, "entLeadAssign" | "entLeadQuota">;
+
 /** 本月已经算进数的分配条数 */
-export async function 本月已分(userId: string, 月 = 月份()): Promise<number> {
-  return prisma.entLeadAssign.count({ where: { toUserId: userId, month: 月, counted: true } });
+export async function 本月已分(userId: string, 月 = 月份(), db: 库 = prisma): Promise<number> {
+  return db.entLeadAssign.count({ where: { toUserId: userId, month: 月, counted: true } });
 }
 
-export async function 配额of(userId: string): Promise<number | null> {
-  return (await prisma.entLeadQuota.findUnique({ where: { userId } }))?.quota ?? null;
+export async function 配额of(userId: string, db: 库 = prisma): Promise<number | null> {
+  return (await db.entLeadQuota.findUnique({ where: { userId } }))?.quota ?? null;
 }
 
 export type 分出去的线索 = {
