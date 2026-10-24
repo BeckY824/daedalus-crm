@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { 本机我, 团队身份id } from "@/lib/desktop/me";
 import { 云端地址 } from "@/lib/desktop/cloud";
 import { recordAudit } from "@/lib/audit";
-import { 团队状态, 建团队, 加入团队, 同步一轮, 退出团队, 移除成员, 换邀请码, 读价格表, 设互看, 设角色 } from "@/lib/sync/client";
+import { 团队状态, 建团队, 加入团队, 同步一轮, 退出团队, 移除成员, 换邀请码, 读价格表, 设互看, 设角色, 部门操作, 读团队, 这个进程同步过 } from "@/lib/sync/client";
 import { 疑似重复 } from "@/lib/sync/dupes";
 import { 合并一批, 撤销上一批, 读上次合并, 标不是同一个人, type 一对 } from "@/lib/customer-merge";
 import { 管全队客户 } from "@/lib/constants";
@@ -40,6 +40,16 @@ export async function 读团队状态() {
   if (!s.我是建的人 && !s.我是主管) return { ...s, 价格, 重复: [] as Awaited<ReturnType<typeof 疑似重复>>, 每人: {} as Record<string, 一人>, 上次合并: null as { at: string; 对数: number } | null, 叫法: "客户" };
   const 上次 = await 读上次合并().catch(() => null);
   return { ...s, 价格, 重复: await 疑似重复(), 每人: await 每人概况(s.成员.map((m) => m.accountId)), 上次合并: 上次 ? { at: 上次.at, 对数: 上次.料们.length } : null, 叫法: (await getBusiness()).customer };
+}
+
+/**
+ * 「上次同步」那一行和「多久没同步上了」的提醒（2026-10-23）：设置页开着时每 10 秒读一次。
+ * 只读本机 .team.json、不问云端——原来这一栏只在打开时读一次，后台照常在同步，界面上的时间却停在打开那一刻
+ */
+export async function 读同步时间() {
+  await requireUser();
+  const c = 读团队();
+  return c ? { lastSyncAt: c.lastSyncAt ?? null, lastOkAt: c.lastOkAt ?? null, 跑过一轮: 这个进程同步过(), lastError: c.lastError ?? null, last: c.last ?? null } : null;
 }
 
 type 一人 = { 客户: number; 近7天跟进: number; 最近跟进: string | null; userId: string };
@@ -114,6 +124,22 @@ export async function 设互看动作(on: boolean) {
   const r = await 设互看(on === true);
   if (r.ok) {
     await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "team", summary: r.on ? "打开了「同事之间互相看得到客户」：业务员能看到全队客户（同事的只能看和加跟进）" : "关掉了「同事之间互相看得到客户」：业务员只看自己的客户和公海" });
+    revalidatePath("/", "layout");
+  }
+  return r;
+}
+
+const 部门动作们 = new Set(["dept-create", "dept-update", "dept-delete", "member", "role-scope", "invite", "invite-answer", "invite-remove", "invites"]);
+/**
+ * 团队版 1b（2026-10-23）：建 / 改 / 删部门、给成员分部门和业务角色、改「角色 × 范围」、项目进组邀请。
+ * 权限云端核（老板、总管理、管理员）；说明是界面上写好的一句人话，进日志。看邀请名单不留日志
+ */
+export async function 部门动作(action: string, body: Record<string, unknown>, 说明: string) {
+  const me = await requireUser();
+  if (!部门动作们.has(action)) return { ok: false as const, error: "未知操作" };
+  const r = await 部门操作(action, body ?? {});
+  if (r.ok && action !== "invites") {
+    await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "team", summary: `部门与权限：${String(说明 ?? "").slice(0, 200)}` });
     revalidatePath("/", "layout");
   }
   return r;

@@ -53,9 +53,10 @@ export type RecordProps = {
   已收藏?: boolean;
   /**
    * 同事的客户、我只能看和加跟进（团队开了互看、我是业务员、这位不归我也不在公海，2026-10-20）。
-   * 档案、状态、联系人、商机、签约、计划、待办都只显示不给改；只剩「记录跟进」
+   * 档案、状态、联系人、商机、签约、计划、待办都只显示不给改；只剩「记录跟进」。
+   * 「全」= 企业版虚线下属的客户（2026-10-24）：跟进也不能记
    */
-  只读?: boolean;
+  只读?: boolean | "加跟进" | "全";
   /** 我能把这位放进公海吗：负责人本人或管理员（第 6 块） */
   能放公海?: boolean;
   customer: CustomerRow;
@@ -83,8 +84,6 @@ export type RecordProps = {
   followUpsHasMore?: boolean;
   users: 可选成员[];
   channels: { id: string; name: string }[];
-  /** 可作为推荐人的已有学员 */
-  referrableCustomers: { id: string; name: string }[];
   /** 服务端是否配置了 AI。没配时 AI 面板整体不渲染 */
   aiEnabled: boolean;
 };

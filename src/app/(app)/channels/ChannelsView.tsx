@@ -5,12 +5,11 @@ import { requiredText, isFormValidationError } from "@/lib/form-validation";
 import { useMe, 默认负责人 } from "@/lib/me-client";
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { Button, Space, Tag, Modal, Form, Input, Select, App, Tooltip } from "antd";
 import { PlusOutlined, EditOutlined, DeleteOutlined, StopOutlined, CheckCircleOutlined, SearchOutlined } from "@ant-design/icons";
 import ResetFilters from "@/components/ResetFilters";
 import { 列表不问归属 } from "@/lib/solo";
-import { PageHead, UserCell } from "@/components/ui";
+import { RowLink, PageHead, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import { 合计文字 } from "@/lib/currency";
 import { fmtDate, 成员选项, 独自一人, 可选成员 } from "@/lib/utils";
@@ -129,7 +128,7 @@ export default function ChannelsView({
       render: (v: number, r) => (
         <Tooltip title={`这条渠道亲自带来的${b.customer}，不含他们再转介绍来的`}>
           {/* 空值和别的列一样写「—」（审查 D12），原来这一列写 0、隔壁写「0 人」 */}
-          {v > 0 ? <Link href={`/customers?directOf=${encodeURIComponent(r.id)}`}>{v} 人</Link> : <span className="muted">—</span>}
+          {v > 0 ? <RowLink href={`/customers?directOf=${encodeURIComponent(r.id)}`}>{v} 人</RowLink> : <span className="muted">—</span>}
         </Tooltip>
       ),
     },

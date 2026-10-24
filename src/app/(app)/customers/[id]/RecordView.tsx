@@ -24,7 +24,7 @@ import { motion, AnimatePresence } from "motion/react";
 import InlineConfirm from "@/components/InlineConfirm";
 import { 跟进类型们, FOLLOW_TYPE_MAP, FOLLOW_STATUSES, DECISION_STATUSES, FOLLOW_RECORD_STATUS_COLOR } from "@/lib/constants";
 import { 成员选项, dayjs, duration, fmtDate, fmtDateTime, initial, avatarColor, AVATAR_TEXT, 独自一人 } from "@/lib/utils";
-import { FollowStatusTag, StageTag, DecisionStatusTag, FOLLOW_TYPE_ICON } from "@/components/ui";
+import { RowLink, FollowStatusTag, StageTag, DecisionStatusTag, FOLLOW_TYPE_ICON } from "@/components/ui";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel, 外贸订单, 外贸精简, 签约叫 } from "@/lib/business-config";
 import { 国家候选, WhatsApp网址, 官网网址, 客户等级, 客户等级说明, type 客户等级 as 客户等级值 } from "@/lib/customer-extra";
@@ -55,6 +55,7 @@ import { 记下最近客户 } from "@/lib/last-customer";
 import { 金额, 合计文字 } from "@/lib/currency";
 import { 公海标签 } from "@/lib/pool";
 import { 带走说法 } from "@/lib/carry-over";
+import { 滚法 } from "@/lib/reduced-motion";
 import { 放进公海, 领取, 撤销公海 } from "../pool-actions";
 import { useDeleteCustomers } from "../useDeleteCustomers";
 
@@ -100,12 +101,14 @@ export default function RecordView({
   followUpsHasMore = false,
   users,
   channels,
-  referrableCustomers,
   aiEnabled,
   已收藏 = false,
   能放公海 = false,
-  只读 = false,
+  只读: 只读档 = false,
 }: RecordProps) {
+  // 「加跟进」= 团队版互看同事的客户；「全」= 企业版虚线下属的客户，跟进也不能记
+  const 只读 = !!只读档;
+  const 全只读 = 只读档 === "全";
   const { 曲线, 时长, 间隔 } = useMotionTheme();
   const router = useRouter();
   const { message, modal } = App.useApp();
@@ -179,7 +182,7 @@ export default function RecordView({
     // 人刚看到叫他的那条闪一下就被换走了（整套 e2e 抓到过新旧两份同在页面上）。原生 replaceState 接进 Next 路由，不重画
     window.history.replaceState(null, "", window.location.pathname);
     if (!el) return;
-    el.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    el.scrollIntoView({ block: "center", behavior: 滚法() });
     el.classList.add("rec-tl-item-flash");
     const t = setTimeout(() => el.classList.remove("rec-tl-item-flash"), 1600);
     return () => clearTimeout(t);
@@ -362,6 +365,7 @@ export default function RecordView({
   }
 
   function openFollow(record: FollowUpRow | null, aiText?: string) {
+    if (全只读) return void message.info("这是虚线下属的客户：只能看，不能改、不能转");
     setFollowInit({ record, aiText });
     setFollowOpen(true);
   }
@@ -418,7 +422,7 @@ export default function RecordView({
             AI
           </Button>
         )}
-        <Space.Compact>
+        {!全只读 && <Space.Compact>
           <Button type="primary" onClick={() => openFollow(null)}>
             记录跟进
           </Button>
@@ -441,7 +445,7 @@ export default function RecordView({
           >
             <Button type="primary" icon={<DownOutlined />} aria-label="客户更多操作" />
           </Dropdown>
-        </Space.Compact>
+        </Space.Compact>}
       </div>
 
       {/*
@@ -510,8 +514,8 @@ export default function RecordView({
           type="info"
           showIcon
           style={{ marginBottom: 12 }}
-          message={`同事 ${customer.salesOwnerName} 的${b.customer} · 只能看和加跟进`}
-          description="团队开了「同事之间互相看得到客户」。改资料、删除、转交、排计划请找负责人或老板"
+          message={全只读 ? `虚线下属 ${customer.salesOwnerName} 的${b.customer} · 只能看` : `同事 ${customer.salesOwnerName} 的${b.customer} · 只能看和加跟进`}
+          description={全只读 ? "这是虚线下属的客户：只能看，不能改、不能转。要改请找他的直属上级或总管理员" : "团队开了「同事之间互相看得到客户」。改资料、删除、转交、排计划请找负责人或老板"}
         />
       )}
 
@@ -630,7 +634,7 @@ export default function RecordView({
             {opportunities.map((o) => (
               // 两行：名字独占一行，阶段和金额在下面（审查 M4）。原来三样挤一行，
               // 264 宽的左栏里名字只剩「恒拓 · …」，截掉的恰恰是认出这一单的那半截
-              <Link key={o.id} href={`/opportunities?opportunity=${encodeURIComponent(o.id)}`} className="rec-mini rec-mini-2">
+              <RowLink key={o.id} href={`/opportunities?opportunity=${encodeURIComponent(o.id)}`} className="rec-mini rec-mini-2">
                 <span className="rec-mini-n" title={o.name}>{o.name}</span>
                 <span className="rec-mini-sub">
                   <StageTag stage={o.stage} />
@@ -644,7 +648,7 @@ export default function RecordView({
                   {/* 外贸：哪天询的盘（客户：「3 月问了一次没成，5 月又问，这样知道客户计划采购的时间点」） */}
                   {外贸 && o.createdAt && <span className="rec-mini-m" title="询盘时间">{fmtDate(o.createdAt)} 询盘</span>}
                 </span>
-              </Link>
+              </RowLink>
             ))}
           </div>
 
@@ -663,7 +667,7 @@ export default function RecordView({
                 )}
               </div>
               {(报价全开 ? 报价记录 : 报价记录.slice(0, 5)).map((r, i) => (
-                <Link key={`${r.quotedAt}-${i}`} href={`/opportunities?opportunity=${encodeURIComponent(r.商机id)}`} className="rec-mini rec-mini-2" title={`商机「${r.商机}」`}>
+                <RowLink key={`${r.quotedAt}-${i}`} href={`/opportunities?opportunity=${encodeURIComponent(r.商机id)}`} className="rec-mini rec-mini-2" title={`商机「${r.商机}」`}>
                   <span className="rec-mini-n" title={r.spec ? `${r.product}（${r.spec}）` : r.product}>
                     {r.product}
                     {r.spec && <span className="rec-mini-m"> · {r.spec}</span>}
@@ -674,7 +678,7 @@ export default function RecordView({
                     </span>
                     <span className="rec-mini-m">{r.状态 === "WON" ? "成交 · " : ""}{fmtDate(r.quotedAt)}</span>
                   </span>
-                </Link>
+                </RowLink>
               ))}
             </div>
           )}
@@ -690,7 +694,7 @@ export default function RecordView({
                 // 外贸：一笔签约就是一张订单。两行：订单号 + 金额；确认日 · 付款方式 · 供应商。点进订单页看挂在它上面的跟进
                 <div key={c.id} className="rec-mini rec-mini-2">
                   <span className="rec-mini-n rec-mini-line">
-                    {c.order ? <Link className="rec-mini-cut" href={`/orders/${c.order.id}`} title={c.order.no}>{c.order.no}</Link> : <span className="muted rec-mini-cut" title="切到外贸之前登记的。点右边的编辑，填上订单号（或付款方式、供应商）就补成一张订单">（还没有订单号，点编辑补上）</span>}
+                    {c.order ? <RowLink className="rec-mini-cut" href={`/orders/${c.order.id}`} title={c.order.no}>{c.order.no}</RowLink> : <span className="muted rec-mini-cut" title="切到外贸之前登记的。点右边的编辑，填上订单号（或付款方式、供应商）就补成一张订单">（还没有订单号，点编辑补上）</span>}
                     <span className="rec-mini-amt">{金额(c.amount, c.currency)}</span>
                   </span>
                   {/* 确认日、付款方式、供应商各一段，挤不下就折行（原来拼成一串 nowrap，长供应商名直接越出卡片） */}
@@ -961,7 +965,6 @@ export default function RecordView({
         editing={customer}
         users={users}
         channels={channels}
-        customers={referrableCustomers}
         onClose={(saved) => {
           setCustOpen(false);
           if (saved) router.refresh();
@@ -1122,9 +1125,9 @@ function FollowItem({ f, showOwner, index, onEdit, onDelete, 可改 = true }: { 
           {f.title?.trim() && <span className="rec-tl-title" title={f.title}>· {f.title}</span>}
           {/* 挂在订单上的（2026-10-05）：标出订单号，点过去看这张订单的全部跟进。标题已经写着这个订单号就不重复 */}
           {f.order && !f.title?.includes(f.order.no) && (
-            <Link href={`/orders/${f.order.id}`} className="rec-tl-order" title={`订单 ${f.order.no}`}>订单 {f.order.no}</Link>
+            <RowLink href={`/orders/${f.order.id}`} className="rec-tl-order" title={`订单 ${f.order.no}`}>订单 {f.order.no}</RowLink>
           )}
-          {f.opportunity && <Link href={`/opportunities?opportunity=${encodeURIComponent(f.opportunity.id)}`} className="rec-tl-order" title={`关联商机：${f.opportunity.name}`}>关联商机：{f.opportunity.name}</Link>}
+          {f.opportunity && <RowLink href={`/opportunities?opportunity=${encodeURIComponent(f.opportunity.id)}`} className="rec-tl-order" title={`关联商机：${f.opportunity.name}`}>关联商机：{f.opportunity.name}</RowLink>}
           {f.status !== "已完成" && (
             <Tag color={FOLLOW_RECORD_STATUS_COLOR[f.status] ?? "default"} style={{ margin: 0, borderRadius: 6 }}>
               {f.status}

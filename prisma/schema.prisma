@@ -153,6 +153,9 @@ model Customer {
   /// 外贸档案：国家、WhatsApp、微信、邮箱、来源（2026-10-05）。见 CustomerExtra
   extra         CustomerExtra?
   lead          Lead?
+  /// 团队版项目模式（2026-10-23，1a）。见 Project、CustomerCreator
+  projects      Project[]
+  creator       CustomerCreator?
 
   @@index([phone])
   @@index([salesOwnerId])
@@ -226,6 +229,8 @@ model Contact {
   updatedAt  DateTime @updatedAt
 
   followUps FollowUp[]
+  /// 作为主联系人的项目（2026-10-23 项目模式 1a）
+  projects  Project[]
 
   @@index([customerId])
 }
@@ -476,6 +481,30 @@ model CustomerNotDupe {
   @@index([otherId])
 }
 
+/// 商机 / 订单的附件（2026-10-22 D-24，迁移 041）：合同扫描件、产品图、报价单 PDF……挂在一个商机或一张订单下（两列二选一）。
+/// 文件本身在数据目录 attachments/<id>（lib/attachments.ts），这里只记名字、类型、大小、图片宽高、sha256。文件存进去以后不再改。
+/// 不建外键：商机删了又撤销时编号不变，附件跟着回来；父记录没了满 1 天，本机连文件一起清掉（lib/attachments.ts 清孤儿）。
+/// 这一版只存本机（不同步表）；团队版走单独的密文通道、打开时才下载，由团队同步那边接
+model Attachment {
+  id            String   @id @default(cuid())
+  opportunityId String?
+  orderId       String?
+  /// 原文件名（人看的）；图片压过以后扩展名换成 .jpg
+  name          String
+  mime          String
+  /// 字节
+  size          Int
+  width         Int?
+  height        Int?
+  sha256        String
+  /// 谁传的。不建外键，同 AuditLog
+  userId        String?
+  createdAt     DateTime @default(now())
+
+  @@index([opportunityId])
+  @@index([orderId])
+}
+
 /// 订单的采购（2026-10-03 外贸第 3c 块，迁移 017）：从哪家采、采购额多少、按什么汇率折，毛利就出来了。
 /// 旁表不加列：理由见迁移 017 开头。汇率只用在这一单的毛利上——全站合计照样不换汇。
 model TradeOrderPurchase {
@@ -612,6 +641,8 @@ model FollowUp {
   source    FollowUpSource?
   /// 挂在订单某个节点上（2026-10-03）。见 FollowUpOrder
   orderNode FollowUpOrder?
+  /// 挂在项目某个节点上（2026-10-23 项目模式 1a）。见 FollowUpProject
+  projectNode FollowUpProject?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -808,4 +839,354 @@ model ImportRow {
 
   @@index([batchId])
   @@index([customerId])
+}
+
+// ———— 团队版项目模式 1a（2026-10-23，迁移 042）————
+// 开关在业务配置 projectMode，默认关；关着时这几张表一行都没有。只加表，现有表一列不动。
+// 指向人的列都不建外键（同 TradeOrder.ownerId）：都在 src/lib/sync/tables.ts 的 指向人的列 里，改身份时一起改。
+// 1a 全部不同步；1b 接团队同步时路由按 Project.ownerId + customerId，子表都挂 projectId。
+
+/// 项目：一单生意从线索到订单就是这一行。阶段 / 节点是代码常量（src/lib/project/nodes.ts），一套不分内外贸。
+model Project {
+  id                   String                    @id @default(cuid())
+  name                 String
+  customerId           String
+  customer             Customer                  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// 主联系人，可空；联系人删了置空
+  contactId            String?
+  contact              Contact?                  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  /// 项目负责人（路由字段）。建档的人在向导里选，默认自己
+  ownerId              String
+  /// 实际建档的人，建好不改
+  creatorId            String
+  /// 线索 | 商机 | 订单
+  phase                String                    @default("线索")
+  /// 当前节点，见 nodes.ts
+  node                 String                    @default("潜客培育")
+  /// 结局：空 = 进行中；线索流失 | 丢单 | 成功交付 | 异常状态。已转商机、赢单不停在这里，直接进下一阶段第一个节点
+  result               String?
+  /// 异常状态选的类别（异常类别字典，必选）；恢复（再改节点）时清掉，类别留在节点变更里
+  exceptionCategoryId  String?
+  exceptionCategory    ProjectExceptionCategory? @relation(fields: [exceptionCategoryId], references: [id], onDelete: SetNull)
+  /// 异常状态的备注，可空；恢复时清掉，备注留在节点变更里
+  exceptionReason      String?
+  /// 在公海里的那一刻；空 = 不在公海。在公海时 ownerId 留着放回去的人（他不能自己领回）
+  pooledAt             DateTime?
+  /// 尾款结清：谁勾的、何时
+  balanceSettled       Boolean                   @default(false)
+  balanceSettledById   String?
+  balanceSettledAt     DateTime?
+  /// 验收通过：谁勾的、何时。和尾款结清两项都勾上才能成功交付
+  acceptancePassed     Boolean                   @default(false)
+  acceptancePassedById String?
+  acceptancePassedAt   DateTime?
+  amount               Float                     @default(0)
+  currency             String                    @default("CNY")
+  remark               String?
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+  /// 有结局的那一刻；回到进行中就清掉
+  closedAt             DateTime?
+
+  members   ProjectMember[]
+  logs      ProjectNodeLog[]
+  followUps FollowUpProject[]
+
+  @@index([customerId])
+  @@index([ownerId])
+  @@index([pooledAt])
+}
+
+/// 项目组成员，多对多。1a 负责人直接加人写 JOINED；1b 的进组邀请用 INVITED / DECLINED 和 invitedById
+model ProjectMember {
+  id           String       @id @default(cuid())
+  projectId    String
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId       String
+  roleId       String?
+  role         ProjectRole? @relation(fields: [roleId], references: [id])
+  /// INVITED | JOINED | DECLINED
+  inviteStatus String       @default("JOINED")
+  invitedById  String?
+  createdAt    DateTime     @default(now())
+
+  @@unique([projectId, userId])
+  @@index([userId])
+}
+
+/// 组员角色字典，全队一份，只有总管理能改。删 = 停用，已用它的组员不丢。默认 4 个由代码第一次读时补上（迁移不许 INSERT）
+model ProjectRole {
+  id        String          @id @default(cuid())
+  name      String          @unique
+  sort      Int             @default(0)
+  active    Boolean         @default(true)
+  createdAt DateTime        @default(now())
+  members   ProjectMember[]
+}
+
+/// 异常类别字典，全队一份，只有总管理能改（同 ProjectRole）。删 = 停用，已用它的项目不丢。默认 2 个由代码第一次读时补上
+model ProjectExceptionCategory {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  sort      Int       @default(0)
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  projects  Project[]
+}
+
+/// 节点变更：每改一次阶段 / 节点 / 结局记一行，只增不改
+model ProjectNodeLog {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId      String
+  at          DateTime @default(now())
+  fromPhase   String?
+  fromNode    String?
+  fromResult  String?
+  toPhase     String
+  toNode      String
+  toResult    String?
+  /// 进异常状态时填的备注（可空）
+  reason      String?
+  /// 进异常状态时选的异常类别 id（ProjectExceptionCategory）；不建外键，类别只停用不删
+  categoryId  String?
+  /// node = 改节点；transfer = 转让负责人；pool-release = 放回公海；pool-claim = 从公海领取
+  /// （后三种节点不变，from / to 节点照抄当时的；from / toOwnerId 记谁到谁）
+  kind        String   @default("node")
+  fromOwnerId String?
+  toOwnerId   String?
+
+  @@index([projectId, at])
+}
+
+/// 沟通记录挂项目（同 FollowUpOrder）：跟进照旧挂客户，客户时间线里照样看得到
+model FollowUpProject {
+  followUpId String   @id
+  followUp   FollowUp @relation(fields: [followUpId], references: [id], onDelete: Cascade)
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// 记这条时项目在哪个节点
+  node       String
+
+  @@index([projectId])
+}
+
+/// 客户的实际建档人（项目模式向导建客户时写）。老客户没有这一行 = 「未记录」，不猜
+model CustomerCreator {
+  customerId String   @id
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  userId     String
+  at         DateTime @default(now())
+}
+
+// ───────────────────────── 企业版数据接入（2026-10-24） ─────────────────────────
+// 从原系统（飞书 / 钉钉 / 它们导出的 Excel）把客户、联系人、线索、商机、跟进搬进来：
+// 先试跑出报告 → 确认后正式导入 → 之后按小时 / 每晚增量同步 → 切换日关掉同步并留快照。
+// 代码在 src/lib/enterprise-import/。六张表都只在本机（不进团队同步），指向人的列不建外键。
+
+/// 一批：一次试跑、一次正式导入或一次增量同步
+model EntImportBatch {
+  id         String         @id @default(cuid())
+  /// excel | feishu | dingtalk
+  source     String
+  /// full = 首次全量；sync = 增量同步；resolve = 一次冲突处理（采用原系统 / 保留我们，可整批撤回）
+  kind       String         @default("full")
+  /// preview = 只试跑出了报告；applying = 写到一半（可续）；done；reverting / restoring = 撤回 / 恢复到一半（可续）；reverted = 已整批撤回
+  status     String         @default("preview")
+  userId     String?
+  /// 试跑报告 JSON（见 report.ts 的 试跑报告）
+  report     String?
+  /// 上传的表读出来的样子 JSON（Excel 兜底用；接口来的为空）。改映射重新试跑时从这里取，不用再传一次文件
+  raw        String?
+  /// 当时用的字段映射 JSON，正式导入照这份来，不重新猜
+  mapping    String?
+  /// 清洗后的待写记录 JSON；正式导入从这里取，保证和报告里看到的是同一份
+  plan       String?
+  /// 正式导入写到第几条（续写用）
+  cursor     Int            @default(0)
+  total      Int            @default(0)
+  created    Int            @default(0)
+  updated    Int            @default(0)
+  skipped    Int            @default(0)
+  conflicts  Int            @default(0)
+  failed     Int            @default(0)
+  note       String?
+  createdAt  DateTime       @default(now())
+  finishedAt DateTime?
+  revertedAt DateTime?
+  /// 最近一次整批撤回 / 恢复的账 JSON：{ 动作, 删掉, 还原, 恢复, 留下数, 留下: [{ 实体, 外部ID, 名称, 原因 }]（最多 200 条） }
+  revertNote String?
+  rows       EntImportRow[]
+
+  @@index([createdAt])
+}
+
+/// 一批里写过的每一条：撤回照这里一条条退
+model EntImportRow {
+  id         String         @id @default(cuid())
+  batchId    String
+  batch      EntImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  /// customer | contact | lead | opportunity | followup
+  entity     String
+  externalId String
+  targetId   String
+  /// create | update
+  kind       String
+  /// update 时写之前那几格的值 JSON；create 为空
+  before     String?
+  /// 写完那一刻我们写进去的值 JSON（撤回时比对：不一样 = 有人改过，不撤）
+  written    String
+  /// 写之前的对照行 JSON（update 撤回时把 EntExternalRef 也退回去）
+  refBefore  String?
+  /// 整批撤回时这一行怎么处理的：空 = 还没处理；撤了；留下（导入后被动过等，原因记在批次的 revertNote）
+  undo       String?
+  createdAt  DateTime       @default(now())
+
+  @@index([batchId, entity])
+}
+
+/// 原系统记录 ↔ 我们这边记录。同步按 来源 + 原系统 ID 认人
+model EntExternalRef {
+  id          String   @id @default(cuid())
+  source      String
+  entity      String
+  externalId  String
+  targetId    String
+  /// 原系统那条记录清洗后的指纹：没变就跳过
+  fingerprint String
+  /// 上次我们写进去的值 JSON：同步时三方比对（原系统新值 / 我们这边现值 / 上次写的）
+  written     String
+  /// 原系统最后一次给的原始记录 JSON（留档；切换日快照也从这里取）
+  raw         String
+  batchId     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([source, entity, externalId])
+  @@index([entity, targetId])
+}
+
+/// 同步时发现我们这边改过、原系统也改了：不覆盖，记一笔等人定
+model EntConflict {
+  id           String    @id @default(cuid())
+  source       String
+  entity       String
+  externalId   String
+  targetId     String
+  batchId      String?
+  /// 字段 → { 原系统: 新值, 我们: 现值, 上次: 上次写的 } 的 JSON；本地已删时为 {}
+  fields       String
+  /// 原系统这次给的整条清洗后记录 JSON（采用原系统时照它写）
+  incoming     String
+  /// 本地那条已经被删了
+  localDeleted Boolean   @default(false)
+  /// 待定 | 采用原系统 | 保留我们 | 已撤回（那一批整批撤回了；恢复后回到待定）| 已过时（记下之后原系统又变了 / 我们这边删了或建回了，等下次同步）
+  status         String    @default("待定")
+  resolvedById   String?
+  resolvedAt     DateTime?
+  /// 定下它的那一批（kind = resolve）；撤回那一批时冲突回到待定
+  resolveBatchId String?
+  createdAt      DateTime  @default(now())
+
+  @@index([status, createdAt])
+  @@index([source, entity, externalId])
+  @@index([resolveBatchId])
+}
+
+/// 整批撤回的「回收站」：被撤的记录连同一起建的子记录存成 JSON，能整批恢复
+model EntTrash {
+  id         String    @id @default(cuid())
+  batchId    String
+  entity     String
+  targetId   String
+  /// 新建的：删之前整条记录 JSON（客户带外贸档案、录入人、公海；商机带结单）；改过的：{ 还原: 改回去的那几格 }
+  data       String
+  /// 撤回时的对照行 JSON（恢复时照它建回 / 改回）
+  ref        String?
+  /// 对应哪一行 EntImportRow（恢复时照它的 kind / written 来）
+  rowId      String?
+  createdAt  DateTime  @default(now())
+  restoredAt DateTime?
+
+  @@index([batchId])
+}
+
+/// 切换日快照：关同步那一刻把所有对照行和原始记录存一份，留档
+model EntSnapshot {
+  id        String   @id @default(cuid())
+  source    String
+  userId    String?
+  count     Int      @default(0)
+  /// [{ entity, externalId, targetId, raw }] 的 JSON
+  data      String
+  createdAt DateTime @default(now())
+}
+
+/// 企业版组织架构（2026-10-24，迁移 044）：部门树。只在企业版（CRM_ENTERPRISE=1）读写，最多 3 层（同团队版 部门最多层数）。
+/// 团队版的部门在控制库（SyncDept），桌面端靠 .team.json 拿；企业版是自托管单租户、没有控制库，所以放租户库。
+model EntDept {
+  id        String   @id @default(cuid())
+  name      String
+  parentId  String?
+  sort      Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([parentId])
+}
+
+/// 企业版：每人在组织里的位置。没有这一行的人按 User.role 推（lib/enterprise/org.ts 的 推业务角色），不在任何部门。
+/// 不建外键：同 AuditLog，人删了由应用清
+model EntMember {
+  userId          String   @id
+  deptId          String?
+  /// 业务角色，取值同团队版 lib/sync/dept-policy.ts 的 业务角色。管理员三类 = sales_mgr 销售管理 / marketing_mgr 市场管理 / director 总管理员
+  bizRole         String   @default("sales")
+  /// 业务线：内贸 / 外贸；null = 两边都做（线索分配用）
+  line            String?
+  /// 直属上级（显式指定）。空着 = 同部门、再往上级部门找销售管理（lib/enterprise/org.ts 的 直属上级of）
+  managerId       String?
+  /// 虚线上级：只能看，不能改、不能转
+  dottedManagerId String?
+  updatedAt       DateTime @updatedAt
+
+  @@index([deptId])
+  @@index([managerId])
+  @@index([dottedManagerId])
+}
+
+/// 企业版线索分配（2026-10-24）：每分一次记一行。按月计数、每月清零靠 month；销售自己拓的线索没有这一行，不算数。
+/// fromUserId = 分之前的负责人（通常是市场人员）：分出去以后他仍能在「我分出去的线索」里看转化情况。
+/// 不建外键：同 EntMember。线索删了这几行留着当记录，「我分出去的线索」读的时候跳过
+model EntLeadAssign {
+  id         String   @id @default(cuid())
+  leadId     String
+  /// 分给谁（销售）
+  toUserId   String
+  /// 分之前的负责人；线索原来没人负责时为空
+  fromUserId String?
+  /// 谁点的分配
+  byUserId   String
+  /// 走哪条线：内贸 / 外贸；null = 没指定
+  line       String?
+  /// 营销 / 营销企划。企划线索走哪边、算不算数还没定（lib/enterprise/lead-assign.ts 的 计不计数 留口子）
+  kind       String   @default("营销")
+  /// 算不算进接手人当月的分配数（配额按它数）
+  counted    Boolean  @default(true)
+  /// YYYY-MM（服务器本地时间），按月清零就是只数本月这一格
+  month      String
+  createdAt  DateTime @default(now())
+
+  @@index([toUserId, month])
+  @@index([fromUserId])
+  @@index([leadId])
+}
+
+/// 企业版每人每月最多接几条分配的线索。没有这一行 = 不限。直属上级、虚线上级、总管理员、老板能设
+model EntLeadQuota {
+  userId    String   @id
+  quota     Int
+  /// 最后一次是谁设的
+  setById   String
+  updatedAt DateTime @updatedAt
 }

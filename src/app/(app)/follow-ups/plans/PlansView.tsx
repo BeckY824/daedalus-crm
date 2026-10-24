@@ -14,6 +14,7 @@ import TaskForm from "../../customers/[id]/TaskForm";
 import InlineConfirm from "@/components/InlineConfirm";
 import PlanForm from "../../customers/[id]/PlanForm";
 import { 截止说法 } from "@/lib/deadline";
+import { 滚法 } from "@/lib/reduced-motion";
 import CompletePlanModal, { 提示记完了, type 要完成的计划, type 记完了 as 记完了结果 } from "../../customers/[id]/CompletePlanModal";
 
 
@@ -166,8 +167,7 @@ export default function PlansView({
   useEffect(() => {
     if (!刚建到了) return;
     // 排在下面几组的时候人看不见它：滚到眼前。减弱动态时直接跳过去，不滑
-    const 减弱 = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    刚建那行.current?.scrollIntoView({ block: "nearest", behavior: 减弱 ? "auto" : "smooth" });
+    刚建那行.current?.scrollIntoView({ block: "nearest", behavior: 滚法() });
     const t = setTimeout(() => set刚建(null), 2000);
     return () => clearTimeout(t);
   }, [刚建到了]);

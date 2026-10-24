@@ -6,7 +6,6 @@ import { 签约叫 } from "@/lib/business-config";
 import OptionInput from "@/components/OptionInput";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { Input, Button, Space, Select, Tag, Modal, Form, Row, Col, App } from "antd";
 import {
   PlusOutlined,
@@ -17,7 +16,7 @@ import {
 import ResetFilters from "@/components/ResetFilters";
 import { 列表不问归属ID } from "@/lib/solo";
 import ListSearch from "@/components/ListSearch";
-import { PageHead, UserCell } from "@/components/ui";
+import { RowLink, PageHead, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import { LEAD_STATUSES, LEAD_STATUS_COLOR } from "@/lib/constants";
 import { 成员选项, 独自一人, 可选成员, smartTime } from "@/lib/utils";
@@ -66,6 +65,12 @@ export default function LeadsView({
   const router = useRouter();
   const { message, modal } = App.useApp();
   const b = useBusiness();
+  // 项目模式开着：新建一律走建档向导
+  const 新建 = () => {
+    if (b.projectMode) return router.push("/projects/new");
+    setEditing(null);
+    setOpen(true);
+  };
   const { f, setF, apply, reset, pending } = useUrlFilters("/leads", filters);
   /** 空库 = 一条都没有**且**没在筛。筛出 0 条时筛选栏要留着，见 DataList */
   const 空库 = rows.length === 0 && !Object.values(filters).some((v) => v);
@@ -161,10 +166,10 @@ export default function LeadsView({
       title: "", key: "act", width: 150, 常驻: true, fixed: "right",
       render: (_, r) =>
         r.customerId ? (
-          <Link href={`/customers/${r.customerId}`}>查看{b.customer} ›</Link>
+          <RowLink href={`/customers/${r.customerId}`}>查看{b.customer} ›</RowLink>
         ) : r.status === "已转化" ? (
           // 并到了一位已经关联着别的线索的客户（J-024，Lead.customerId 唯一）：没有直接的关联，按电话去客户列表找
-          <Link href={`/customers?keyword=${encodeURIComponent(r.phone && !r.phone.includes("*") ? r.phone : r.name)}`}>查看{b.customer} ›</Link>
+          <RowLink href={`/customers?keyword=${encodeURIComponent(r.phone && !r.phone.includes("*") ? r.phone : r.name)}`}>查看{b.customer} ›</RowLink>
         ) : (
           <Space size={2}>
             <Button
@@ -242,10 +247,7 @@ export default function LeadsView({
           <Button
             type="primary"
             icon={<PlusOutlined />}
-            onClick={() => {
-              setEditing(null);
-              setOpen(true);
-            }}
+            onClick={新建}
           >
             新建线索
           </Button>
@@ -262,7 +264,7 @@ export default function LeadsView({
         空态={{
           title: "还没有线索",
           hint: `线索是还没确认要不要跟的人。确认要跟了就转成${b.customer}，之后的跟进、商机、${签约叫(b)}都在${b.customer}那边走。`,
-          primary: { label: "新建第一条线索", onClick: () => { setEditing(null); setOpen(true); } },
+          primary: { label: "新建第一条线索", onClick: 新建 },
         }}
         筛选={
           <Space wrap size={[10, 10]}>

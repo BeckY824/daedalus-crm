@@ -1,0 +1,27 @@
+/**
+ * 0.46.26（2026-10-22，客户多时提速；个人版不再挂手机授权框；安装包瘦身）。
+ * Mac 和 Windows 一样。
+ */
+import { it, expect } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import { 切更新记录, 只留桌面端 } from "@/lib/changelog";
+
+const 全部 = 切更新记录(fs.readFileSync(path.resolve(__dirname, "../CHANGELOG.md"), "utf8"));
+const 这一版 = 全部.find((s) => s.版本 === "0.46.26")!;
+
+it("0.46.26 下面紧接 0.46.25", () => {
+  const 版本们 = 全部.map((s) => s.版本);
+  const i = 版本们.indexOf("0.46.26");
+  expect(版本们.slice(i, i + 2)).toEqual(["0.46.26", "0.46.25"]);
+});
+
+it("趋势、推荐人、列表、手机授权框、安装包都写了，Mac 和 Windows 一样", () => {
+  const mac = 只留桌面端(这一版.正文, "darwin");
+  expect(只留桌面端(这一版.正文, "win32")).toBe(mac);
+  for (const 词 of ["近 90 天趋势", "推荐人", "列表", "手机授权框", "Mac 安装包", "Windows 安装包"]) expect(mac, `缺「${词}」`).toContain(词);
+});
+
+it("不写价格数字、不提网页版；挪到 0.46.27 的产品图片、商机管道不写", () => {
+  expect(这一版.正文).not.toMatch(/¥|\d+(\.\d+)?\s*元|网页版|托管版|产品图片|商机管道/);
+});

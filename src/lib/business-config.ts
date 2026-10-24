@@ -59,6 +59,11 @@ export type BusinessConfig = {
    * 不是「措辞」，套用预设时不动它（见 BusinessSettingsTab）
    */
   poolDays: number;
+  /**
+   * 团队版项目模式（2026-10-23，D-31）：打开后侧栏多「项目」、新建客户 / 线索 / 商机改走建档向导（lib/project/）。
+   * 默认关；关着时界面和老逻辑一处不变。和整个 business 一样只有老板（总管理）能改、随团队同步
+   */
+  projectMode: boolean;
 };
 
 export const DEFAULT_BUSINESS: BusinessConfig = {
@@ -79,6 +84,7 @@ export const DEFAULT_BUSINESS: BusinessConfig = {
   template: "general",
   currency: "CNY",
   poolDays: 0,
+  projectMode: false,
 };
 
 /**
@@ -102,6 +108,7 @@ export const BUSINESS_PRESETS: Record<string, BusinessConfig> = {
     template: "general",
     currency: "CNY",
     poolDays: 0,
+    projectMode: false,
   },
   外贸出口: {
     brief:
@@ -124,6 +131,7 @@ export const BUSINESS_PRESETS: Record<string, BusinessConfig> = {
     template: "trade",
     currency: "USD",
     poolDays: 0,
+    projectMode: false,
   },
 };
 
@@ -361,5 +369,6 @@ export function mergeBusiness(partial: Partial<BusinessConfig> | null | undefine
     template: 模版,
     currency: 规整币种(p.currency, (p.template === "trade" || (p.template == null && 推断模版(p) === "trade")) ? "USD" : "CNY"),
     poolDays: 公海天数(p.poolDays),
+    projectMode: p.projectMode === true,
   };
 }

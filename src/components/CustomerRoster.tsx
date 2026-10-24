@@ -16,6 +16,7 @@ import { 开名单, 关名单, 登记换一位 } from "@/lib/roster";
 import { useMiddlePane, usePaneShortcut } from "@/lib/middle-pane";
 import PaneToggle from "@/components/PaneToggle";
 import { useLocalPref } from "@/lib/local-pref";
+import { RowLink } from "@/components/ui";
 
 export type CustomerRosterData = {
   total: number;
@@ -130,7 +131,7 @@ export default function CustomerRoster({ data }: { data: CustomerRosterData }) {
   const 一行 = (r: CustomerRosterData["rows"][number], 带状态: boolean) => {
     const d = 点(r);
     return (
-      <Link
+      <RowLink
         key={r.id}
         href={`/customers/${r.id}`}
         className={`roster-row${activeId === r.id ? " on" : ""}`}
@@ -157,7 +158,7 @@ export default function CustomerRoster({ data }: { data: CustomerRosterData }) {
             <span className={`roster-dot ${d.cls}`} title={d.说} aria-label={d.说} />
           </span>
         </span>
-      </Link>
+      </RowLink>
     );
   };
 

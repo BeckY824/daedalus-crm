@@ -46,10 +46,22 @@ export const 同步表 = [
   "TradeOrderDoc",
   "TradeOrderPurchase",
   "FollowUpOrder",
+  // 商机 / 订单的产品图片（2026-10-22 D-24）：同步的只是这一行（名字、大小、sha256），文件走单独的密文通道（sync/attach-client.ts）
+  "Attachment",
 ] as const;
 
 /** 明确不同步的表（和上面合起来要覆盖 schema 里的全部模型，守卫用例据此判「新加的表没人管」） */
-export const 不同步表 = ["AiConversation", "AiMessage", "AiProject", "ImportBatch", "ImportRow", "WorkspaceAccount"] as const;
+export const 不同步表 = [
+  "AiConversation", "AiMessage", "AiProject", "ImportBatch", "ImportRow", "WorkspaceAccount",
+  // 团队版项目模式 1a（2026-10-23）先只在本机；1b 接同步时挪进 同步表，路由按 Project.ownerId + customerId
+  "Project", "ProjectMember", "ProjectRole", "ProjectExceptionCategory", "ProjectNodeLog", "FollowUpProject", "CustomerCreator",
+  // 企业版数据接入（2026-10-24）：企业版私有部署一台服务器，导入记录、对照、冲突都只在这台
+  "EntImportBatch", "EntImportRow", "EntExternalRef", "EntConflict", "EntTrash", "EntSnapshot",
+  // 企业版组织架构（2026-10-24）：企业版是一台服务器上的网页，不走团队同步
+  "EntDept", "EntMember",
+  // 企业版线索分配（2026-10-24）：同上
+  "EntLeadAssign", "EntLeadQuota",
+] as const;
 
 /**
  * 不同步的列：
@@ -94,6 +106,32 @@ export const 指向人的列: [string, string][] = [
   ["ImportBatch", "userId"],
   ["TradeOrder", "ownerId"],
   ["WorkspaceAccount", "userId"],
+  ["Attachment", "userId"],
+  // 项目模式 1a（2026-10-23）：都不建外键，靠这里改身份
+  ["Project", "ownerId"],
+  ["Project", "creatorId"],
+  ["Project", "balanceSettledById"],
+  ["Project", "acceptancePassedById"],
+  ["ProjectMember", "userId"],
+  ["ProjectMember", "invitedById"],
+  ["ProjectNodeLog", "userId"],
+  ["ProjectNodeLog", "fromOwnerId"],
+  ["ProjectNodeLog", "toOwnerId"],
+  ["CustomerCreator", "userId"],
+  // 企业版数据接入（2026-10-24）
+  ["EntImportBatch", "userId"],
+  ["EntConflict", "resolvedById"],
+  ["EntSnapshot", "userId"],
+  // 企业版组织架构（2026-10-24）：不建外键
+  ["EntMember", "userId"],
+  ["EntMember", "managerId"],
+  ["EntMember", "dottedManagerId"],
+  // 企业版线索分配（2026-10-24）：不建外键
+  ["EntLeadAssign", "toUserId"],
+  ["EntLeadAssign", "fromUserId"],
+  ["EntLeadAssign", "byUserId"],
+  ["EntLeadQuota", "userId"],
+  ["EntLeadQuota", "setById"],
 ];
 
 /**
@@ -117,10 +155,11 @@ export const 指向客户的列: [string, string][] = [
   ["FollowUp", "customerId"],
   ["Task", "customerId"],
   ["FollowPlan", "customerId"],
+  ["Project", "customerId"],
   ["Customer", "referrerCustomerId"],
   ["Customer", "attributionCustomerId"],
 ];
-export const 一位一行的表 = ["CustomerPool", "CustomerClaim", "CustomerExtra"];
+export const 一位一行的表 = ["CustomerPool", "CustomerClaim", "CustomerExtra", "CustomerCreator"];
 
 /** 桌面端模板库里固定种的账号（每台电脑 id 一样）。进团队前：管理员改身份，没用过的占位账号删掉 */
 export const 模板占位账号 = ["zhangsan", "lisi"];

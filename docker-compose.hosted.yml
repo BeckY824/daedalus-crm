@@ -76,6 +76,13 @@ services:
       #   CRM_SYNC_PACE_OFF=1 人多的团队前台不放慢（lib/tenant/sync-scoped.ts 前台最短间隔）
       CRM_SCOPED_CACHE_OFF: "${CRM_SCOPED_CACHE_OFF:-}"
       CRM_SYNC_PACE_OFF: "${CRM_SYNC_PACE_OFF:-}"
+      # 团队版产品图片（lib/tenant/sync-attach.ts，密文放 /data/attach）。都可以空着：
+      #   ATTACH_MBPS 整台服务器图片上传 + 下载合计每秒多少 MB（默认 15）；ATTACH_SEAT_GB 每个席位多少 GB、全队合用（默认 1）
+      #   OPS_ALERT_DISK_FREE_GB 盘剩不到多少 GB 报警（默认 12）；OPS_ALERT_ATTACH_GB 团队图片一共超过多少 GB 报警（默认 10）
+      ATTACH_MBPS: "${ATTACH_MBPS:-}"
+      ATTACH_SEAT_GB: "${ATTACH_SEAT_GB:-}"
+      OPS_ALERT_DISK_FREE_GB: "${OPS_ALERT_DISK_FREE_GB:-}"
+      OPS_ALERT_ATTACH_GB: "${OPS_ALERT_ATTACH_GB:-}"
       # AI 背调的搜索（lib/research/providers.ts）：用中转站自带的搜索，Key 就是上面的 GATEWAY_API_KEY。
       # RESEARCH_SEARCH 空着 = gpt（挂了自动换 claude 试一次），可填 claude / mock；RESEARCH_SEARCH_MODEL 换主用的模型
       RESEARCH_SEARCH: "${RESEARCH_SEARCH:-}"

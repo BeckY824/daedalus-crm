@@ -7,6 +7,7 @@ import AutoBackups, { type 自动备份项 } from "./AutoBackups";
 /** 壳的桥不会变，订阅什么都不用做 */
 const 无订阅 = () => () => {};
 import { Alert, App, Button, Card, Form, Input, Modal, Radio, Select, Space, Switch, Typography } from "antd";
+import { useCopy } from "@/lib/clipboard";
 import { 桌面端发码, 桌面端改密码 } from "./actions";
 import { 赠送说明 } from "@/lib/credits-copy";
 
@@ -69,6 +70,7 @@ type 关窗设置 = { 可用: boolean; 方式: 关窗方式 };
 
 export default function DesktopTab({ 信息 }: { 信息: 桌面端信息 }) {
   const { message, modal } = App.useApp();
+  const 复制 = useCopy();
   const [版本, set版本] = useState<string | null>(null);
   const [改密码开着, set改密码开着] = useState(false);
   const [服务器, set服务器] = useState("");
@@ -110,8 +112,7 @@ export default function DesktopTab({ 信息 }: { 信息: 桌面端信息 }) {
 
   async function 复制诊断() {
     if (!shell) return;
-    await navigator.clipboard.writeText(await shell.diagnostics());
-    message.success("诊断信息已复制，贴给我们就行");
+    await 复制(await shell.diagnostics(), "诊断信息已复制，贴给我们就行");
   }
 
   const { 账号, 余额 } = 信息;

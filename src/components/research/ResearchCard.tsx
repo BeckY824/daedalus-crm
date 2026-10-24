@@ -26,6 +26,7 @@ import { 补标题, 来源号, type 背调状态, type 阶段状态 } from "@/li
 import { 核验项表, type 灯, type 真实性 } from "@/lib/research/verify/types";
 import { 信息少 } from "@/lib/research/verify/rules";
 import { 档条, 待验证, 已核实项, 已核财务 } from "@/lib/research/report";
+import { 复制文字 } from "@/lib/clipboard";
 import "./research.css";
 
 const 档名 = { high: "高", mid: "中", low: "低", unknown: "查不到" } as const;
@@ -246,13 +247,9 @@ function 用秒(running: boolean, 起: number | undefined, 总?: number): number
 function EmailBlock({ 主题, 正文 }: { 主题: string; 正文: string }) {
   const [复制了, set复制了] = useState(false);
   const 复制 = async () => {
-    try {
-      await navigator.clipboard.writeText(`Subject: ${主题}\n\n${正文}`);
-      set复制了(true);
-      window.setTimeout(() => set复制了(false), 1500);
-    } catch {
-      set复制了(false);
-    }
+    if (!(await 复制文字(`Subject: ${主题}\n\n${正文}`))) return;
+    set复制了(true);
+    window.setTimeout(() => set复制了(false), 1500);
   };
   return (
     <div className="rs-email">

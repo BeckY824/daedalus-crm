@@ -2,7 +2,6 @@ import path from "node:path";
 import fs from "node:fs";
 import { 单连接 } from "../sqlite-url";
 import { PrismaClient } from "@/generated/prisma";
-import { currentTenant } from "./context";
 
 /**
  * 每个工作区一个 PrismaClient，按需创建、闲置回收。
@@ -72,12 +71,6 @@ export function workspaceClient(dbFile: string): PrismaClient {
   clients.set(key, { client, lastUsed: Date.now() });
   startSweeper();
   return client;
-}
-
-/** 当前请求该用哪个客户端；没有工作区上下文就返回 null，由调用方落回默认库 */
-export function tenantClient(): PrismaClient | null {
-  const t = currentTenant();
-  return t ? workspaceClient(t.dbFile) : null;
 }
 
 /** 删掉缓存里的某个工作区客户端（删除工作区、或库文件被换掉时用） */

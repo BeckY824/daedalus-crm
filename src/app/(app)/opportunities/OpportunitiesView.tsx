@@ -84,6 +84,12 @@ export default function OpportunitiesView({
 }) {
   const router = useRouter();
   const b = useBusiness();
+  // 项目模式开着：新建一律走建档向导
+  const 新建 = () => {
+    if (b.projectMode) return router.push("/projects/new");
+    setEditing(null);
+    setOpen(true);
+  };
   /** 正在看哪个商机的供应商比价（外贸模版，3c） */
   const [比价, set比价] = useState<OppRow | null>(null);
   const 比价项 = (r: OppRow) => (b.template === "trade" && 供应商页 ? [{ key: "compare", label: "供应商比价", onClick: () => set比价(r) }] : []);
@@ -462,10 +468,7 @@ export default function OpportunitiesView({
             <Button
               type="primary"
               icon={<PlusOutlined />}
-              onClick={() => {
-                setEditing(null);
-                setOpen(true);
-              }}
+              onClick={新建}
             >
               新建商机
             </Button>
@@ -492,7 +495,7 @@ export default function OpportunitiesView({
           hint: 是订单
             ? `商机是一次询盘：问的什么、报了多少、谈到哪一步。它挂在${b.customer}下面，客户确认后点「转为订单」。`
             : `商机是「在谈的那一单」：金额多少、谈到哪一步、大概什么时候成。它挂在${b.customer}下面，签约之后再登记成签约记录。`,
-          primary: { label: "新建第一条商机", onClick: () => { setEditing(null); setOpen(true); } },
+          primary: { label: "新建第一条商机", onClick: 新建 },
         }}
         汇总={
           /* 一条药丸，摆在工具栏和表格之间（设计稿 15/PAGE）：

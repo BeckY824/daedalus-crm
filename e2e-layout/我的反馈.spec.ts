@@ -4,6 +4,7 @@
  * 数据照最难排的样子放（假云端 /__stub/feedback）：一大段带空行的长回复、一条两百多字符的长链接、没有空格的一长串订单号、
  * 阿拉伯文（从右往左）、emoji（含肤色、家庭这种多码点的）、只有一句没回复的、发送失败待重发的不在这里（那是交互，见 e2e-desktop/12）。
  * 宽度和摆法同 排版闸门.spec.ts：1024 / 1280 / 1366 × 默认 / AI 栏常驻 / 左栏最宽；1024 开着 AI 栏时这一页是窄的（一栏）。
+ * 客户列表灌到出分页（2026-10-22）：1024 开着 AI 栏，提示几乎横贯正文底部，曾经正好盖住分页键；滚到底分页要在提示上面。
  *
  *   E2E_PORT=3520 npx playwright test -c playwright.layout.config.ts e2e-layout/我的反馈.spec.ts
  *   E2E_SHOT_DIR=… 时每屏都截一张（不只是有问题的）
@@ -11,7 +12,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
-import { 进门 } from "../e2e-desktop/helpers";
+import { 连库, 我的id, 进门 } from "../e2e-desktop/helpers";
 import { CLOUD_URL, DATA_DIR } from "../e2e-desktop/env";
 import { 查排版, 说问题 } from "../e2e/layout-audit";
 
@@ -54,6 +55,35 @@ const 一串反馈 = [
   },
   { id: "fb_wait", at: 时(19, 7), body: "能不能加一个按国家筛选客户的功能？", 消息: [] },
 ];
+
+// 客户列表一页 20 条：灌到第二页，分页键才出来（id 固定前缀，重复跑先删后建，跑完删掉）
+const 分页客户前缀 = "fbt-page-";
+async function 灌满一页客户(要: boolean) {
+  const db = 连库();
+  try {
+    await db.customer.deleteMany({ where: { id: { startsWith: 分页客户前缀 } } });
+    if (!要) return;
+    const 我 = await 我的id(db);
+    for (let i = 0; i < 26; i++) {
+      await db.customer.create({
+        data: { id: `${分页客户前缀}${i}`, name: `NORTHERN EUROPEAN COLD CHAIN FOOD DISTRIBUTION LIMITED ${String(i + 1).padStart(2, "0")}`, phone: `+44 20 7946 ${String(2000 + i)}`, salesOwnerId: 我, followStatus: "跟进中", decisionStatus: "了解中" },
+      });
+    }
+  } finally {
+    await db.$disconnect();
+  }
+}
+
+/** 滚到底：分页键在提示框上面（查排版只认「中心点被盖住」，这里连边也不许压着） */
+async function 分页在提示上面(page: Page) {
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  await page.waitForTimeout(150);
+  const 分页 = page.locator(".main .ant-pagination").last();
+  await expect(分页).toBeVisible();
+  const [页, 提示] = await Promise.all([分页.boundingBox(), page.getByTestId("feedback-toast").boundingBox()]);
+  expect(页 && 提示, "分页和提示都该量得到").toBeTruthy();
+  expect(页!.y + 页!.height, `分页底 ${页!.y + 页!.height} 压到了提示顶 ${提示!.y}`).toBeLessThanOrEqual(提示!.y);
+}
 
 async function 放数据(数据: unknown) {
   const r = await fetch(`${CLOUD_URL}/__stub/feedback`, { method: 数据 ? "POST" : "DELETE", body: 数据 ? JSON.stringify(数据) : undefined });
@@ -125,6 +155,7 @@ test.beforeAll(async ({ browser }) => {
   const page = await browser.newPage();
   try {
     await 进门(page);
+    await 灌满一页客户(true);
     const 选类型 = page.getByRole("heading", { name: "你主要做哪一类生意？" });
     if (await 选类型.waitFor({ state: "visible", timeout: 5_000 }).then(() => true, () => false)) {
       await page.getByRole("button", { name: /用通用销售开始/ }).click();
@@ -137,6 +168,7 @@ test.beforeAll(async ({ browser }) => {
 
 test.afterAll(async ({ request }) => {
   await 放数据(null);
+  await 灌满一页客户(false);
   // 本地服务那一分钟的缓存也清掉：同一台服务后面跑的闸门不该冒红点和提示
   await request.get("/api/feedback/mine?fresh=1").catch(() => {});
   rmSync(path.join(DATA_DIR, "feedback-seen.json"), { force: true });
@@ -157,6 +189,7 @@ for (const 宽 of [1024, 1280, 1366]) {
       await 去(page, "/customers", 摆);
       await expect(page.getByTestId("feedback-dot")).toBeVisible();
       await expect(page.getByTestId("feedback-toast")).toBeVisible();
+      await 分页在提示上面(page);
       await 量(page, `${宽}-${摆}-提示`, 问题们);
       // 同一次打开里再刷新：红点还在，提示不再出
       await 去(page, "/customers", 摆);
@@ -200,6 +233,30 @@ test("窄（1024 + AI 栏）：先列表，点进去是对话，‹ 回到列表
   外观：深色（科技主题的原底）、白底、Mac 毛玻璃、Windows（让出标题栏那条、压深字色）。
   壳挂的那几个 class 在浏览器里由 addInitScript 代挂：毛玻璃在浏览器里背后没有桌面，只量排版、截图看配色
 */
+// 最近客户的中栏自己滚、不归正文的内边距管：滚到底，最后一样（行或「查看全部」）也得在提示上面（10-22 质量量出 1280 宽还压着）
+// AI 栏常驻、或 1024 宽时详情页把中栏收起了，量不到；只量中栏出着的摆法
+for (const [宽, 摆] of [[1280, "默认"], [1366, "默认"], [1366, "左栏最宽"]] as const) {
+  test(`${宽} 宽 · ${摆}：最近客户中栏滚到底不被提示盖住`, async ({ page }) => {
+    rmSync(path.join(DATA_DIR, "feedback-seen.json"), { force: true });
+    await 摆好(page, 宽, 摆);
+    await expect(page.getByTestId("feedback-dot")).toBeVisible();
+    // 宽的时候最近客户会自己跳到最新那一位（中栏还是这一列）：先跳完，在落定的那一页上清掉记号再开一次，等于刚打开应用
+    await 去(page, "/customers/recent", 摆);
+    await page.evaluate(() => sessionStorage.removeItem("feedback-toast-shown"));
+    await 去(page, new URL(page.url()).pathname, 摆);
+    const 提示 = page.getByTestId("feedback-toast");
+    await expect(提示).toBeVisible();
+    const 栏 = page.locator(".pane-roster .pane-rows");
+    await expect(栏).toBeVisible();
+    await 栏.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+    await page.waitForTimeout(150);
+    const 末 = 栏.locator("> *:visible").last();
+    const [底, 顶] = await Promise.all([末.boundingBox(), 提示.boundingBox()]);
+    expect(底 && 顶, "中栏最后一样和提示都该量得到").toBeTruthy();
+    expect(底!.y + 底!.height, `中栏最后一样底 ${底!.y + 底!.height} 压到了提示顶 ${顶!.y}`).toBeLessThanOrEqual(顶!.y);
+  });
+}
+
 const 外观们: { 名: string; 外观: { paper: string; skin: string }; class?: string; 宽: number }[] = [
   { 名: "深色", 外观: { paper: "tone", skin: "tech" }, 宽: 1280 },
   { 名: "深色-窄", 外观: { paper: "tone", skin: "tech" }, 宽: 1024 },
@@ -221,6 +278,7 @@ for (const w of 外观们) {
     const 问题们: string[] = [];
     await 去(page, "/customers", "默认");
     await expect(page.getByTestId("feedback-toast")).toBeVisible();
+    await 分页在提示上面(page);
     await 量(page, `外观-${w.名}-提示`, 问题们);
     await 去(page, "/feedback?id=fb_long", w.宽 === 1024 ? "AI栏常驻" : "默认");
     await expect(page.getByRole("region", { name: "对话" })).toBeVisible();

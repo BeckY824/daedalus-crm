@@ -9,8 +9,12 @@
  *
  * 放左下角、挨着左栏，不放右下角：右下角是 AI 栏的输入框和发送键，盖住它比盖住什么都糟；
  * 左下角正对着左栏那枚带红点的反馈键，提示和红点说的是同一件事。
+ *
+ * 出着的时候正文底下让出它那么高（2026-10-22）：1024 宽开着 AI 栏，正文只剩四百来宽，提示几乎横贯整个正文底部，
+ * 客户一多、列表底下的分页正好落在它下面，滚到底也点不着。让出来以后滚到底分页在提示上面；首页贴底的输入框同样往上让。
+ * 提示自己收起以后，正文底下那截留到换页为止：人可能正滚在最底下，这时候收回去，整页往下一跳，分页从指头底下跑掉
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { CloseOutlined } from "@ant-design/icons";
 import { useMyFeedback } from "./store";
@@ -47,6 +51,9 @@ export default function FeedbackReplyToast({ 去向 }: { 去向: "cloud" | "gith
   const [在显示, set在显示] = useState<{ feedbackId: string; 回复id: string; 字: string } | null>(null);
   const [看过的回复, set看过的回复] = useState<string | null>(null);
   const 指着 = useRef(false);
+  const 框 = useRef<HTMLDivElement>(null);
+  // 让位的是哪一页：提示出着就跟着人走，收起以后留在那一页、换页才放掉
+  const [让位页, set让位页] = useState<string | null>(null);
   const 在反馈页 = pathname.startsWith("/feedback");
 
   // 渲染时对一下（不在 effect 里 setState）：只看回复 id，同一条回复不因为别的字段变了再出一次
@@ -60,6 +67,25 @@ export default function FeedbackReplyToast({ 去向 }: { 去向: "cloud" | "gith
   }
   // 到了「我的反馈」页就收起：那里已经看得见了
   if (在反馈页 && 在显示) set在显示(null);
+  if (在显示 && !在反馈页 && 让位页 !== pathname) set让位页(pathname);
+  else if (!在显示 && 让位页 !== null && 让位页 !== pathname) set让位页(null);
+  const 让位 = 让位页 !== null && 让位页 === pathname;
+
+  // 让多高按提示实际的高度来（字号能调），再加上它离底的 14px 和一点空；出着时改了字号、换了行也跟着重量
+  useLayoutEffect(() => {
+    const 元素 = 框.current;
+    if (!在显示 || !元素) return;
+    const 量 = () => document.documentElement.style.setProperty("--fbt-room", `${元素.offsetHeight + 14 + 10}px`);
+    量();
+    if (typeof ResizeObserver === "undefined") return;
+    const 盯 = new ResizeObserver(量);
+    盯.observe(元素);
+    return () => 盯.disconnect();
+  }, [在显示]);
+  useLayoutEffect(() => {
+    document.documentElement.classList.toggle("fbt-room", 让位);
+  }, [让位]);
+  useEffect(() => () => document.documentElement.classList.remove("fbt-room"), []);
 
   // 出过一次就记下：这次打开应用不再出（关掉应用再开、还没看，才再提示一次）
   useEffect(() => {
@@ -77,6 +103,7 @@ export default function FeedbackReplyToast({ 去向 }: { 去向: "cloud" | "gith
   if (!在显示) return null;
   return (
     <div
+      ref={框}
       className="fbt"
       role="status"
       aria-live="polite"

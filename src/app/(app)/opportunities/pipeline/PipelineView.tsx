@@ -69,6 +69,8 @@ export default function PipelineView({
     保存后留在管道里，新的那张卡亮两秒（和列表里新建的行同一种亮法），人一眼看见它落在哪一列
   */
   const [新建开着, set新建开着] = useState(false);
+  // 项目模式开着：新建一律走建档向导
+  const 新建 = () => (b.projectMode ? router.push("/projects/new") : set新建开着(true));
   const 见过 = useRef<Set<string> | null>(null);
   const [新来的, set新来的] = useState<string | null>(null);
   useEffect(() => {
@@ -99,25 +101,6 @@ export default function PipelineView({
   );
   const [dragId, setDragId] = useState<string | null>(null);
   const [overStage, setOverStage] = useState<string | null>(null);
-  /**
-   * 右边还有没露出来的列（审查 M3）：13 寸窗口下五列只露到第四列半，原来一点提示都没有。
-   * 能往右滚且没滚到底时，右沿一道渐隐（.pipe-wrap[data-more]）；滚到底收起。
-   */
-  const 滚框 = useRef<HTMLDivElement>(null);
-  const [还有, set还有] = useState(false);
-  useEffect(() => {
-    const el = 滚框.current;
-    if (!el) return;
-    const 量 = () => set还有(el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
-    量();
-    el.addEventListener("scroll", 量, { passive: true });
-    const ro = new ResizeObserver(量);
-    ro.observe(el);
-    return () => {
-      el.removeEventListener("scroll", 量);
-      ro.disconnect();
-    };
-  }, [rows.length]);
 
   /*
     拖进「赢单成交」先问登记签约（2026-10-04 J-090）。原来直接 moveStage：卡片消失（管道只取进行中的）、签约漏记，
@@ -198,7 +181,7 @@ export default function PipelineView({
           <EmptyState
             title="还没有商机"
             hint={`管道是把在谈的单子按阶段摆开看：哪些卡在${stageLabel(b, "方案报价")}、哪一阶段压着最多钱。`}
-            primary={{ label: "新建第一条商机", onClick: () => set新建开着(true) }}
+            primary={{ label: "新建第一条商机", onClick: 新建 }}
             demo={false}
           />
         </div>
@@ -217,15 +200,14 @@ export default function PipelineView({
             <Button icon={<UnorderedListOutlined />} onClick={() => router.push("/opportunities")}>
               列表
             </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => set新建开着(true)}>
+            <Button type="primary" icon={<PlusOutlined />} onClick={新建}>
               新建商机
             </Button>
           </Space>
         }
       />
 
-      <div className="pipe-wrap" data-more={还有 ? "" : undefined}>
-      <div className="pipe" ref={滚框}>
+      <div className="pipe">
         {OPP_STAGES.map((stage) => {
           const items = rows.filter((r) => 显示阶段(r) === stage);
           // 按币种分开加，不换汇（lib/currency.ts）：一列里有美元有欧元就写两段
@@ -272,7 +254,7 @@ export default function PipelineView({
                     draggable
                     tabIndex={0}
                     role="button"
-                    title={`${r.customerName}${外贸精简(b) ? "" : ` · ${r.probability}%`} · 右键或按 Enter 换一个阶段`}
+                    title={`${r.name}\n${r.customerName}${外贸精简(b) ? "" : ` · ${r.probability}%`} · 右键或按 Enter 换一个阶段`}
                     aria-label={`${r.name}，${金额(r.amount, r.currency)}，${stageLabel(b, 显示阶段(r))}`}
                     onDragStart={() => setDragId(r.id)}
                     onDragEnd={() => setDragId(null)}
@@ -285,10 +267,10 @@ export default function PipelineView({
                       }
                     }}
                   >
-                    <div className="pipe-card-t">{r.name}</div>
+                    <div className="pipe-card-t clamp">{r.name}</div>
                     <div className="pipe-card-m">
                       <span className="pipe-card-a">{金额(r.amount, r.currency)}</span>
-                      {显示负责人 && <span className="pipe-card-o">{r.ownerName}</span>}
+                      {显示负责人 && <span className="pipe-card-o" title={r.ownerName}>{r.ownerName}</span>}
                     </div>
                   </div>
                 </Dropdown>
@@ -296,7 +278,6 @@ export default function PipelineView({
             </div>
           );
         })}
-      </div>
       </div>
       {新建框}
       <ContractForm
