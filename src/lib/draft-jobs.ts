@@ -1,7 +1,7 @@
 "use client";
 
 import type { 起草风格 } from "@/lib/draft-style";
-import { App } from "antd";
+import { useCopy } from "@/lib/clipboard";
 import { runJob } from "@/lib/ai-jobs";
 import { useBusiness } from "@/lib/business-client";
 import { draftWakeup } from "@/app/(app)/dashboard/ai";
@@ -27,10 +27,7 @@ export function 起草(kind: 草稿类, customerId: string, reason = "", 风格?
 
 /** 复制话术，提示一句去哪儿发 */
 export function useCopyDraft() {
-  const { message } = App.useApp();
+  const 复制 = useCopy();
   const b = useBusiness();
-  return async (text: string) => {
-    await navigator.clipboard.writeText(text);
-    message.success(`已复制，去微信发给${b.customer}吧`);
-  };
+  return (text: string) => 复制(text, `已复制，去微信发给${b.customer}吧`);
 }
