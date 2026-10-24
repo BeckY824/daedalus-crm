@@ -3,7 +3,7 @@ import { build, type Plugin } from "esbuild";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 
-declare global { interface Window { __kind: string; __calls: unknown[]; __fail: boolean; __saved: number; __reminderRefreshes: number; __wasPrimary: boolean | null } }
+declare global { interface Window { __refFail?: number; __kind: string; __calls: unknown[]; __fail: boolean; __saved: number; __reminderRefreshes: number; __wasPrimary: boolean | null } }
 
 let browser: Browser; let bundle: string;
 const plugin: Plugin = { name: "form-actions", setup(b) {
@@ -19,7 +19,7 @@ const plugin: Plugin = { name: "form-actions", setup(b) {
   stub(/^(\.\/|\.\.\/)actions$/, `
     const save=async x=>{window.__calls.push(x);if(window.__fail)throw Error('network');return {ok:true,id:'saved'}};
     export const savePlan=save,saveTask=save,saveContact=save,saveUnassignedContact=save,saveChannel=save,改我的资料=save,submitPayment=save;
-    export const saveCustomer=save,checkDuplicate=async()=>null;
+    export const saveCustomer=save,checkDuplicate=async()=>null,推荐人候选=async()=>{if(window.__refFail){window.__refFail--;throw Error('network')}return [{id:'self',name:'我自己'},{id:'other',name:'推荐人甲'}]};
     export const patchCustomer=async(id,key,value)=>save({id,key,value});
     export const saveContract=async x=>window.__duplicate&&!x.force?{duplicate:{amount:123,currency:'CNY',signedAt:new Date().toISOString()}}:save(x);
     export const listContractLinks=async()=>({商机:[],计划:[],待办:[]});
@@ -46,9 +46,9 @@ beforeAll(async () => {
       plan:<Plan open customerId="c1" record={null} onSaved={done} onClose={()=>{}}/>,
       contact:<Contact open customerId="c1" record={null} onSaved={done} onClose={()=>{}}/>,
       detached:<Contact open 未归属 record={{id:'detached',name:'QA联系人',isPrimary:false,wasPrimary:window.__wasPrimary,fromCustomerId:'original',updatedAt:'2026-10-08T08:00:00Z'}} 学员们={[{id:'original',name:'原客户'},{id:'new',name:'新客户'}]} onSaved={done} onClose={()=>{}}/>,
-      customer:<Customer open editing={{id:'self',name:'我自己',phone:'',salesOwnerId:'u',salesOwnerName:'QA',followStatus:'待跟进',decisionStatus:'了解中',referrerCustomerId:'other',expectedSignAt:window.__signDate??null,updatedAt:'2026-10-08T08:00:00Z'}} users={[{id:'u',name:'QA',email:'qa',role:'ADMIN',active:true}]} channels={[]} customers={[{id:'self',name:'我自己'},{id:'other',name:'推荐人甲'}]} onClose={()=>{}}/>,
-      customerHistory:<Customer open editing={{id:'history',name:'历史客户',phone:'13800000001',salesOwnerId:'u',salesOwnerName:'QA',followStatus:'待跟进',decisionStatus:'了解中',channelId:'inactive-channel',channelName:'旧渠道甲',channelOwnerId:'inactive-owner',channelOwnerName:'旧同事甲',extra:{country:'德国',whatsapp:'原WhatsApp'},updatedAt:'2026-10-08T08:00:00Z'}} users={[{id:'u',name:'QA',role:'ADMIN',active:true}]} channels={[]} customers={[]} onClose={()=>{}}/>,
-      masked:<BusinessProvider value={BUSINESS_PRESETS['外贸出口']}><Customer open editing={{id:'masked',name:'共享客户',phone:'138****0001',salesOwnerId:'u',salesOwnerName:'QA',followStatus:'待跟进',decisionStatus:'了解中',extra:{whatsapp:'原WhatsApp'},updatedAt:'2026-10-08T08:00:00Z'}} users={[{id:'u',name:'QA',role:'ADMIN',active:true}]} channels={[]} customers={[]} onClose={()=>{}}/></BusinessProvider>,
+      customer:<Customer open editing={{id:'self',name:'我自己',phone:'',salesOwnerId:'u',salesOwnerName:'QA',followStatus:'待跟进',decisionStatus:'了解中',referrerCustomerId:'other',referrerName:'推荐人甲',expectedSignAt:window.__signDate??null,updatedAt:'2026-10-08T08:00:00Z'}} users={[{id:'u',name:'QA',email:'qa',role:'ADMIN',active:true}]} channels={[]} onClose={()=>{}}/>,
+      customerHistory:<Customer open editing={{id:'history',name:'历史客户',phone:'13800000001',salesOwnerId:'u',salesOwnerName:'QA',followStatus:'待跟进',decisionStatus:'了解中',channelId:'inactive-channel',channelName:'旧渠道甲',channelOwnerId:'inactive-owner',channelOwnerName:'旧同事甲',extra:{country:'德国',whatsapp:'原WhatsApp'},updatedAt:'2026-10-08T08:00:00Z'}} users={[{id:'u',name:'QA',role:'ADMIN',active:true}]} channels={[]} onClose={()=>{}}/>,
+      masked:<BusinessProvider value={BUSINESS_PRESETS['外贸出口']}><Customer open editing={{id:'masked',name:'共享客户',phone:'138****0001',salesOwnerId:'u',salesOwnerName:'QA',followStatus:'待跟进',decisionStatus:'了解中',extra:{whatsapp:'原WhatsApp'},updatedAt:'2026-10-08T08:00:00Z'}} users={[{id:'u',name:'QA',role:'ADMIN',active:true}]} channels={[]} onClose={()=>{}}/></BusinessProvider>,
       contract:<Contract open customerId="c1" editing={null} onClose={done}/>,
       profile:<Profile me={{name:'原名',title:'',email:'qa@example.invalid'}}/>,
       channel:<Channels rows={[]} users={[{id:'u1',name:'我',role:'ADMIN',active:true}]} radar={{topReferrers:[],inviteCandidates:[]}} aiEnabled={false}/>};
@@ -79,6 +79,19 @@ it("J-006 客户编辑的推荐人下拉排除自己，其他已有客户仍可�
   await page.goto("http://forms.test"); await page.evaluate(() => Object.assign(window, { __kind: "customer", __calls: [], __fail: false, __saved: 0 }));
   await page.addScriptTag({ content: bundle }); await page.locator("#referrerCustomerId").click();
   const options = page.locator(".ant-select-dropdown:visible .ant-select-item-option-content");
+  await expect.poll(() => options.allTextContents()).toEqual(["推荐人甲"]); await page.close();
+});
+it("推荐人候选没取到：已选的名字照常显示，下拉写明没取到、不是「暂无数据」，点重试能取回来（2026-10-20 改成打开才取）", async () => {
+  const page = await browser.newPage(); page.setDefaultTimeout(5000);
+  await page.route("http://forms.test/**", r => r.fulfill({ contentType: "text/html", body: "<meta charset='utf-8'><div id='root'></div>" }));
+  await page.goto("http://forms.test"); await page.evaluate(() => Object.assign(window, { __kind: "customer", __calls: [], __fail: false, __saved: 0, __refFail: 1 }));
+  await page.addScriptTag({ content: bundle });
+  await expect.poll(() => page.locator(".ant-select-content-has-value").allTextContents()).toContain("推荐人甲");
+  await page.locator("#referrerCustomerId").click();
+  const 下拉 = page.locator(".ant-select-dropdown:visible");
+  await expect.poll(() => 下拉.textContent()).toContain("名单没取到"); expect(await 下拉.textContent()).not.toContain("暂无数据");
+  await 下拉.getByRole("button", { name: "重试" }).click();
+  const options = 下拉.locator(".ant-select-item-option-content");
   await expect.poll(() => options.allTextContents()).toEqual(["推荐人甲"]); await page.close();
 });
 

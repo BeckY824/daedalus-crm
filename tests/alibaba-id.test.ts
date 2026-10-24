@@ -224,6 +224,16 @@ describe("手机新建客户", () => {
     expect(状态.待推).toEqual([]);
   });
 
+  it("团队分了两个一级部门：别部门的命中带部门名；部门名超长不认", async () => {
+    const { 库, 状态 } = await 新手机();
+    let dept = "外贸";
+    const 云 = (async (_m: string, _p: string, body: { action: string }) =>
+      ({ 状态: 200, json: body.action === "dedupe-find" ? { hits: [{ k: "c_zhao", owner: "acct_zhao", label: "坏的", dept }] } : {} })) as unknown as Parameters<typeof 手机.新建客户>[5];
+    await expect(手机.新建客户(机, 库, 状态, { name: "Omar", alibabaId: "sa98" }, Date.now(), 云)).rejects.toThrow("阿里 ID sa98 已是同事 外贸 · 赵业务 名下的客户");
+    dept = "长".repeat(101);
+    await expect(手机.新建客户(机, 库, 状态, { name: "Omar", alibabaId: "sa98" }, Date.now(), 云)).rejects.toThrow("阿里 ID sa98 已是同事 赵业务 名下的客户");
+  });
+
   it("手机客户详情带出阿里 ID", async () => {
     const { 库, 状态 } = await 新手机();
     const { id } = await 手机.新建客户(机, 库, 状态, { name: "Omar", alibabaId: "sa1", email: "o@x.co" });

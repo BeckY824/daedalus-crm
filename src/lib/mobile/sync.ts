@@ -718,7 +718,10 @@ export async function 问同事(c: 手机团队, 云: 传输, 库: 手机库, �
       const 人 = h.owner ? await 库.取("User", h.owner) : undefined;
       let 客户名 = "";
       try { 客户名 = String((await 密.拆<string>(h.label, 全部钥匙(c), 查重标签绑定(c.teamId))) ?? ""); } catch { /* 解不开只说同事 */ }
-      return { 同事: String(人?.r.name ?? "") || "同事", 客户名 };
+      // 别的一级部门的（团队版 1b）：云端带上部门名，只给概况
+      const 部门 = typeof h.dept === "string" && h.dept.length <= 100 ? h.dept : "";
+      const 名 = String(人?.r.name ?? "") || "同事";
+      return { 同事: 部门 ? `${部门} · ${名}` : 名, 客户名 };
     }
     return null;
   } catch {

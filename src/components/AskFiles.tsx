@@ -21,10 +21,6 @@ export type 附件 = { name: string; text: string; size: number };
 const 单文件上限 = 100 * 1024;
 const 可读后缀 = [".txt", ".md", ".csv", ".tsv", ".json", ".log"];
 
-export function 文件字数(f: 附件[]): number {
-  return f.reduce((s, x) => s + x.text.length, 0);
-}
-
 export default function AskFiles({
   files,
   onChange,

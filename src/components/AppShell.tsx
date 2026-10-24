@@ -18,6 +18,7 @@ import {
   TeamOutlined,
   ContactsOutlined,
   DollarOutlined,
+  ProjectOutlined,
   ContainerOutlined,
   ShopOutlined,
   InteractionOutlined,
@@ -210,6 +211,8 @@ export default function AppShell({ user, workspace, 收藏 = [], 计数 = {}, �
       { key: "/dashboard", icon: <HomeOutlined />, label: "首页", 组: "主" },
       { key: "/customers", icon: <TeamOutlined />, label: b.customer, 组: "主" },
       { key: "/opportunities", icon: <DollarOutlined />, label: "商机", 组: "主" },
+      // 团队版项目模式开着才有（2026-10-23，D-31）；关着时 /projects 是 404
+      ...(b.projectMode ? [{ key: "/projects", icon: <ProjectOutlined />, label: "项目", 组: "主" as const }] : []),
       // 外贸模版才有订单（2026-10-03），在商机和跟进中间（2026-10-05 外贸客户：「商机和跟进中间，增加类目订单」）
       ...(b.template === "trade" && 订单 ? [{ key: "/orders", icon: <ContainerOutlined />, label: "订单", 组: "主" as const }] : []),
       { key: "/follow-ups", icon: <InteractionOutlined />, label: "跟进", 组: "主" },
@@ -229,13 +232,13 @@ export default function AppShell({ user, workspace, 收藏 = [], 计数 = {}, �
       ...(b.template === "trade" && 供应商页 ? [{ key: "/suppliers", icon: <ShopOutlined />, label: "供应商", 组: "更多" as const }] : []),
       ...(workspace?.billing ? [{ key: "/billing", icon: <DollarOutlined />, label: "开通订阅", 组: "更多" as const }] : []),
     ],
-    [b.customer, b.template, workspace?.billing],
+    [b.customer, b.template, b.projectMode, workspace?.billing],
   );
 
   // 选中项取最长匹配前缀，/customers/xxx 也算在客户管理下
   const 少动 = useReducedMotion();
   const selectedKey = useMemo(() => {
-    const flat = ["/dashboard", "/overview", "/leads", "/customers", "/channels", "/reports", "/contacts", "/opportunities", "/orders", "/suppliers", "/follow-ups", "/settings", "/billing"];
+    const flat = ["/dashboard", "/overview", "/leads", "/customers", "/channels", "/reports", "/contacts", "/opportunities", "/projects", "/orders", "/suppliers", "/follow-ups", "/settings", "/billing"];
     // 「我的反馈」不在导航里：哪一项都不亮，亮的是左下角的反馈键（FeedbackButton）
     if (pathname === "/feedback" || pathname.startsWith("/feedback/")) return "";
     return flat.find((k) => pathname === k || pathname.startsWith(k + "/")) ?? "/dashboard";

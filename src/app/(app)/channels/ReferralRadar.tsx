@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { Card, Row, Col, Table, Button, Space, Typography, Empty } from "antd";
 import { RadarChartOutlined, ThunderboltOutlined, CopyOutlined } from "@ant-design/icons";
 import type { TopReferrer, InviteCandidate } from "@/lib/referral";
@@ -11,6 +10,7 @@ import { useJob } from "@/lib/ai-jobs";
 import AiWait from "@/components/AiWait";
 import { 起草, 草稿键, useCopyDraft } from "@/lib/draft-jobs";
 import AiCost, { useAiOutOfCredits } from "@/components/AiCost";
+import { RowLink } from "@/components/ui";
 
 /**
  * 转介绍雷达：左边是谁在帮我们带人，右边是下一个该请谁开口。
@@ -60,7 +60,7 @@ export default function ReferralRadar({
                 {
                   title: "推荐人",
                   dataIndex: "name",
-                  render: (v, r) => <Link href={`/customers/${r.customerId}`} className="link-strong">{v}</Link>,
+                  render: (v, r) => <RowLink href={`/customers/${r.customerId}`} className="link-strong">{v}</RowLink>,
                 },
                 { title: "推荐人数", dataIndex: "referralCount", width: 100 },
                 { title: `其中有${签约叫(b)}记录`, dataIndex: "signedCount", width: 100 },
@@ -90,9 +90,9 @@ function InviteRow({ c, aiEnabled, onDraft, onCopy }: { c: InviteCandidate; aiEn
   return (
     <div style={{ padding: "10px 0", borderBottom: "1px dashed var(--line-soft)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <Link href={`/customers/${c.customerId}`} className="link-strong" style={{ fontSize: 15, fontWeight: 500 }}>
+        <RowLink href={`/customers/${c.customerId}`} className="link-strong" style={{ fontSize: 15, fontWeight: 500 }}>
           {c.name}
-        </Link>
+        </RowLink>
         <span style={{ flex: 1, minWidth: 160, color: "var(--text-muted)", fontSize: 14 }}>{c.reason}</span>
         {aiEnabled && !text && (
           <Button size="small" icon={<ThunderboltOutlined />} disabled={job?.status === "loading" || AI已用完} onClick={onDraft}>

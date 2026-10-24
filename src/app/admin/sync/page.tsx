@@ -4,6 +4,8 @@ import { 反馈没处理数 } from "../data";
 import { 环境, 验口令 } from "../guard";
 import { 全部团队 } from "@/lib/tenant/sync-relay";
 import { 团队们的开通情况, 读价格, 北京日期, 剩几天, 已到期 } from "@/lib/tenant/team-plan";
+import { 附件磁盘 } from "@/lib/tenant/sync-attach";
+import { 磁盘线 } from "@/lib/ops-notices";
 
 export const dynamic = "force-dynamic";
 
@@ -14,12 +16,15 @@ export default async function SyncPage({ searchParams }: { searchParams: Promise
   const { plans, logs } = await 团队们的开通情况(rows.map((r) => r.id));
   // 剩几天在服务器这一刻算好：浏览器再算一遍跨过零点会和服务器对不上（水合报错，见 ui.tsx 的 TimeAgo）
   const now = new Date();
+  const 盘 = 附件磁盘(now.getTime());
+  const 线 = 磁盘线();
   return (
     <OpsShell 当前="团队同步" token={token} 环境={环境()} 渲染于={now.toISOString()} 反馈没处理={没处理}>
       <SyncView
         token={token}
         今天={北京日期(now)}
         价格={价格}
+        图片盘={盘 ? { ...盘, 剩线: 线.剩, 用线: 线.用 } : null}
         rows={rows.map((r) => {
           const p = plans.get(r.id);
           return {

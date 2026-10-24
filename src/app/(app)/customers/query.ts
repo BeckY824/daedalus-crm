@@ -6,6 +6,8 @@ import { 带币种, 签约金额, 签约合计, 签约币种 } from "@/lib/money
 import { 客户关键词条件, 客户id集合 } from "@/lib/search-keyword";
 import { 取档案 } from "@/lib/customer-extra-db";
 import { 未分级 } from "./query-shared";
+import { 读团队 } from "@/lib/sync/client";
+import { 部门里的人 } from "@/lib/sync/dept-policy";
 
 /**
  * 客户列表的查询条件、取哪些字段、怎么变成一行——列表页和「导出」共用这一份（2026-10-02 排查）。
@@ -32,6 +34,8 @@ export type 客户条件 = {
   source?: string;
   /** 客户等级（2026-10-16）：A / B / C / D，或「未分级」= 没填的 */
   level?: string;
+  /** 团队版部门（1b，2026-10-23）：负责人在这个部门（连下级）里的。没有部门数据（个人版、老云端）时不筛 */
+  dept?: string;
 };
 
 /** 等级筛选：A–D 按字母筛；「未分级」= 没有档案行或等级空着的。别的值不筛（地址栏手改的） */
@@ -39,6 +43,27 @@ function 等级条件(level: string | undefined): Prisma.CustomerWhereInput | nu
   if (!level) return null;
   if (level === 未分级) return { OR: [{ extra: { is: null } }, { extra: { is: { level: null } } }] };
   return /^[ABCD]$/.test(level) ? { extra: { is: { level } } } : null;
+}
+
+/**
+ * 部门筛选：销售或渠道负责人在这个部门里的（两人分在两个部门时两边都算，和云端隔离一个口径）。
+ * 选的是默认一级部门时，负责人都不在团队里的（已离队、本机老账号）也算进来
+ */
+function 部门条件(dept: string | undefined): Prisma.CustomerWhereInput | null {
+  const 编制 = dept ? 读团队()?.编制 : undefined;
+  if (!dept || !编制?.部门.some((d) => d.id === dept)) return null;
+  const 圈 = 部门里的人(编制, dept);
+  const 号 = (xs: string[]) => xs.map((a) => `acct_${a}`);
+  const 全员 = 号(圈.全员);
+  return {
+    OR: [
+      { salesOwnerId: { in: 号(圈.人) } },
+      { channelOwnerId: { in: 号(圈.人) } },
+      ...(圈.含无主
+        ? [{ salesOwnerId: { notIn: 全员 }, OR: [{ channelOwnerId: null }, { channelOwnerId: { notIn: 全员 } }] }]
+        : []),
+    ],
+  };
 }
 
 /**
@@ -71,8 +96,9 @@ export async function 客户筛选条件(
   const keyword = await 客户关键词条件(sp.keyword);
 
   const 等级 = 等级条件(sp.level);
+  const 部门 = 部门条件(sp.dept);
   return {
-    AND: [keyword, ...(本批 ? [客户id集合(本批.map(r => r.customerId))] : []), ...(等级 ? [等级] : [])],
+    AND: [keyword, ...(本批 ? [客户id集合(本批.map(r => r.customerId))] : []), ...(等级 ? [等级] : []), ...(部门 ? [部门] : [])],
     ...(sp.grade ? { grade: sp.grade } : {}),
     ...(sp.followStatus ? { followStatus: sp.followStatus } : {}),
     ...(sp.decisionStatus ? { decisionStatus: sp.decisionStatus } : {}),

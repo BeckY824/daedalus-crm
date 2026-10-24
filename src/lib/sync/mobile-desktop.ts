@@ -29,6 +29,14 @@ const 是电脑 = (device: string) => /^d[0-9a-f]{12}$/.test(device);
 
 export type 待授权手机 = { id: string; label: string; createdAt: string; 配对数字: string; 电脑: boolean };
 
+/**
+ * 要不要挂授权框（app 的 layout 用）：这台进了团队才可能有手机 / 本人别的电脑来要授权。
+ * 个人版、还没进团队的不挂，前台时就不会每 15 秒白问一次（优化 #11）。建团队、加入、连上都会刷新 layout，进了团队马上就挂上。
+ */
+export function 要问待授权手机(): boolean {
+  return 读团队() !== null;
+}
+
 export async function 待授权手机(): Promise<结果<{ 手机: 待授权手机[] }>> {
   if (!读团队()) return { ok: true, 手机: [] };
   const r = await 调云("POST", 路径, { action: "pending" });

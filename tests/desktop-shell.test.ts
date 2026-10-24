@@ -95,7 +95,10 @@ describe("菜单照 Claude 桌面端那套：只有标准项", () => {
     // 托管工作区创建者的订阅入口同样由页面按权限决定，原生菜单不知道当前工作区角色。
     const 按权限 = new Set([...shell.matchAll(/workspace\?\.billing \? \[\{ key: "(\/[a-z-]+)"/g)].map((m) => m[1]));
     expect(按权限.has("/billing")).toBe(true);
-    const 路径 = 去重([...shell.matchAll(/key: "(\/[a-z-]+)", icon:/g)].map((m) => m[1])).filter((p) => !按模版.has(p) && !按权限.has(p));
+    // 跟着业务开关出的入口（2026-10-23：团队版项目模式的「项目」）同理：壳不知道开关开没开，关着点进去是 404
+    const 按开关 = new Set([...shell.matchAll(/b\.projectMode \? \[\{ key: "(\/[a-z-]+)"/g)].map((m) => m[1]));
+    expect(按开关.has("/projects")).toBe(true);
+    const 路径 = 去重([...shell.matchAll(/key: "(\/[a-z-]+)", icon:/g)].map((m) => m[1])).filter((p) => !按模版.has(p) && !按权限.has(p) && !按开关.has(p));
     expect(路径.length).toBeGreaterThanOrEqual(8);
     for (const p of 路径) expect(菜单, `「前往」里少了 ${p}`).toContain(`"${p}"`);
   });

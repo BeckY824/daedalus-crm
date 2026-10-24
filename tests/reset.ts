@@ -22,6 +22,8 @@ export async function resetDb() {
   await prisma.followPlan.deleteMany();
   await prisma.followUpSource.deleteMany();
   await prisma.followUp.deleteMany();
+  // 附件不建外键（商机删了能撤销），不会被级联带走（2026-10-22 D-24）
+  await prisma.attachment.deleteMany();
   await prisma.contract.deleteMany();
   await prisma.opportunity.deleteMany();
   await prisma.contact.deleteMany();
@@ -34,6 +36,9 @@ export async function resetDb() {
     data: { referrerCustomerId: null, attributionCustomerId: null },
   });
   await prisma.customer.deleteMany();
+  // 项目、组员、节点变更随客户级联；组员角色、异常类别字典不挂客户，单独清（2026-10-23）
+  await prisma.projectRole.deleteMany();
+  await prisma.projectExceptionCategory.deleteMany();
   await prisma.channel.deleteMany();
   // 供应商不挂在客户和人下面，不会被级联带走（2026-10-03 加；比价、订单采购随它和商机 / 订单级联）
   await prisma.supplier.deleteMany();

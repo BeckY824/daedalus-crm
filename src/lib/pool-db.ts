@@ -53,10 +53,3 @@ export async function 自动掉公海(me: { id: string; name: string }, 今: Dat
   await setSetting(扫过键, 今天);
   return 要掉.length;
 }
-
-/** 这几位里哪些在公海、什么时候因为什么进去的（列表行、记录页用） */
-export async function 公海里的(ids: string[]): Promise<Map<string, { at: Date; reason: string }>> {
-  if (!ids.length) return new Map();
-  const rows = await prisma.customerPool.findMany({ where: { customerId: { in: ids } }, select: { customerId: true, at: true, reason: true } });
-  return new Map(rows.map((r) => [r.customerId, { at: r.at, reason: r.reason }]));
-}

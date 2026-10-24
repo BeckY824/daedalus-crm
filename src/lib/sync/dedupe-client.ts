@@ -87,7 +87,9 @@ export async function 问同事(种: 查重种类, 值: string, 除了?: string)
       const 人 = h.owner ? await 看全部(() => prisma.user.findUnique({ where: { id: h.owner }, select: { name: true } })) : null;
       let 客户名 = "";
       try { 客户名 = String(拆<string>(h.label, 全部钥匙(c), 查重标签绑定(c.teamId)) ?? ""); } catch { /* 换钥匙前封的、坏的：只说同事 */ }
-      return { 同事: 人?.name || "同事", 客户名, k: h.k };
+      // 别的一级部门的（团队版 1b）：云端带上部门名，只给概况——「外贸 · 王五」，不给别的
+      const 部门 = typeof h.dept === "string" && h.dept.length <= 100 ? h.dept : "";
+      return { 同事: 部门 ? `${部门} · ${人?.name || "同事"}` : 人?.name || "同事", 客户名, k: h.k };
     }
     return null;
   } catch {

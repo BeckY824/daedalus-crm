@@ -38,8 +38,3 @@ export function 扩同义词(词: string): string[] {
   // 原词排第一：命中它的结果最该排在前面，也让调用方知道「用户问的是哪个」
   return [w, ...命中.filter((x) => x !== w)];
 }
-
-/** 这个词有没有同义词可扩。界面上要说清「我还替你搜了什么」时用 */
-export function 有同义词(词: string): boolean {
-  return 扩同义词(词).length > 1;
-}

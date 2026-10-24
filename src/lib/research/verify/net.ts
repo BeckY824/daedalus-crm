@@ -31,8 +31,3 @@ export async function 取JSON<T = unknown>(url: string, opts: { 秒?: number; he
     return { status: res.status, data: null };
   }
 }
-
-/** 几件事并行，每件各自兜底：一件挂了不影响别的 */
-export async function 各自<T>(任务: (() => Promise<T>)[]): Promise<(T | Error)[]> {
-  return Promise.all(任务.map((f) => f().catch((e: unknown) => (e instanceof Error ? e : new Error(String(e))))));
-}

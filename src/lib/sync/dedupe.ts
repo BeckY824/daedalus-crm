@@ -42,7 +42,8 @@ export const 查重标签绑定 = (teamId: string) => ({ teamId, device: "dedupe
 /** 上报给服务端的一条：k 是客户 id；hashes 是这位客户的几样哈希；label 是封好的客户名 */
 export type 查重条目 = { k: string; epoch: number; hashes: string[]; label: string };
 /** 服务端回的一条：问的人看不到的同事客户（看得到的本机自己就查到了） */
-export type 查重命中 = { k: string; owner: string; label: string };
+/** dept：负责人所在的一级部门名（团队版 1b，团队有两个以上一级部门时才有），桌面端在查重结果里标「内贸 / 外贸」 */
+export type 查重命中 = { k: string; owner: string; label: string; dept?: string };
 
 /** 一位客户这一轮要报的内容有没有变：钥匙编号 + 哈希 + 封之前的名字。存的是这个，不是密文（密文每次封都不一样） */
 export const 查重指纹 = (epoch: number, hashes: string[], 名: string) => `${epoch}|${[...hashes].sort().join(",")}|${名}`;
