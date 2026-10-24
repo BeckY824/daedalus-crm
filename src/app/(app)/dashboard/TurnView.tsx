@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { App, Tooltip } from "antd";
+import { Tooltip } from "antd";
+import { useCopy } from "@/lib/clipboard";
 import { CopyOutlined, ReloadOutlined, CloseOutlined, RightOutlined } from "@ant-design/icons";
 import ProposalCard from "@/components/ProposalCard";
 import AiWait from "@/components/AiWait";
@@ -123,7 +124,7 @@ export default function TurnView({
   scrollOnMount: boolean;
 }) {
   const b = useBusiness();
-  const { message } = App.useApp();
+  const 复制 = useCopy();
   const AI已用完 = useAiOutOfCredits();
   const job = useJob<StreamJob<AgentAnswer>>(`home:${turn.id}`);
   const ref = useRef<HTMLDivElement>(null);
@@ -416,10 +417,7 @@ export default function TurnView({
                 type="button"
                 className="cli-ic"
                 aria-label="复制回答"
-                onClick={async () => {
-                  await navigator.clipboard.writeText(answer.text);
-                  message.success("已复制");
-                }}
+                onClick={() => void 复制(answer.text, "已复制")}
               >
                 <CopyOutlined />
               </button>
