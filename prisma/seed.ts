@@ -13,6 +13,7 @@
  */
 import { PrismaClient } from "../src/generated/prisma";
 import bcrypt from "bcryptjs";
+import { 企业版 } from "../src/lib/enterprise/switch";
 
 const prisma = new PrismaClient();
 
@@ -31,11 +32,17 @@ export const USERS = [
   { email: "lisi", name: "李四", title: "销售", role: "SALES" },
 ];
 
+/**
+ * 企业版私有部署只建 admin：张三、李四是给试用的人看的演示账号，
+ * 放进一家公司的正式系统里只会被当成真人、占席位。成员由管理员在界面上加。
+ */
+const 本次账号 = 企业版() ? USERS.filter((u) => u.role === "ADMIN") : USERS;
+
 async function main() {
   const hash = await bcrypt.hash(PASSWORD, 10);
   const 重置密码 = process.env.RESET_PASSWORDS === "1";
 
-  for (const u of USERS) {
+  for (const u of 本次账号) {
     await prisma.user.upsert({
       where: { email: u.email },
       // 姓名和角色跟着名单走，重跑能同步改名；密码默认不动，免得误重置
