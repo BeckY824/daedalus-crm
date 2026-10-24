@@ -116,7 +116,7 @@ export default function SettingsView({
     ...(isAdmin || 桌面端 ? [{ key: "ai", label: "AI 接入", children: <AiSettingsTab llm={llm} usage={aiUsage} 企业版={企业版} /> }] : []),
     ...(isAdmin ? [{ key: "business", label: "业务配置", children: <BusinessSettingsTab value={business} 多人={users.filter((u) => u.active).length > 1} /> }] : []),
     ...(组织架构 ? [{ key: "org", label: "组织架构", children: <OrgTab value={组织架构} /> }] : []),
-    ...(项目设置 ? [{ key: "project", label: "项目模式", children: <ProjectSettingsTab value={项目设置} isAdmin={isAdmin} /> }] : []),
+    ...(项目设置 ? [{ key: "project", label: "项目模式", children: <ProjectSettingsTab value={项目设置} isAdmin={isAdmin} 成员={users.filter((u) => u.active).map((u) => ({ id: u.id, name: u.name }))} /> }] : []),
     { key: "imports", label: "导入记录", children: <ImportsTab /> },
     ...(企业版导入 ? [{ key: "enterprise", label: "企业版导入", children: <EnterpriseImportTab /> }] : []),
     { key: "audit", label: "操作日志", children: <AuditTab logs={logs} /> },
