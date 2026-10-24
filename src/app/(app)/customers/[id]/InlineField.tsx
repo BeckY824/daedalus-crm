@@ -9,6 +9,7 @@ import { App, AutoComplete, Input, Select } from "antd";
 import { dayjs } from "@/lib/utils";
 import { patchCustomer, type PatchableKey } from "../actions";
 import { 带走说法 } from "@/lib/carry-over";
+import { useTransferConfirm } from "../useTransferConfirm";
 import Shortcut from "@/components/Shortcut";
 
 type Option = { value: string; label: string };
@@ -49,6 +50,7 @@ export default function InlineField({
 }) {
   const router = useRouter();
   const { message } = App.useApp();
+  const { 先问转走的项目 } = useTransferConfirm();
   const 只读 = useContext(只读上下文);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<string | null>(value);
@@ -79,6 +81,11 @@ export default function InlineField({
     setEditing(false);
     const normalized = next?.trim() ? next.trim() : null;
     if ((normalized ?? null) === (value ?? null)) return;
+    // 换销售负责人：客户名下的项目整体跟着走，先列出来问一句（D-36）；取消 = 不改
+    if (field === "salesOwnerId" && normalized && !(await 先问转走的项目([customerId], normalized))) {
+      setDraft(value);
+      return;
+    }
     setSaving(true);
     const res = await patchCustomer(customerId, field, normalized);
     setSaving(false);

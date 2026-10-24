@@ -12,6 +12,7 @@ import { PlusOutlined } from "@ant-design/icons";
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { dayjs, 成员选项, 独自一人, 可选成员 } from "@/lib/utils";
 import { useMe, 默认负责人 } from "@/lib/me-client";
+import { useTransferConfirm } from "./useTransferConfirm";
 import { saveCustomer, checkDuplicate, 推荐人候选, type DuplicateHit, type SaveConflict } from "./actions";
 import { saveChannel } from "../channels/actions";
 import { useBusiness } from "@/lib/business-client";
@@ -124,6 +125,7 @@ function CustomerFormInner({
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const 我 = useMe();
+  const { 先问转走的项目 } = useTransferConfirm();
   const [saving, setSaving] = useState(false);
   // 点外面不关、关前问一句、新建的草稿留在本机（2026-10-19 客户反馈，lib/form-guard.tsx）
   const 守 = useFormGuard({ open, form, 草稿键: editing ? null : "新建客户", 关: () => onClose(false), 忙: saving, afterOpenChange: 聚焦首项 });
@@ -194,6 +196,8 @@ function CustomerFormInner({
     // 校验没过 antd 自己把错标在格子下面；Modal 不接 onOk 的拒绝，不吞掉就是一条未处理的报错（10-07 外贸 e2e 盯控制台抓到）
     const v = await form.validateFields().catch(() => null);
     if (!v) return;
+    // 编辑时换了销售负责人：客户名下的项目整体跟着走，先列出来问一句（D-36）；取消 = 留在表单里
+    if (editing && v.salesOwnerId && v.salesOwnerId !== editing.salesOwnerId && !(await 先问转走的项目([editing.id], v.salesOwnerId))) return;
     setSaving(true);
     try {
       const res = await saveCustomer({
