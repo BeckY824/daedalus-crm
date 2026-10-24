@@ -64,6 +64,7 @@ let 批1 = "";
 let 报告1: Awaited<ReturnType<typeof 试跑>>["报告"];
 let 写1: 写入结果;
 let 导入后: 快照 = {};
+let 试后: 快照 = {};
 let 批2 = "";
 
 beforeAll(async () => {
@@ -85,6 +86,7 @@ beforeAll(async () => {
   导入前 = await 拍();
 
   const 试 = await 试跑({ 来源: "excel", 用户Id: 我.id, 表: 表们, 建议器: null });
+  试后 = await 拍();
   批1 = 试.批次Id;
   报告1 = 试.报告;
   默认负责人 = 报告1.映射.默认负责人.id;
@@ -124,8 +126,16 @@ describe("裁判 · 对账", () => {
     expect(写1.更新).toBe(合("更新"));
     expect(写1.跳过).toBe(报告1.合计.跳过 + 合("并入") + 合("没变"));
     expect(合("没变")).toBe(0);
+    // 报告上先演一遍的数 = 写完的数，五项一项不差
+    expect(报告1.预演?.合计).toEqual({ 新建: 写1.新建, 更新: 写1.更新, 跳过: 写1.跳过, 冲突: 写1.冲突, 失败: 写1.失败 });
     // 同电话的三对并成三家；测试机上那家已有客户被连上（更新一条），不另建
     expect(报告1.按类.customer).toMatchObject({ 并入: 3, 更新: 1 });
+  });
+
+  it("试跑不动库：先演一遍写进去的全回滚了，除批次本身外一行不多", async () => {
+    expect(试后).toEqual(导入前);
+    expect(await prisma.entImportBatch.count({ where: { status: "preview" } })).toBe(0); // 批1 已写完；演的那批没留下
+    expect(await prisma.entImportBatch.count()).toBe(1);
   });
 
   it("报告 = 库里真实多出来的行：每类新建数 = 行数增量；对照数 = 待写数", () => {
@@ -253,6 +263,7 @@ describe("裁判 · 幂等", () => {
   it("同一批再导一次：报告零新建，写入零新建零更新，库里一格不变", async () => {
     const 试 = await 试跑({ 来源: "excel", 用户Id: 我.id, 表: 表们, 建议器: null });
     批2 = 试.批次Id;
+    expect(试.报告.预演?.合计).toMatchObject({ 新建: 0, 更新: 0, 冲突: 0, 失败: 0 });
     for (const e of 实体顺序) {
       const c = 试.报告.按类[e];
       expect([e, c.新建, c.更新, c.没变 + c.并入]).toEqual([e, 0, 0, c.待写]);
@@ -275,5 +286,85 @@ describe("裁判 · 来回", () => {
     // 撤回把值退回去了，但 Prisma 的 @updatedAt 会跟着动（补过空的那家已有客户）：只这一项不比
     const 去时间 = (行们: string[] = []) => 行们.map((r) => r.replace(/"updatedAt":"[^"]*"/, "")).sort();
     for (const k of Object.keys(导入前)) expect(去时间(撤后[k]), k).toEqual(去时间(导入前[k]));
+  });
+});
+
+/**
+ * 质量 #119 复审要的：脏样例里有冲突、有没变、有更新、有新建、有认不出的负责人，
+ * 先试跑记下报告每类的数，再写一批，断言 ① 报告数 = 写入结果数；② 报告数 = 库里各表实际增减。
+ * 放在「来回」后面：那时库已退回导入前，从头导一遍再改。
+ */
+describe("裁判 · 冲突 / 没变 / 更新的对账", () => {
+  it("报告（先演一遍）的新建 / 更新 / 跳过 / 冲突 / 写不进 = 写入结果 = 库里各表增减", async () => {
+    // 先照原样导一遍
+    const 首 = await 试跑({ 来源: "excel", 用户Id: 我.id, 表: 表们, 建议器: null });
+    const 首写 = await 写一批(首.批次Id, 我);
+    expect(首.报告.预演?.合计).toEqual({ 新建: 首写.新建, 更新: 首写.更新, 跳过: 首写.跳过, 冲突: 首写.冲突, 失败: 首写.失败 });
+
+    // 挑三家只在源表出现一次、也不和别家同号的客户：A 两边都改名（冲突），B 只原系统改名（更新），C 只我们这边改名（没变 → 跳过）
+    const 新表们: 读出的表[] = structuredClone(表们);
+    const 客 = 新表们.find((t) => t.名 === "客户.xlsx")!;
+    const [编号, 名称, 负责人, 电话] = ["客户编号", "客户名称", "客户负责人", "联系电话"].map((h) => 客.表头.indexOf(h));
+    const 次数 = (i: number, v: string) => 客.行.filter((r) => String(r[i] ?? "").trim() === v).length;
+    const 已有电话 = (await prisma.customer.findUnique({ where: { id: 已有客户Id } }))!.phone!;
+    const 挑 = 客.行.filter((r) => {
+      const id = String(r[编号] ?? "").trim();
+      const 号 = 数字(String(r[电话] ?? ""));
+      return id && String(r[名称] ?? "").trim() && 次数(编号, id) === 1 && 客.行.filter((x) => 数字(String(x[电话] ?? "")) === 号).length === 1 && 号 !== 已有电话;
+    });
+    expect(挑.length).toBeGreaterThanOrEqual(3);
+    const [A, B, C] = 挑;
+    const 本地Id = async (r: (typeof 客.行)[number]) =>
+      (await prisma.entExternalRef.findUnique({ where: { source_entity_externalId: { source: "excel", entity: "customer", externalId: String(r[编号]).trim() } } }))!.targetId;
+    const [aId, bId, cId] = [await 本地Id(A), await 本地Id(B), await 本地Id(C)];
+    await prisma.customer.update({ where: { id: aId }, data: { name: "我们这边改的A" } });
+    await prisma.customer.update({ where: { id: cId }, data: { name: "我们这边改的C" } });
+    A[名称] = "原系统改的A";
+    B[名称] = "原系统改的B";
+    // D：新客户，负责人认不出
+    const D = [...客.行[0]];
+    D[编号] = "KH9001";
+    D[名称] = "对账新建测试有限公司";
+    D[负责人] = "查无此人";
+    D[电话] = "13900009001";
+    客.行.push(D);
+
+    const 前 = await 拍();
+    const 前行 = await prisma.entImportRow.count();
+    const 试 = await 试跑({ 来源: "excel", 用户Id: 我.id, 表: 新表们, 建议器: null });
+    expect(await 拍(), "试跑不该动库").toEqual(前);
+    const 演 = 试.报告.预演!;
+    expect(演).not.toBeNull();
+    // 清洗只看得出「两家要更新」，演一遍才知道其中一家是冲突
+    expect(试.报告.按类.customer).toMatchObject({ 新建: 1, 更新: 2 });
+    expect(演.按类.customer).toMatchObject({ 新建: 1, 更新: 1, 冲突: 1, 失败: 0 });
+    expect(试.报告.问题.some((q) => q.外部ID === "KH9001" && q.级别 === "提醒"), "认不出的负责人要提醒").toBe(true);
+
+    const r = await 写一批(试.批次Id, 我);
+    // ① 报告数 = 写入结果数
+    expect(演.合计).toEqual({ 新建: r.新建, 更新: r.更新, 跳过: r.跳过, 冲突: r.冲突, 失败: r.失败 });
+    expect(r.写到).toBe(试.报告.合计.待写);
+
+    // ② 报告数 = 库里各表实际增减
+    const 后 = await 拍();
+    const 模型: Record<实体, string> = { customer: "Customer", contact: "Contact", lead: "Lead", opportunity: "Opportunity", followup: "FollowUp" };
+    const 按id = (行们: string[]) => new Map(行们.map((x) => [JSON.parse(x).id as string, x]));
+    for (const e of 实体顺序) {
+      const 旧 = 按id(前[模型[e]]);
+      const 新 = 按id(后[模型[e]]);
+      const 多 = [...新.keys()].filter((id) => !旧.has(id)).length;
+      const 改 = [...新.keys()].filter((id) => 旧.has(id) && 旧.get(id) !== 新.get(id)).length;
+      const c = 演.按类[e] ?? { 新建: 0, 更新: 0 };
+      expect([e, 多, 改, 旧.size - [...旧.keys()].filter((id) => 新.has(id)).length]).toEqual([e, c.新建, c.更新, 0]);
+    }
+    expect(后.EntConflict.length - 前.EntConflict.length).toBe(演.合计.冲突);
+    expect(后.EntExternalRef.length - 前.EntExternalRef.length).toBe(演.合计.新建);
+    // 撤回照记账退：动过库的每一条（新建 / 更新 / 冲突）都记了一行，没变的不记
+    expect(await prisma.entImportRow.count()).toBe(前行 + 演.合计.新建 + 演.合计.更新 + 演.合计.冲突);
+
+    // 落到的值：冲突那家留我们改的，更新那家换成原系统的，没变那家不动，新客户落默认负责人
+    const 名 = async (id: string) => (await prisma.customer.findUnique({ where: { id } }))!.name;
+    expect([await 名(aId), await 名(bId), await 名(cId)]).toEqual(["我们这边改的A", "原系统改的B", "我们这边改的C"]);
+    expect((await prisma.customer.findFirst({ where: { name: "对账新建测试有限公司" } }))!.salesOwnerId).toBe(默认负责人);
   });
 });
