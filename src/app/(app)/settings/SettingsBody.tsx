@@ -16,6 +16,7 @@ import { 读组织, 直属上级of, 虚线上级of, 管理员类别of } from "@/
 import { 规整字段配置, 字段权限key } from "@/lib/enterprise/field-perm";
 import { getSetting } from "@/lib/settings";
 import type { 组织架构 } from "./OrgTab";
+import { 本月分配情况 } from "../leads/assign-actions";
 
 /**
  * 设置的正文（服务端组件，负责取数）。**两条路由共用它**：
@@ -77,7 +78,9 @@ export default async function SettingsBody() {
         读组织(),
         Promise.all(规则名们.map(async (n) => [n, await 规则开着(n)] as const)).then((xs) => Object.fromEntries(xs) as Record<(typeof 规则名们)[number], boolean>),
         getSetting<unknown>(字段权限key).then(规整字段配置),
-      ]).then(([org, 开关, 字段权限]) => {
+        // 「线索分配」规则关着时是 null，那一块不出现
+        本月分配情况(),
+      ]).then(([org, 开关, 字段权限, 线索分配]) => {
         const 名 = new Map(users.map((u) => [u.id, u.name]));
         return {
           部门: [...org.部门.values()],
@@ -96,6 +99,7 @@ export default async function SettingsBody() {
           是老板: me.role === "ADMIN" && !共享区,
           规则开着: 开关,
           字段权限,
+          线索分配: 线索分配?.length ? 线索分配 : null,
         };
       })
     : null;
