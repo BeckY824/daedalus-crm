@@ -27,7 +27,7 @@ type 稿 = {
   联系人: { name: string; position: string; phone: string; email: string; wechat: string };
   客户: { name: string; school: string; remark: string };
   项目: { name: string; ownerId: string; amount: number | null; currency: string; remark: string };
-  /** 下一步时间（YYYY-MM-DD）：开了超时回收时必填；老草稿里没有这格 */
+  /** 下一步时间（YYYY-MM-DD）：开了超时回收时才有这格、必填；老草稿里没有这格 */
   跟进: { type: string; content: string; occurredAt: string; 下一步时间?: string | null };
 };
 
@@ -269,18 +269,18 @@ function WizardBody({ users, 要下一步, 全名, 旧 }: { users: 可选成员[
             />
           ), true)}
           {一行("沟通内容", <Input.TextArea rows={4} value={d.跟进.content} onChange={(e) => 改("跟进", { content: e.target.value })} />, true)}
-          {一行("下一步时间", (
+          {要下一步 && 一行("下一步时间", (
             <>
               <DatePicker
                 style={{ width: "100%" }}
                 value={d.跟进.下一步时间 ? dayjs(d.跟进.下一步时间) : null}
                 disabledDate={(x) => x.isBefore(dayjs(), "day")}
                 onChange={(v) => 改("跟进", { 下一步时间: v ? v.format("YYYY-MM-DD") : null })}
-                placeholder={要下一步 ? "选一天" : "可不填"}
+                placeholder="选一天"
               />
-              {要下一步 && <div style={{ marginTop: 4, color: "var(--text-muted)", fontSize: 12 }}>到那天还没人跟进，项目会自动回到项目公海</div>}
+              <div style={{ marginTop: 4, color: "var(--text-muted)", fontSize: 12 }}>到那天还没人跟进，项目会自动回到项目公海</div>
             </>
-          ), 要下一步)}
+          ), true)}
         </>
       )}
 
