@@ -66,3 +66,22 @@ test("减弱动态效果：账号菜单、下拉框都出现在按钮旁边", as
   });
   expect(带过渡的).toEqual([]);
 });
+
+/** 服务端出的那一页（还没水合）：TypeBrand 按「没开」画——字全藏、光标在最前。开了减弱动态要靠 CSS 直接是打好的样子 */
+test.describe("水合前", () => {
+  test.use({ javaScriptEnabled: false });
+
+  for (const 少动 of [true, false]) {
+    test(`登录页名字：${少动 ? "开了减弱动态直接全显示、没有光标" : "没开时照旧先藏着等打字"}`, async ({ page }) => {
+      await page.emulateMedia({ reducedMotion: 少动 ? "reduce" : "no-preference" });
+      await page.goto("/login");
+      const 名字 = page.locator(".auth-brand").first();
+      await expect(名字).toHaveAttribute("aria-label", "Daedalus.AI CRM");
+      const 看 = await 名字.evaluate((el) => ({
+        藏着: [...el.children].filter((s) => getComputedStyle(s).visibility === "hidden").length,
+        光标: [...el.querySelectorAll(".auth-brand-caret")].filter((c) => getComputedStyle(c).display !== "none").length,
+      }));
+      expect(看).toEqual(少动 ? { 藏着: 0, 光标: 0 } : { 藏着: "Daedalus.AI CRM".length, 光标: 1 });
+    });
+  }
+});
