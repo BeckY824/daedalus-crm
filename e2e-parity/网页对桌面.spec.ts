@@ -237,9 +237,12 @@ async function 等布局稳(page: Page) {
 /**
  * Windows 桌面端正文顶上那条盖住系统三颗按钮的带子（globals.css `html.os-win .shell-desktop .main::before`）是窗口的边框，
  * 不是页面内容：它 sticky 在窗口最上面、占位净为 0。元素截图会把块滚到窗口顶上，带子就盖住块的头一截（10-24 第一轮：
- * 记录页标题整条被判红）。拍的时候只把它藏起来，不动排版
+ * 记录页标题整条被判红）。拍的时候只把它藏起来，不动排版。
+ * 顶上那条拖窗口的透明把手（`.shell-desktop .drag-strip`）同理也是窗口边框：它不画任何东西，但桌面端因此多出一个
+ * 固定定位的合成层，网页版没有（10-24 用 CDP LayerTree 对过，两边其余图层一模一样）。Windows 上记录页那块网页是彩边字、
+ * 桌面是灰度字，差的就是这一层，所以一起藏。两样藏掉都不占位（带子净高 0，把手是 fixed），排版不动
  */
-const 拍时藏 = ".main::before { visibility: hidden !important; }";
+const 拍时藏 = ".main::before, .drag-strip { visibility: hidden !important; } .drag-strip { display: none !important; }";
 const 拍法 = { animations: "disabled", caret: "hide", style: 拍时藏 } as const;
 
 /** 一个身份这一页的所有块：键 → 截图 */
