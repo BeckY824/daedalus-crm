@@ -4,6 +4,7 @@
  *   - 往后退、点结局照旧（负责人本人也能）
  *   - 一个人既是直属又是虚线：按直属算，能推
  *   - 直属上级账号还是 SALES（组织里设成销售管理不改账号角色）：照样能推，必填节点也能先推
+ *   - 组织里的总管理员（账号 MANAGER）：能推所有项目，和老板一样（10-24 用户定）
  *   - 负责人没设直属上级（组织还没配）：和原来一样，本人也能推
  *   - 不是企业版：组织表配着也不拦
  */
@@ -103,6 +104,29 @@ describe("企业版推节点只给直属上级", () => {
     // 不是他下属的项目：还是改不了
     const 别人的 = await 项目(散.id);
     expect(await 改节点(组长2, 别人的.id, 往前)).toEqual({ ok: false, error: "只有项目负责人、老板或主管能改节点" });
+  });
+
+  it("总管理员（账号 MANAGER）：谁的项目都能往前推，必填节点也能先推", async () => {
+    for (const bizRole of ["director", "admin"]) {
+      await resetDb();
+      invalidateSettingsCache();
+      const 总 = await 建(`top-${bizRole}`, "MANAGER");
+      const 长 = await 建(`lead-${bizRole}`, "MANAGER");
+      const 卖 = await 建(`sales-${bizRole}`, "SALES");
+      await prisma.entMember.createMany({ data: [
+        { userId: 总.id, bizRole },
+        { userId: 长.id, bizRole: "sales_mgr" },
+        { userId: 卖.id, managerId: 长.id },
+      ] });
+      客户 = (await prisma.customer.create({ data: { name: "客户乙", phone: "", salesOwnerId: 卖.id } })).id;
+      const p = await 项目(卖.id);
+      expect(往前推不给(总, 卖.id, await 读组织())).toBeNull();
+      expect(await 改节点(总, p.id, 往前)).toMatchObject({ ok: true });
+      await setSetting("orgRules", { ...默认组织规则, 节点推进: { 开: true, 必填: { 线索验证: ["金额"] } } });
+      invalidateSettingsCache();
+      expect(await 改节点(总, p.id, { phase: "线索", node: "线索推进" })).toMatchObject({ ok: true });
+      expect(await prisma.projectNodeLog.count({ where: { projectId: p.id, userId: 总.id } })).toBe(2);
+    }
   });
 
   it("负责人没设直属上级：照旧，本人能推", async () => {
