@@ -125,7 +125,8 @@ export default function OrgTab({ value }: { value: 组织架构 }) {
   const 只看 = !能改 && <span style={{ color: "var(--text-muted)" }}>只有老板和总管理员能改</span>;
 
   return (
-    <div style={{ display: "grid", gap: 16 }}>
+    // minmax(0, 1fr)：不让 nowrap 的表格把整页撑宽，表格在各自卡片里横向滚动
+    <div style={{ display: "grid", gap: 16, gridTemplateColumns: "minmax(0, 1fr)" }}>
       <Card title="组织规则" extra={只看}>
         <p className="muted">每条规则单独开关，默认都关着：关着时和团队版一样，按原来的方式看客户。先把下面的部门和上级填好再打开。</p>
         <div style={{ display: "grid", gap: 12 }}>
