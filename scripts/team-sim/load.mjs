@@ -190,8 +190,9 @@ async function 等起来(项, 会, 哪台) {
 }
 const 没成的轮 = [];
 async function 壳(t) {
+  const 代 = (t.壳代 = (t.壳代 ?? 0) + 1); // 第 6 段重开壳时，还在睡的旧壳醒来就退，不和新壳一起跑
   await 停(首轮 + Math.random() * 前台间隔); // 真实电脑不会同一秒开机：错开
-  while (!t.壳停) {
+  while (!t.壳停 && t.壳代 === 代) {
     const 起 = Date.now();
     t.在跑 = true;
     try {
