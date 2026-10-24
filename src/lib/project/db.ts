@@ -6,7 +6,15 @@ import type { Prisma } from "@/generated/prisma";
 import { prisma } from "../prisma";
 import { 查完再写 } from "../check-then-write";
 import { 改节点问题, 原因上限, type 位置 } from "./nodes";
-import { 规整项目, type 向导项目 } from "./wizard";
+import { 规整项目, 规整沟通, type 向导项目, type 向导跟进 } from "./wizard";
+import { 持有上限of, type 组织规则 } from "./org-rules";
+import { 企业版 } from "@/lib/enterprise/switch";
+import { 生效组织规则 } from "./org-rules-store";
+import { 超时回收日, 已超时, 超时理由, 超时起点 } from "./timeout";
+import { getSetting, setSetting } from "../settings";
+import { recordAudit } from "../audit";
+import { 读团队 } from "../sync/client";
+import { dayjs } from "../utils";
 
 type 谁 = { id: string; role: string };
 type 结果 = { ok: true } | { ok: false; error: string };
@@ -20,7 +28,7 @@ export const 角色名上限 = 20;
 /**
  * 能改这个项目（节点、尾款 / 验收、负责人）：项目负责人本人、老板、业务主管。
  * 业务员看得到同事客户下的项目（互看）也只是看。
- * 在公海里的项目没有负责人：放回去的人也不能再改，只有老板、主管能动；其他人要改先领取
+ * 在公海里的项目没有负责人：只有老板、主管能动；其他人（放回去的那位也一样）要改先领取
  */
 export function 能管项目(me: 谁, p: { ownerId: string; pooledAt?: Date | null }): boolean {
   if (me.role === "ADMIN" || me.role === "MANAGER") return true;
@@ -257,10 +265,11 @@ export async function 记转让(
   p: { id: string; phase: string; node: string; result: string | null },
   操作人: string, 从: string | null, 到: string | null,
   kind: "transfer" | "pool-release" | "pool-claim" = "transfer",
+  reason: string | null = null,
 ) {
   await tx.projectNodeLog.create({
     data: {
-      projectId: p.id, userId: 操作人, kind, fromOwnerId: 从, toOwnerId: 到,
+      projectId: p.id, userId: 操作人, kind, fromOwnerId: 从, toOwnerId: 到, reason,
       fromPhase: p.phase, fromNode: p.node, fromResult: p.result,
       toPhase: p.phase, toNode: p.node, toResult: p.result,
     },
@@ -280,6 +289,7 @@ async function 在职(tx: Prisma.TransactionClient, userId: string) {
  */
 export async function 改项目(me: 谁, projectId: string, patch: 向导项目 & { contactId?: string | null }): Promise<结果 & { 变了?: string[] }> {
   if (!patch || typeof patch !== "object") return { ok: false, error: "要改什么？" };
+  const 规则 = await 生效组织规则();
   return 查完再写(async (tx) => {
     const p = await tx.project.findUnique({ where: { id: String(projectId ?? "") } });
     if (!p) return { ok: false as const, error: "这个项目已经不在了，刷新看看" };
@@ -296,7 +306,13 @@ export async function 改项目(me: 谁, projectId: string, patch: 向导项目 
     const 变了 = (Object.keys(新) as (keyof typeof 新)[]).filter((k) => 新[k] !== p[k]);
     if (!变了.length) return { ok: true as const, 变了 };
     const 换人 = 新.ownerId !== p.ownerId;
-    await tx.project.update({ where: { id: p.id }, data: { ...新, ...(换人 && p.pooledAt ? { pooledAt: null } : {}) } });
+    if (换人) {
+      // 这里改不了阶段和结局（规整项目只出名称、负责人、金额、备注），p 的阶段 / 结局就是改完的
+      const 超 = await 超上限(tx, 规则, 新.ownerId, p);
+      if (超) return { ok: false as const, error: 超 };
+    }
+    // 换了人，上一位填的下一步时间不替新负责人算（超时回收从接手那天重新算）
+    await tx.project.update({ where: { id: p.id }, data: { ...新, ...(换人 ? { nextStepAt: null } : {}), ...(换人 && p.pooledAt ? { pooledAt: null } : {}) } });
     if (换人) await 记转让(tx, p, me.id, p.ownerId, 新.ownerId);
     return { ok: true as const, 变了 };
   });
@@ -306,7 +322,36 @@ export async function 改项目(me: 谁, projectId: string, patch: 向导项目 
 export const 能进公海的阶段 = ["线索", "商机"] as const;
 
 /**
- * 放回公海：只有负责人本人能放，线索 / 商机阶段才行。ownerId 留着放回去的人（他不能自己领回），
+ * 手上的项目数（企业版持有上限按这个算）：线索 / 商机阶段、还在走（没结局）、不在公海。
+ * 不管怎么到手的——自己建的、领的、被指派的、自动分配的——都算
+ */
+export async function 持有数(db: Pick<Prisma.TransactionClient, "project">, userId: string): Promise<number> {
+  return db.project.count({ where: { ownerId: userId, pooledAt: null, result: null, phase: { in: [...能进公海的阶段] } } });
+}
+
+/**
+ * 再把这个项目给 userId 会不会超持有上限：超了返回一句报错，没超 / 不是企业版 / 没开上限 / 这个项目不算持有（订单阶段、有结局）返回 null。
+ * 拦领取、拦指派（改负责人、建档时负责人选别人）、自动分配也调这个；自己建档、跟着客户转、离职交接不拦。
+ * 规则在进事务前读好传进来：事务占着库的唯一连接，事务里再走 getSetting 会等到超时
+ */
+export async function 超上限(
+  db: Pick<Prisma.TransactionClient, "project" | "user">,
+  规则: 组织规则,
+  userId: string,
+  p: { phase: string; result: string | null },
+): Promise<string | null> {
+  if (!企业版()) return null;
+  if (p.result || !(能进公海的阶段 as readonly string[]).includes(p.phase)) return null;
+  const 上限 = 持有上限of(规则, userId);
+  if (上限 === null) return null;
+  const 有 = await 持有数(db, userId);
+  if (有 < 上限) return null;
+  const 谁 = (await db.user.findUnique({ where: { id: userId }, select: { name: true } }))?.name ?? "这位成员";
+  return `${谁}手上已经有 ${有} 个线索 / 商机阶段的项目，到持有上限（${上限} 个）了，先推进或放回一些再接`;
+}
+
+/**
+ * 放回公海：只有负责人本人能放，线索 / 商机阶段才行。ownerId 留着放回去的人（他就是「历史负责人」；企业版里自己也能再领回，别的版本不能），
  * 记一行 pool-release。项目组、节点、交付两项都不动
  */
 export async function 放回公海(me: 谁, projectId: string): Promise<结果> {
@@ -316,34 +361,134 @@ export async function 放回公海(me: 谁, projectId: string): Promise<结果> 
     if (p.pooledAt) return { ok: false as const, error: "这个项目已经在公海里了" };
     if (me.id !== p.ownerId) return { ok: false as const, error: "只有项目负责人能放回公海" };
     if (!(能进公海的阶段 as readonly string[]).includes(p.phase)) return { ok: false as const, error: "订单阶段的项目不能放回公海" };
-    await tx.project.update({ where: { id: p.id }, data: { pooledAt: new Date() } });
+    await tx.project.update({ where: { id: p.id }, data: { pooledAt: new Date(), nextStepAt: null } });
     await 记转让(tx, p, me.id, p.ownerId, null, "pool-release");
     return { ok: true as const };
   });
 }
 
-/** 从公海领取：除了放回去的那位，谁都能领；领了就是新负责人，记一行 pool-claim */
+/**
+ * 从公海领取：谁都能领；放回去的那位企业版里能领回（10-24 定），别的版本照旧不能自己领回。领了就是新负责人，记一行 pool-claim。
+ * 开了持有上限的，到上限了领不了
+ */
 export async function 领取公海项目(me: 谁, projectId: string): Promise<结果> {
+  const 规则 = await 生效组织规则();
   return 查完再写(async (tx) => {
     const p = await tx.project.findUnique({ where: { id: String(projectId ?? "") } });
     if (!p) return { ok: false as const, error: "这个项目已经不在了，刷新看看" };
     if (!p.pooledAt) return { ok: false as const, error: "这个项目已经被人领走了，刷新看看" };
-    if (me.id === p.ownerId) return { ok: false as const, error: "自己放回公海的项目不能自己领回" };
     if (!(await 在职(tx, me.id))) return { ok: false as const, error: "账号已停用" };
+    if (!企业版() && me.id === p.ownerId) return { ok: false as const, error: "自己放回公海的项目不能自己领回" };
+    const 超 = await 超上限(tx, 规则, me.id, p);
+    if (超) return { ok: false as const, error: 超 };
     await tx.project.update({ where: { id: p.id }, data: { ownerId: me.id, pooledAt: null } });
     await 记转让(tx, p, me.id, p.ownerId, me.id, "pool-claim");
     return { ok: true as const };
   });
 }
 
+/** 本机记的「今天按这份规则扫过了」：值 = 日期 + 规则，老板改了时长当天再扫一遍 */
+const 超时扫过键 = "projectTimeoutSweptOn";
+
+const 算超时要的 = {
+  id: true, name: true, phase: true, node: true, result: true, pooledAt: true, nextStepAt: true, ownerId: true, customerId: true, createdAt: true,
+  customer: { select: { lastFollowAt: true } },
+  logs: { select: { at: true }, orderBy: { at: "desc" as const }, take: 1 },
+} satisfies Prisma.ProjectSelect;
+type 待查项目 = Prisma.ProjectGetPayload<{ select: typeof 算超时要的 }>;
+
+/** 起点 = 最近一次有人管：建项目、最后一行节点变更 / 转让 / 领取、客户上最后一次跟进，取最晚的（timeout.ts） */
+function 超时了(规则: 组织规则, p: 待查项目, 今: Date): boolean {
+  return 已超时(超时回收日(规则, p, 超时起点(p.createdAt, p.logs[0]?.at, p.customer.lastFollowAt)), 今);
+}
+
+/** 按这份规则现在超时的项目（还在线索 / 商机、没结局、不在公海、节点设了时长） */
+async function 超时的项目(规则: 组织规则, 今: Date, ownerId?: string): Promise<待查项目[]> {
+  const 节点 = Object.keys(规则.超时回收.节点天数);
+  if (!规则.超时回收.开 || !节点.length) return [];
+  const 们 = await prisma.project.findMany({
+    where: { pooledAt: null, result: null, phase: { in: [...能进公海的阶段] }, node: { in: 节点 }, ...(ownerId ? { ownerId } : {}) },
+    select: 算超时要的,
+  });
+  return 们.filter((p) => 超时了(规则, p, 今));
+}
+
+/** 老板改时长前先看：按这份规则现在会有几个项目回到公海（不分谁的，全看） */
+export async function 超时预览(规则: 组织规则, 今: Date = new Date()): Promise<number> {
+  return (await 超时的项目(规则, 今)).length;
+}
+
 /**
- * 公海超时自动收回：先不做（10-23 定：只留口子，规则等会上定）。
- * 定了以后在这里填规则（比如几天没推节点 / 没跟进），定时任务调 公海超时收回()，逐个走和 放回公海 一样的留痕。
- * 现在规则是 null，调了什么都不做
+ * 超时回收（企业版，D-34）：线索 / 商机阶段的项目在节点上超过处理时长没人管，自动回到项目公海，
+ * 负责人收到一条待办提醒；留痕和放回公海一样（pool-release），理由写明是超时。没开 / 没设时长什么都不做。
+ * 项目列表、首页加载时调，一天按同一份规则最多扫一次；老板刚改了时长也直接调一次。
+ * 团队模式下每台只扫自己名下的（和客户公海 自动掉公海 一个道理：别人的跟进本机可能还没拉到）
  */
-export const 公海超时规则: { 天数: number } | null = null;
-export function 公海超时收回(): number {
-  return 0;
+export async function 公海超时收回(me: { id: string; name: string }, 今: Date = new Date()): Promise<number> {
+  const 规则 = await 生效组织规则();
+  if (!规则.超时回收.开) return 0;
+  const 记号 = `${dayjs(今).format("YYYY-MM-DD")} ${JSON.stringify(规则.超时回收)}`;
+  if ((await getSetting<string>(超时扫过键)) === 记号) return 0;
+
+  const 们 = await 超时的项目(规则, 今, 读团队() ? me.id : undefined);
+  const 收了: string[] = [];
+  for (const p of 们) {
+    // 逐个一笔事务：查出来到写下去之间有人刚推了节点、领了、记了沟通，就不收
+    const 收 = await 查完再写(async (tx) => {
+      const 现 = await tx.project.findUnique({ where: { id: p.id }, select: 算超时要的 });
+      if (!现 || 现.ownerId !== p.ownerId || !超时了(规则, 现, 今)) return false;
+      await tx.project.update({ where: { id: p.id }, data: { pooledAt: 今, nextStepAt: null } });
+      await 记转让(tx, p, me.id, p.ownerId, null, "pool-release", 超时理由);
+      await tx.task.create({
+        data: {
+          title: `项目「${p.name}」在「${p.node}」超过处理时长没跟进，已回到项目公海`,
+          dueAt: 今, dueOn: dayjs(今).format("YYYY-MM-DD"), dueHasTime: false,
+          customerId: p.customerId, ownerId: p.ownerId,
+        },
+      });
+      return true;
+    });
+    if (收) 收了.push(p.id);
+  }
+  if (收了.length) {
+    await recordAudit({
+      user: me, action: "pool", entity: "Project",
+      summary: `${收了.length} 个项目超过节点处理时长没跟进，自动回到项目公海`,
+      detail: { ids: 收了, 节点天数: 规则.超时回收.节点天数 },
+    });
+  }
+  await setSetting(超时扫过键, 记号);
+  return 收了.length;
+}
+
+/**
+ * 在项目上记一条沟通：负责人、老板、主管、项目组成员能记；在公海里的先领取。
+ * 开了超时回收、项目在线索 / 商机阶段（还没结局）时必须填下一步时间。
+ * 跟进挂在客户上（客户页也看得到）+ 挂上项目当时的节点；客户的最近跟进往后推；填了下一步时间写到项目上
+ */
+export async function 记项目沟通(me: 谁, projectId: string, input: 向导跟进, now: Date = new Date()): Promise<结果 & { followUpId?: string }> {
+  if (!input || typeof input !== "object") return { ok: false, error: "要记什么？" };
+  const 规则 = await 生效组织规则();
+  return 查完再写(async (tx) => {
+    const p = await tx.project.findUnique({ where: { id: String(projectId ?? "") } });
+    if (!p) return { ok: false as const, error: "这个项目已经不在了，刷新看看" };
+    if (p.pooledAt) return { ok: false as const, error: "这个项目在公海里，先领取再记" };
+    if (!能管项目(me, p)) {
+      const 组员 = await tx.projectMember.findUnique({ where: { projectId_userId: { projectId: p.id, userId: me.id } }, select: { inviteStatus: true } });
+      if (组员?.inviteStatus !== "JOINED") return { ok: false as const, error: "只有项目负责人、项目组成员、老板或主管能记沟通" };
+    }
+    const 要下一步 = 规则.超时回收.开 && !p.result && (能进公海的阶段 as readonly string[]).includes(p.phase);
+    const 好 = 规整沟通(input, { 要下一步, now });
+    if ("error" in 好) return { ok: false as const, error: 好.error };
+    const 跟进 = await tx.followUp.create({
+      data: { type: 好.type, content: 好.content, occurredAt: 好.occurredAt, title: "", status: "已完成", customerId: p.customerId, contactId: p.contactId, ownerId: me.id },
+    });
+    await tx.followUpProject.create({ data: { followUpId: 跟进.id, projectId: p.id, node: p.node } });
+    const c = await tx.customer.findUnique({ where: { id: p.customerId }, select: { lastFollowAt: true } });
+    if (!c?.lastFollowAt || c.lastFollowAt < 好.occurredAt) await tx.customer.update({ where: { id: p.customerId }, data: { lastFollowAt: 好.occurredAt } });
+    if (好.nextStepAt) await tx.project.update({ where: { id: p.id }, data: { nextStepAt: 好.nextStepAt } });
+    return { ok: true as const, followUpId: 跟进.id };
+  });
 }
 
 /**
