@@ -979,3 +979,137 @@ model CustomerCreator {
   userId     String
   at         DateTime @default(now())
 }
+
+// ───────────────────────── 企业版数据接入（2026-10-24） ─────────────────────────
+// 从原系统（飞书 / 钉钉 / 它们导出的 Excel）把客户、联系人、线索、商机、跟进搬进来：
+// 先试跑出报告 → 确认后正式导入 → 之后按小时 / 每晚增量同步 → 切换日关掉同步并留快照。
+// 代码在 src/lib/enterprise-import/。六张表都只在本机（不进团队同步），指向人的列不建外键。
+
+/// 一批：一次试跑、一次正式导入或一次增量同步
+model EntImportBatch {
+  id         String         @id @default(cuid())
+  /// excel | feishu | dingtalk
+  source     String
+  /// full = 首次全量；sync = 增量同步
+  kind       String         @default("full")
+  /// preview = 只试跑出了报告；applying = 写到一半（可续）；done；reverted = 已整批撤回
+  status     String         @default("preview")
+  userId     String?
+  /// 试跑报告 JSON（见 report.ts 的 试跑报告）
+  report     String?
+  /// 上传的表读出来的样子 JSON（Excel 兜底用；接口来的为空）。改映射重新试跑时从这里取，不用再传一次文件
+  raw        String?
+  /// 当时用的字段映射 JSON，正式导入照这份来，不重新猜
+  mapping    String?
+  /// 清洗后的待写记录 JSON；正式导入从这里取，保证和报告里看到的是同一份
+  plan       String?
+  /// 正式导入写到第几条（续写用）
+  cursor     Int            @default(0)
+  total      Int            @default(0)
+  created    Int            @default(0)
+  updated    Int            @default(0)
+  skipped    Int            @default(0)
+  conflicts  Int            @default(0)
+  failed     Int            @default(0)
+  note       String?
+  createdAt  DateTime       @default(now())
+  finishedAt DateTime?
+  revertedAt DateTime?
+  rows       EntImportRow[]
+
+  @@index([createdAt])
+}
+
+/// 一批里写过的每一条：撤回照这里一条条退
+model EntImportRow {
+  id         String         @id @default(cuid())
+  batchId    String
+  batch      EntImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  /// customer | contact | lead | opportunity | followup
+  entity     String
+  externalId String
+  targetId   String
+  /// create | update
+  kind       String
+  /// update 时写之前那几格的值 JSON；create 为空
+  before     String?
+  /// 写完那一刻我们写进去的值 JSON（撤回时比对：不一样 = 有人改过，不撤）
+  written    String
+  /// 写之前的对照行 JSON（update 撤回时把 EntExternalRef 也退回去）
+  refBefore  String?
+  createdAt  DateTime       @default(now())
+
+  @@index([batchId, entity])
+}
+
+/// 原系统记录 ↔ 我们这边记录。同步按 来源 + 原系统 ID 认人
+model EntExternalRef {
+  id          String   @id @default(cuid())
+  source      String
+  entity      String
+  externalId  String
+  targetId    String
+  /// 原系统那条记录清洗后的指纹：没变就跳过
+  fingerprint String
+  /// 上次我们写进去的值 JSON：同步时三方比对（原系统新值 / 我们这边现值 / 上次写的）
+  written     String
+  /// 原系统最后一次给的原始记录 JSON（留档；切换日快照也从这里取）
+  raw         String
+  batchId     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([source, entity, externalId])
+  @@index([entity, targetId])
+}
+
+/// 同步时发现我们这边改过、原系统也改了：不覆盖，记一笔等人定
+model EntConflict {
+  id           String    @id @default(cuid())
+  source       String
+  entity       String
+  externalId   String
+  targetId     String
+  batchId      String?
+  /// 字段 → { 原系统: 新值, 我们: 现值, 上次: 上次写的 } 的 JSON；本地已删时为 {}
+  fields       String
+  /// 原系统这次给的整条清洗后记录 JSON（采用原系统时照它写）
+  incoming     String
+  /// 本地那条已经被删了
+  localDeleted Boolean   @default(false)
+  /// 待定 | 采用原系统 | 保留我们
+  status       String    @default("待定")
+  resolvedById String?
+  resolvedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([status, createdAt])
+  @@index([source, entity, externalId])
+}
+
+/// 整批撤回的「回收站」：被撤的记录连同一起建的子记录存成 JSON，能整批恢复
+model EntTrash {
+  id         String    @id @default(cuid())
+  batchId    String
+  entity     String
+  targetId   String
+  /// 删之前整条记录 JSON（客户带外贸档案）
+  data       String
+  /// 一起删掉的对照行 JSON
+  ref        String?
+  createdAt  DateTime  @default(now())
+  restoredAt DateTime?
+
+  @@index([batchId])
+}
+
+/// 切换日快照：关同步那一刻把所有对照行和原始记录存一份，留档
+model EntSnapshot {
+  id        String   @id @default(cuid())
+  source    String
+  userId    String?
+  count     Int      @default(0)
+  /// [{ entity, externalId, targetId, raw }] 的 JSON
+  data      String
+  createdAt DateTime @default(now())
+}
