@@ -587,9 +587,11 @@ ${工作方式}
 
     if (!选择) {
       const raw = (await chatMessagesJSON(messages, { maxTokens: 1500, timeoutMs: 90_000, temperature: 0, thinking: false, model: ev.model, signal: ev.signal, requestId: 问题id, feature: "ask" })) as Record<string, unknown>;
-      console.info(`[agent] 第 ${i + 1} 步决策 ${Date.now() - t0}ms：${JSON.stringify(raw).slice(0, 120)}`);
       // 模型常把 final 塞进 action 里（{"action":{"final":true}}），或把 tool 直接放顶层：都认
       const action = ((raw?.action && typeof raw.action === "object" ? raw.action : raw) ?? {}) as { tool?: unknown; args?: unknown; final?: unknown };
+      // 只记选了哪个工具，不记参数和 thought：里面是客户名字、电话（2026-10-22）
+      const 选的 = raw?.final || action.final ? "作答" : typeof action.tool !== "string" ? "没给工具" : TOOL_MAP.has(action.tool) ? action.tool : "不认识的工具";
+      console.info(`[agent] 第 ${i + 1} 步决策 ${Date.now() - t0}ms：${选的}`);
       if (raw?.final || action.final || typeof action.tool !== "string") break;
       if (!TOOL_MAP.get(action.tool)) {
         messages.push({ role: "assistant", content: JSON.stringify(raw) }, { role: "user", content: `没有叫「${String(action.tool)}」的工具。可用：${TOOLS.map((t) => t.name).join(", ")}` });
@@ -632,7 +634,7 @@ ${工作方式}
       const 回执 = 选择.回执;
       (回执[回执.length - 1] as { content: string }).content = 劝;
       messages.push(...回执);
-      console.warn(`[agent] 原地打转，拦下第二次 ${签名.slice(0, 80)}`);
+      console.warn(`[agent] 原地打转，拦下第二次 ${tool.name}`);
       continue;
     }
 
@@ -776,7 +778,8 @@ ${工作方式}
     );
   }
   if (不是答案(text, 工具名单)) {
-    console.warn(`[agent] 吐的不是答案，重答一次：${text.slice(0, 80)}`);
+    // 下面这几道闸的日志只记字数，不记回答原文：回答里是查出来的客户名字、电话、金额（2026-10-22）
+    console.warn(`[agent] 吐的不是答案，重答一次（${text.length} 字）`);
     // 零工具那次是攒着的、没推出去，不用抹
     if (!零工具) ev.onReset?.();
     /*
@@ -792,13 +795,13 @@ ${工作方式}
       true,
     );
     if (不是答案(text, 工具名单)) {
-      console.warn(`[agent] 重答还是不是答案，不上屏：${text.slice(0, 80)}`);
+      console.warn(`[agent] 重答还是不是答案，不上屏（${text.length} 字）`);
       text = 没答成;
     }
     推回答(text);
   } else if (零工具 && 凭空断言(text)) {
     // 攒着的那份从没推出去过，所以这儿不用 reset——编的那句话一个字都没上过屏
-    console.warn(`[agent] 零工具却断言了数据，重答一次：${text.slice(0, 80)}`);
+    console.warn(`[agent] 零工具却断言了数据，重答一次（${text.length} 字）`);
     text = await 组织回答(
       finalPrompt +
         `\n\n**重要**：你这一轮一次数据都没查过，所以你不知道库里有什么。` +
@@ -814,7 +817,7 @@ ${工作方式}
     放在最后：前面几道闸换过的答案同样可能提卡片；已经是 没答成 的就不用再看了
   */
   if (text !== 没答成 && ctx.proposals.length === 0 && 声称有卡片(text)) {
-    console.warn(`[agent] 说有卡片但这一轮没生成卡片，重答一次：${text.slice(0, 80)}`);
+    console.warn(`[agent] 说有卡片但这一轮没生成卡片，重答一次（${text.length} 字）`);
     ev.onReset?.();
     text = await 组织回答(
       finalPrompt +
@@ -831,7 +834,7 @@ ${工作方式}
     零工具那次不会有卡（卡只能由工具提），所以这里一定是流式推过的，要 reset
   */
   if (text !== 没答成 && ctx.proposals.length > 0 && 声称已写入(text)) {
-    console.warn(`[agent] 有 ${ctx.proposals.length} 张卡没确认，回答却说已经改好，重答一次：${text.slice(0, 80)}`);
+    console.warn(`[agent] 有 ${ctx.proposals.length} 张卡没确认，回答却说已经改好，重答一次（${text.length} 字）`);
     ev.onReset?.();
     text = await 组织回答(
       finalPrompt +
