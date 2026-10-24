@@ -20,7 +20,7 @@ docker compose ps --format '  {{.Name}}  {{.Status}}' 2>/dev/null
 if [ -f backups/LAST_OK ]; then
   LAST="$(cat backups/LAST_OK)"
   N="$(ls -1 backups/crm-*.tar.gz.enc 2>/dev/null | wc -l | tr -d ' ')"
-  echo "最近备份：$LAST（本机共 $N 份）"
+  echo "最近备份：${LAST}（本机共 $N 份）"
   # 超过两天没成功备份要醒目提示：定时任务可能坏了
   if [ -n "$(find backups/LAST_OK -mmin +2880 2>/dev/null)" ]; then
     warn "已超过 2 天没有成功备份，查 /var/log/crm-backup.log"

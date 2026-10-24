@@ -18,7 +18,7 @@ source "$(dirname "$0")/lib.sh"
 need_docker
 
 PASS_FILE="$(backup_pass_file)"
-[ -s "$PASS_FILE" ] || die "没有备份密码（$PASS_FILE）。先执行 sudo ./scripts/backup-password.sh 生成"
+[ -s "$PASS_FILE" ] || die "没有备份密码（${PASS_FILE}）。先执行 sudo ./scripts/backup-password.sh 生成"
 
 KEEP="$(env_get BACKUP_KEEP)"; KEEP="${KEEP:-30}"
 COPY_DIR="$(env_get BACKUP_COPY_DIR)"
@@ -32,7 +32,7 @@ if ! mkdir "$LOCK" 2>/dev/null; then
   if [ -n "$(find "$LOCK" -maxdepth 0 -mmin +360 2>/dev/null)" ]; then
     rmdir "$LOCK" && mkdir "$LOCK"
   else
-    die "另一份备份正在进行（$LOCK）"
+    die "另一份备份正在进行（${LOCK}）"
   fi
 fi
 trap 'rmdir "$LOCK" 2>/dev/null || true; rm -f "${PART:-}"' EXIT
@@ -87,4 +87,4 @@ if [ -n "$COPY_DIR" ]; then
 fi
 
 date '+%Y-%m-%d %H:%M:%S' > backups/LAST_OK
-ok "已备份 → $OUT（$SIZE，保留最近 $KEEP 份）"
+ok "已备份 → ${OUT}（${SIZE}，保留最近 $KEEP 份）"

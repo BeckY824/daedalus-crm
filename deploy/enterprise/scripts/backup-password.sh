@@ -11,14 +11,14 @@ source "$(dirname "$0")/lib.sh"
 
 PASS_FILE="$(backup_pass_file)"
 if [ -s "$PASS_FILE" ] && [ "${1:-}" != "--force" ]; then
-  ok "已经有备份密码（$PASS_FILE），不重复生成"
+  ok "已经有备份密码（${PASS_FILE}），不重复生成"
   echo "   换新密码：sudo ./scripts/backup-password.sh --force（换了之后旧备份要用旧密码解）"
   exit 0
 fi
 if [ -s "$PASS_FILE" ]; then
   OLD="$PASS_FILE.old-$(date +%Y%m%d-%H%M%S)"
   cp -p "$PASS_FILE" "$OLD"
-  warn "旧密码已另存为 $OLD——之前的备份还要用它解，别删"
+  warn "旧密码已另存为 ${OLD}——之前的备份还要用它解，别删"
 fi
 
 mkdir -p "$(dirname "$PASS_FILE")"
@@ -37,4 +37,4 @@ echo "========================================================="
 echo "请现在就把上面这串抄到服务器以外的地方保管。"
 echo "丢了它，所有备份都解不开；我们也无法帮您找回。"
 echo
-ok "已存到 $PASS_FILE（仅 root 可读）"
+ok "已存到 ${PASS_FILE}（仅 root 可读）"

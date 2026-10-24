@@ -13,7 +13,7 @@ source "$(dirname "$0")/lib.sh"
 need_docker
 
 PASS_FILE="$(backup_pass_file)"
-[ -s "$PASS_FILE" ] || die "没有备份密码（$PASS_FILE）。异地恢复时把密码写进一个文件，用 BACKUP_PASS_FILE=该文件 指过去"
+[ -s "$PASS_FILE" ] || die "没有备份密码（${PASS_FILE}）。异地恢复时把密码写进一个文件，用 BACKUP_PASS_FILE=该文件 指过去"
 
 SRC="${1:-}"
 if [ -z "$SRC" ]; then

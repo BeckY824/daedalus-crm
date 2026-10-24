@@ -38,7 +38,7 @@ case "${1:-}" in
     NEW="$1" ;;
 esac
 
-[ "$NEW" != "$PREV" ] || { ok "已经是 $NEW，不用升级"; exit 0; }
+[ "$NEW" != "$PREV" ] || { ok "已经是 ${NEW}，不用升级"; exit 0; }
 
 if ! docker image inspect "$IMAGE:$NEW" >/dev/null 2>&1; then
   say "拉取 $IMAGE:$NEW …"
@@ -55,12 +55,12 @@ fi
 OLD_PREVIOUS="$(cat .previous-version 2>/dev/null || true)"
 echo "$PREV" > .previous-version
 TIMEOUT="${UPGRADE_TIMEOUT:-300}"
-say "$PREV → $NEW：重启应用…"
+say "$PREV → ${NEW}：重启应用…"
 env_set CRM_VERSION "$NEW"
 docker compose up -d >/dev/null
 
 if wait_healthy "$NEW" "$TIMEOUT"; then
-  ok "已升级到 $NEW（上一版 $PREV；回滚：sudo ./scripts/rollback.sh）"
+  ok "已升级到 ${NEW}（上一版 ${PREV}；回滚：sudo ./scripts/rollback.sh）"
   [ -n "${PRE_BACKUP:-}" ] && echo "   升级前备份：$PRE_BACKUP"
   exit 0
 fi
@@ -71,6 +71,6 @@ env_set CRM_VERSION "$PREV"
 if [ -n "$OLD_PREVIOUS" ]; then echo "$OLD_PREVIOUS" > .previous-version; else rm -f .previous-version; fi
 docker compose up -d >/dev/null
 if wait_healthy "$PREV" 300; then
-  die "升级失败，已退回 $PREV，数据未动。请把上面的日志发给我们"
+  die "升级失败，已退回 ${PREV}，数据未动。请把上面的日志发给我们"
 fi
 die "升级失败，退回 $PREV 也没起来。请保留现场联系我们；升级前备份：${PRE_BACKUP:-无}"
