@@ -215,6 +215,8 @@ html.glass .ant-pagination .ant-pagination-item, html.glass .ant-pagination .ant
 .auth-brand-caret { position: absolute; left: calc(100% + 2px); bottom: 0.12em; width: 0.5em; height: 0.85em; background: var(--brand); animation: auth-blink 1s steps(1) infinite; }
 .auth-brand-caret.at-start { left: 0; }
 .auth-brand-todo .auth-brand-caret { visibility: visible; }
+/* 开了「减弱动态」直接是打好的样子：服务端按「没开」出页（字全藏、光标在最前），不靠 CSS 的话要等水合完才变，中间空一下 */
+@media (prefers-reduced-motion: reduce) { .auth-brand-todo { visibility: visible; } .auth-brand-caret { display: none; } }
 @keyframes auth-blink { 50% { opacity: 0; } }
 .auth-claim { margin: 0; max-width: 16em; font-family: var(--font-display); font-weight: var(--fw-display); font-size: var(--fs-title); line-height: 1.4; color: var(--ink); text-wrap: balance; }
 .auth-fine { margin: 0; max-width: 30em; font-size: var(--fs-min); line-height: 1.7; color: var(--text-muted); }
@@ -536,7 +538,9 @@ html.glass .fbt { background: color-mix(in srgb, var(--panel) 88%, transparent);
 /* 提示出着时正文底下让出它的高度（--fbt-room 由 FeedbackReplyToast 量好写上）：滚到底，列表的分页、最后一行都在它上面。
    正文的内边距写在 AppShell 行内，所以要 !important。首页那种贴底的输入框自己往上垫，正文就不用再让一截 */
 html.fbt-room .main:not(:has(.cli-composer-sticky)) { padding-bottom: var(--fbt-room) !important; }
-html.fbt-room .cli-composer-sticky { padding-bottom: var(--fbt-room); }
+html.fbt-room .cli-composer-sticky { padding-bottom: calc(var(--fbt-room) + 6px); }
+/* 中栏那种自己滚的列表（最近客户等）不归正文的内边距管，自己让 */
+html.fbt-room .pane-rows { padding-bottom: calc(var(--fbt-room) + 12px); }
 
 /* 左栏右边那条能拖的缝：贴着分隔线骑在上面，平时看不见，指上去才显出来。
    6px 宽是拿得住的最小值——再窄就得瞄准，而这不是个需要精准的动作 */

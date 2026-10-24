@@ -15,6 +15,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { App } from "antd";
+import { useCopy } from "@/lib/clipboard";
 import ResearchCard from "./ResearchCard";
 import { useJob, clearJob, getJob } from "@/lib/ai-jobs";
 import { useBusiness } from "@/lib/business-client";
@@ -235,10 +236,8 @@ function Done({ s, customer, on记跟进 }: { s: 背调状态; customer?: { id: 
   const [开存, set开存] = useState(false);
   const [忙, set忙] = useState(false);
 
-  const 复制 = async () => {
-    await navigator.clipboard.writeText(报告文本(s));
-    message.success("报告已复制");
-  };
+  const 拷 = useCopy();
+  const 复制 = () => 拷(报告文本(s), "报告已复制");
   const 存给 = async (c: { id: string; name: string }) => {
     set忙(true);
     const r = await 存背调到客户(c.id, s).finally(() => set忙(false));
