@@ -7,6 +7,7 @@
  *   - 「再看 50 条」/「再看剩下 N 条」一直点到底：整页和右边一模一样，没去补过详情
  *   - 要摆的那条手里没详情：先占一行「正在取…」，补到了换成和右边一样的那一行
  *   - 每组不到 50 条（个人版）：两边一模一样，没有「再看」
+ *   - 摆出来的都是我的、后头没摆的有别人的：照样有「我的 / 全部成员」（看全部，不看已摆的）
  */
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { build, type Plugin } from "esbuild";
@@ -58,6 +59,8 @@ beforeAll(async () => {
         待办.push({ id: 't' + (i++ * 7919 % 100003), title: '待办' + i, dueAt: 没时间 ? null : d.toDate(), dueOn: null, dueHasTime: 没时间 ? null : true, updatedAt: new Date('2026-10-01T00:00:00Z'), customer: c, owner: o, ownerId: o.id });
       }
     }
+    // 外人：不在名单里的负责人，计划排在「以后」最末（300 天后），前 50 条里没有他的
+    for (let k = 0; k < (cfg.外人 ?? 0); k++) 计划.push({ id: 'zz' + k, subject: '外人计划' + k, plannedAt: now.add(300 + k, 'day').toDate(), plannedOn: null, plannedHasTime: true, method: '电话沟通', updatedAt: new Date('2026-10-01T00:00:00Z'), customer: 客户[0], owner: { id: 'u9', name: '成员u9' }, ownerId: 'u9' });
     // 假库：只认 取计划页 / 取详情 用到的那几样（done:false、id in、按时间排、同一刻按 id）
     const 排 = (行, 键) => [...行].sort((a, c) => { const x = a[键] ? a[键].getTime() : Infinity, y = c[键] ? c[键].getTime() : Infinity; return x - y || (a.id < c.id ? -1 : a.id > c.id ? 1 : 0); });
     const 表 = (行, 键) => ({ findMany: async ({ where }) => { const 要 = where.id?.in && new Set(where.id.in); return 排(行.filter((x) => !要 || 要.has(x.id)), 键); } });
@@ -96,7 +99,7 @@ beforeAll(async () => {
 }, 120_000);
 afterAll(async () => { await browser?.close(); });
 
-type 配置 = { 种子: number; 我: string; 人: string[]; 每组: Record<string, [number, number]>; 缺一条?: boolean };
+type 配置 = { 种子: number; 我: string; 人: string[]; 每组: Record<string, [number, number]>; 缺一条?: boolean; 外人?: number };
 
 async function 开(cfg: 配置) {
   const page = await browser.newPage({ timezoneId: "Asia/Shanghai" }); page.setDefaultTimeout(8000);
@@ -201,5 +204,17 @@ it("每组不到 50 条、只有自己（个人版）：和全取的一模一样
   const 去id = (h: string) => h.replace(/_r_\w+?_/g, "_r_");
   expect(去id(await page.locator("#paged").innerHTML())).toBe(去id(await page.locator("#full").innerHTML()));
   expect(await page.evaluate(() => (window as unknown as { __补: unknown[] }).__补)).toEqual([]);
+  expect(errors).toEqual([]); await page.close();
+});
+
+it("摆出来的都是我的、后头没摆的有别人的：照样有「我的 / 全部成员」，翻到底和全取的一样", async () => {
+  const { page, errors } = await 开({ 种子: 6, 我: "u1", 人: ["u1"], 每组: { 逾期: [10, 0], 今天: [5, 0], 本周: [5, 0], 以后: [60, 0] }, 外人: 3 });
+  expect(await page.locator("#paged .plan-row", { hasText: "外人计划" }).count()).toBe(0);
+  expect(await page.locator("#paged .ant-segmented-item", { hasText: /^全部成员$/ }).count()).toBe(1);
+  await 看(page, "全部成员");
+  expect((await 读(page, "paged")).find((g) => g.名 === "以后")?.共).toBe(63);
+  await 翻到底(page);
+  expect(await 读(page, "paged")).toEqual(await 读(page, "full"));
+  expect(await page.locator("#paged .plan-row", { hasText: "外人计划" }).count()).toBe(3);
   expect(errors).toEqual([]); await page.close();
 });

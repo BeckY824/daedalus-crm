@@ -191,10 +191,17 @@ describe("跟进计划分批取", () => {
   it("每组都不到 50 条（个人版）：不带轻列表，和原来全取的完全一样", async () => {
     // 计划和待办同组；今天是周日时「本周」那几条落进「以后」，也不到 50
     const 我 = await 灌(3, [10, 30, 2, 0], [0, 5, 15, 15]);
-    const 页 = await 取计划页(prisma, 读每组(undefined), 我);
+    // 记下发给库的参数：全取时是原来那两句（orderBy 不加 id）
+    const 发: { 表: string; orderBy: unknown }[] = [];
+    const 记 = (表: "followPlan" | "task") => ({ findMany: (a: { orderBy: unknown }) => (发.push({ 表, orderBy: a.orderBy }), (prisma[表].findMany as (x: unknown) => unknown)(a)) });
+    const 页 = await 取计划页({ followPlan: 记("followPlan"), task: 记("task") } as unknown as Parameters<typeof 取计划页>[0], 读每组(undefined), 我);
     expect(页.轻).toBeUndefined();
     expect(页.负责人).toBeUndefined();
     expect(页).toEqual(await 原来全取());
+    expect(发.slice(-2)).toEqual([
+      { 表: "followPlan", orderBy: { plannedAt: "asc" } },
+      { 表: "task", orderBy: { dueAt: { sort: "asc", nulls: "last" } } },
+    ]);
   });
 
   it("空库：什么都没有", async () => {
@@ -250,7 +257,10 @@ describe("补计划详情", () => {
     expect(r.tasks).toHaveLength(2);
     expect(await 补计划详情(["customer:x"])).toEqual({ plans: [], tasks: [] });
     expect(await 补计划详情(["plan:a b"])).toEqual({ plans: [], tasks: [] });
-    expect(await 补计划详情(Array.from({ length: 501 }, (_, i) => `plan:x${i}`))).toEqual({ plans: [], tasks: [] });
+    // 最多 500 个：真 key 凑满 500 照给，501 个一条都不给
+    const 凑 = (n: number) => [...keys, ...Array.from({ length: n - keys.length }, (_, i) => `plan:x${i}`)];
+    expect(await 补计划详情(凑(500))).toEqual(r);
+    expect(await 补计划详情(凑(501))).toEqual({ plans: [], tasks: [] });
     expect(await 补计划详情("plan:x" as unknown as string[])).toEqual({ plans: [], tasks: [] });
     expect(await 补计划详情([])).toEqual({ plans: [], tasks: [] });
     登录的.有 = false;
