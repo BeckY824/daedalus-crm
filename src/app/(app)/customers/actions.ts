@@ -26,6 +26,7 @@ import {
   ATTRIBUTION_KEYS,
 } from "@/lib/concurrency";
 import { FOLLOW_STATUSES, DECISION_STATUSES, OPP_STAGES } from "@/lib/constants";
+import { 客户存了推项目 } from "@/lib/project/auto-advance";
 import { recordAudit, describeCustomerChanges } from "@/lib/audit";
 import { 唯一负责人 } from "@/lib/owners";
 import { getBusiness } from "@/lib/business";
@@ -442,6 +443,7 @@ export async function saveCustomer(input: CustomerInput, 接着?: unknown): Prom
       ? await 带走没做完的([{ customerId: input.id, 旧: 改前.salesOwnerId }], data.salesOwnerId, me.id)
       : undefined;
     revalidateCustomer(input.id);
+    await 客户存了推项目(me, input.id);
     return { ok: true, id: input.id, 带走 };
   }
 
@@ -499,6 +501,7 @@ export async function saveCustomer(input: CustomerInput, 接着?: unknown): Prom
     // 我什么都没改，写下去也是原样，直接当成功（外贸档案在旁表，不过这道闸，照改）
     if (!mine.length) {
       await 改外贸档案(me, input.id, data.name, 档案.data, b.customer);
+      await 客户存了推项目(me, input.id);
       return { ok: true, id: input.id };
     }
 
@@ -524,6 +527,7 @@ export async function saveCustomer(input: CustomerInput, 接着?: unknown): Prom
         ? await 带走没做完的([{ customerId: input.id, 旧: current.salesOwnerId }], data.salesOwnerId, me.id)
         : undefined;
       revalidateCustomer(input.id);
+      await 客户存了推项目(me, input.id);
       return { ok: true, id: input.id, 带走 };
     }
   }
@@ -1258,6 +1262,7 @@ export async function patchCustomer(id: string, key: PatchableKey, value: string
     });
     revalidatePath(`/customers/${id}`);
     revalidatePath("/customers");
+    await 客户存了推项目(me, id);
     return { ok: true };
   }
   const data: Record<string, unknown> = {};
@@ -1308,6 +1313,7 @@ export async function patchCustomer(id: string, key: PatchableKey, value: string
     : undefined;
   revalidatePath(`/customers/${id}`);
   revalidatePath("/customers");
+  await 客户存了推项目(me, id);
   return { ok: true, 带走 };
 }
 

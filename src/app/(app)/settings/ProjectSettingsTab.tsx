@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { App, Button, Card, Input, InputNumber, Popconfirm, Space, Switch, Tag } from "antd";
+import { App, Button, Card, Input, InputNumber, Popconfirm, Select, Space, Switch, Tag } from "antd";
 import { 加组员角色, 改组员角色, 加项目异常类别, 改项目异常类别, 改组织规则, 预览超时回收 } from "@/app/(app)/projects/actions";
 import { 上限最大, 时长最大, type 组织规则, type 规则改动 } from "@/lib/project/org-rules";
 import { 节点们 } from "@/lib/project/nodes";
+import { 必填项们, 能配必填的节点, 建议必填 } from "@/lib/project/required";
 
 type 字典项 = { id: string; name: string; active: boolean; 用的人: number };
 type 结果 = Promise<{ ok: boolean; error?: string }>;
@@ -63,6 +64,7 @@ export default function ProjectSettingsTab({ value, isAdmin, 成员 }: { value: 
       />
       {value.组织规则 && <HoldCapCard 规则={value.组织规则.公海} 持有={value.持有} 成员={成员} isAdmin={isAdmin} 忙={忙} 跑={跑} />}
       {value.组织规则 && <TimeoutCard 规则={value.组织规则.超时回收} isAdmin={isAdmin} 忙={忙} 跑={跑} />}
+      {value.组织规则 && <AdvanceCard 规则={value.组织规则.节点推进} isAdmin={isAdmin} 忙={忙} 跑={跑} />}
     </div>
   );
 }
@@ -270,6 +272,77 @@ function TimeoutCard({
           ))}
           {isAdmin && (
             <Button type="primary" style={{ marginTop: 4 }} disabled={忙 || !改了} onClick={() => void 确认后存({ 超时回收: { 节点天数: 天数 } }, "已保存")}>保存</Button>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
+const 必填选项 = 必填项们.map((x) => ({ value: x.key, label: x.key, title: x.说明 }));
+const 同一份 = (a: string[] = [], b: string[] = []) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+/**
+ * 节点推进（企业版组织规则，默认关）：老板给节点配「必填哪几样」，项目在这个节点上填齐了自动推到下一节点。
+ * 配了必填的节点，手动往前推只给老板、主管；没配的节点照原来手动推。最后一个节点由人点成功交付，不能配。
+ * 改了清单不当场推：项目下次保存（改项目、记沟通、改客户资料）时按新清单走
+ */
+function AdvanceCard({
+  规则, isAdmin, 忙, 跑,
+}: {
+  规则: 组织规则["节点推进"]; isAdmin: boolean; 忙: boolean;
+  跑: (f: () => 结果, 成了?: string) => Promise<boolean>;
+}) {
+  const [必填, set必填] = useState<Record<string, string[]>>(规则.必填);
+  const 改了 = 能配必填的节点.some((n) => !同一份(必填[n], 规则.必填[n]));
+  const 阶段们 = (["线索", "商机", "订单"] as const).map((阶段) => ({ 阶段, 节点: 节点们[阶段].filter((n) => 能配必填的节点.includes(n)) }));
+
+  return (
+    <Card
+      title="节点推进"
+      extra={
+        <Space>
+          {!isAdmin && <span style={{ color: "var(--text-muted)" }}>只有老板能改</span>}
+          <Switch
+            aria-label="节点推进"
+            checked={规则.开}
+            disabled={!isAdmin || 忙}
+            onChange={(开) => void 跑(() => 改组织规则({ 节点推进: { 开 } }), 开 ? "已开节点推进" : "已关节点推进")}
+          />
+        </Space>
+      }
+    >
+      <div style={{ color: "var(--text-muted)", marginBottom: 12 }}>
+        开了以后，给节点配上必填的几样，项目在这个节点上填齐了自动推到下一个节点，节点变更里记一行「必填齐了，自动推进」。没填齐也能保存，项目页上会列出还差哪几样。配了必填的节点，手动往前推只有老板、主管能点，往后退照旧；没配的节点照原来手动推。改了清单以后，项目下次保存时按新清单走。默认关。
+      </div>
+      {规则.开 && (
+        <>
+          {阶段们.map(({ 阶段, 节点 }) => (
+            <div key={阶段} style={{ marginBottom: 8 }}>
+              <div style={{ fontWeight: 500, marginBottom: 8 }}>{阶段}阶段</div>
+              {节点.map((n) => (
+                <div key={n} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, minWidth: 0, flexWrap: "wrap" }}>
+                  <span style={{ flex: "0 0 96px", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={n}>{n}</span>
+                  <Select
+                    aria-label={`「${n}」的必填`}
+                    mode="multiple"
+                    allowClear
+                    style={{ flex: "1 1 240px", minWidth: 0 }}
+                    placeholder="不配，照原来手动推"
+                    disabled={!isAdmin}
+                    options={必填选项}
+                    value={必填[n] ?? []}
+                    onChange={(v: string[]) => set必填((m) => ({ ...m, [n]: v }))}
+                  />
+                </div>
+              ))}
+            </div>
+          ))}
+          {isAdmin && (
+            <Space wrap style={{ marginTop: 4 }}>
+              <Button type="primary" disabled={忙 || !改了} onClick={() => void 跑(() => 改组织规则({ 节点推进: { 必填 } }), "已保存")}>保存</Button>
+              <Button disabled={忙} onClick={() => set必填({ ...建议必填 })}>用建议清单</Button>
+            </Space>
           )}
         </>
       )}
