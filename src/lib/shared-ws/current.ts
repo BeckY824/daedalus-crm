@@ -29,9 +29,10 @@ export async function 当前是共享区(): Promise<boolean> {
  * 也不会出现「这一页记得打码、那一页忘了」的漂移——客户列表、联系人、
  * 记录页三处共用同一个出口。
  */
-export async function 号码脱敏器(): Promise<<T extends string | null>(p: T) => T> {
+export async function 号码脱敏器(userId?: string): Promise<<T extends string | null>(p: T) => T> {
   const 共享 = await 当前是共享区();
-  // 企业版「字段权限」把电话设成看不到的角色，也从这同一个出口打码（规则没开不读库）
-  const 藏 = !共享 && (await (await import("@/lib/enterprise/field-perm")).字段权限of())("电话") === "藏";
+  // 企业版「字段权限」把电话设成看不到的角色，也从这同一个出口打码（规则没开不读库）。
+  // 不走 cookie 的入口（MCP 令牌）必须传 userId：不传就按 cookie 认人，认不到 = 全能改 = 不打码
+  const 藏 = !共享 && (await (await import("@/lib/enterprise/field-perm")).字段权限of(userId))("电话") === "藏";
   return <T extends string | null>(p: T): T => ((共享 || 藏) && p ? (maskPhone(p) as T) : p);
 }
