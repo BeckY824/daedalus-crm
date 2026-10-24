@@ -56,6 +56,7 @@ export default function SettingsView({
   用邮箱登录 = false,
   共享区 = false,
   项目设置 = null,
+  企业版 = false,
   组织架构 = null,
   企业版导入 = false,
 }: {
@@ -83,6 +84,8 @@ export default function SettingsView({
   共享区?: boolean;
   /** 项目模式开着时多一栏「项目模式」；null = 开关关着，这一栏不出现 */
   项目设置?: 项目设置 | null;
+  /** 企业版：停用成员多了离职交接（放进公海、先清点） */
+  企业版?: boolean;
   /** 企业版多一栏「组织架构」；null = 不是企业版，这一栏不出现 */
   组织架构?: 组织架构 | null;
   /** 企业版（CRM_ENTERPRISE=1）的管理员：多一栏「企业版导入」（飞书 / 钉钉 / Excel 首次导入、同步、切换） */
@@ -102,7 +105,7 @@ export default function SettingsView({
      * 于是销售想改自己的名字得去求管理员。
      */
     { key: "profile", label: "个人资料", children: <ProfileTab me={{ name: me.name, title: me.title, email: me.email }} 云端账号={桌面端?.账号 ?? null} /> },
-    { key: "members", label: "团队成员", children: <MembersTab users={users} me={me} isAdmin={isAdmin} 用邮箱登录={用邮箱登录} /> },
+    { key: "members", label: "团队成员", children: <MembersTab users={users} me={me} isAdmin={isAdmin} 用邮箱登录={用邮箱登录} 企业版={企业版} /> },
     { key: "keymap", label: "快捷键", children: <KeymapTab 桌面端={Boolean(桌面端)} /> },
     { key: "appearance", label: "外观", children: <AppearanceTab /> },
     { key: "password", label: "登录与密码", children: <PasswordTab 机器={机器} /> },
