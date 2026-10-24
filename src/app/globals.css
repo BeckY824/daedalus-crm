@@ -2380,6 +2380,12 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
   .ant-cascader-dropdown, .ant-mentions-dropdown, .ant-tour {
     transition: none !important;
   }
+  /* 同一个坑：自动长高的输入框（autoSize）靠 body 底下一个隐藏 textarea 量行高，抄好字号、内边距马上同步量，
+     带着过渡量到的是浏览器默认的 13.33px 字、2px 边距，两行的框就矮成 44px（该是 56px）；
+     之后要等它碰巧再量一次才对，有时一直不量（Windows 上常见），页面高度跟着差一截 */
+  body > textarea[name="hiddenTextarea"] {
+    transition: none !important;
+  }
   /* 时长归零挡不住位移本身：按下去仍然会缩一下，只是缩得很快——
      对开了这个开关的人来说，那正是他不想看到的那种跳。所以把位移也撤掉，
      按下的回应交给颜色（:active 那条规则里的底色仍然生效）。 */
