@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { App, Button, Card, Input, Select, Space, Switch, Tag } from "antd";
 import { 角色名, 业务角色, 部门最多层数 } from "@/lib/sync/dept-policy";
 import { 部门树, type 组织部门 } from "@/lib/enterprise/org-tree";
-import { 规则 } from "@/lib/enterprise/rules";
+import { 规则 } from "@/lib/enterprise/rules-table";
 import { 建部门, 改部门, 删部门, 设成员, 设规则, type 成员改动 } from "./org-actions";
 
 export type 组织架构 = {
