@@ -89,6 +89,14 @@ jobs:
           HOME: /root
           # 用例的浏览器固定 Asia/Shanghai，服务端也要一致，否则日期文案水合失配
           TZ: Asia/Shanghai
+      # 企业版导入（10-24）：测试机样例一趟来回——试跑数 = 写入数 = 库增减、同一批导两次不重复、两批撤回后库和导入前一样。
+      # 复用上面那次生产构建（企业版开关是运行时读的），必须排在排版闸门前面：那一步会带 DESKTOP_LOCAL=1 重新 build
+      - run: npm run test:enterprise
+        env:
+          E2E_PROD: "1"
+          E2E_REUSE_BUILD: "1"
+          HOME: /root
+          TZ: Asia/Shanghai
       # 发版前排版闸门（10-19）：桌面本地模式 + 像真客户的数据，1024/1280/1366 × AI 栏常驻 / 左栏最宽量主要页面越界、被盖住。
       # 这几天的显示 bug 都是客户先发现的，以后让它在这里先红。规则见 e2e/layout-audit.ts，不许为了变绿放宽
       - run: npx playwright test -c playwright.layout.config.ts
