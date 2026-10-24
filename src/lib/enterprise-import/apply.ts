@@ -576,10 +576,21 @@ async function 一趟(现: 现场, 段: 待写[], 起: number): Promise<void> {
 }
 
 export type 预演计数 = { 新建: number; 更新: number; 跳过: number; 冲突: number; 失败: number };
-const 预演上限 = 5000;
+/** 计划再多就不演，数字按清洗分类给 */
+export const 预演上限 = 2000;
+/**
+ * 预演从第一条写起就占着库的写锁，别处这时要写最多等 busy_timeout（5 秒）就报错。
+ * 演到这个时间还没完就停下整个回滚，报告退回按清洗分类给数
+ */
+export const 预演限时毫秒 = 3000;
 class 预演完了 extends Error {
   constructor(readonly 数: Record<实体, 预演计数>) {
     super("预演完了");
+  }
+}
+export class 演太久 extends Error {
+  constructor(秒: number, 已演: number, 共: number) {
+    super(`演了 ${秒} 秒才到第 ${已演} / ${共} 条，怕挡住别人写库先停了`);
   }
 }
 
@@ -587,11 +598,18 @@ class 预演完了 extends Error {
  * 试跑时把整份计划按正式导入的写法真写一遍再整个回滚，数出每类会新建 / 更新 / 跳过 / 冲突 / 写不进几条。
  * 光看清洗分类猜不准：「更新」写的时候可能是冲突（我们这边也改过）、也可能是跳过（补空没空可补），
  * 报告给的数就得和写完的数一条不差。每条包一个保存点，出错的那条单独退掉，和正式导入「出错退回一条一条写」一样。
- * 计划太大（> 预演上限）不跑，免得试跑把库锁太久；返回 null
+ * 计划太大（> 预演上限）不跑，返回 null；演过 预演限时毫秒 还没完就回滚、抛 演太久。都是免得试跑把库锁太久
  */
-export async function 预演(源: 来源, m: 映射, 计划: 待写[], 用户: Actor): Promise<Record<实体, 预演计数> | null> {
+export async function 预演(
+  源: 来源,
+  m: 映射,
+  计划: 待写[],
+  用户: Actor,
+  限时 = 预演限时毫秒,
+): Promise<Record<实体, 预演计数> | null> {
   if (计划.length > 预演上限) return null;
   const 底 = await 开现场("", 源, m, 用户);
+  const 起 = Date.now();
   try {
     await prisma.$transaction(
       (tx) =>
@@ -599,7 +617,8 @@ export async function 预演(源: 来源, m: 映射, 计划: 待写[], 用户: A
           const 批 = await tx.entImportBatch.create({ data: { source: 源, status: "applying", userId: 用户.id }, select: { id: true } });
           const 现 = { ...底, 批次Id: 批.id };
           const 数 = {} as Record<实体, 预演计数>;
-          for (const w of 计划) {
+          for (const [i, w] of 计划.entries()) {
+            if (Date.now() - 起 > 限时) throw new 演太久(限时 / 1000, i, 计划.length);
             const 格 = (数[w.实体] ??= { 新建: 0, 更新: 0, 跳过: 0, 冲突: 0, 失败: 0 });
             await tx.$executeRawUnsafe("SAVEPOINT ent_pre");
             try {
@@ -612,7 +631,7 @@ export async function 预演(源: 来源, m: 映射, 计划: 待写[], 用户: A
           }
           throw new 预演完了(数);
         }),
-      { maxWait: 10_000, timeout: 120_000 },
+      { maxWait: 10_000, timeout: 限时 + 10_000 },
     );
   } catch (e) {
     if (e instanceof 预演完了) return e.数;

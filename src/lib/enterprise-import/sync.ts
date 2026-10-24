@@ -31,7 +31,7 @@ export type 同步设置 = {
   几点: number;
   /** 开同步的人：定时同步写进操作日志时记在他名下 */
   开的人Id: string | null;
-  /** 下次拉变化从这个时间起（上次成功那次「开始拉」的时间；拉的过程中原系统又改的，下次会再拉到，靠指纹跳过） */
+  /** 下次拉变化从这个时间起（上次成功那次「开始拉」的时间；拉的过程中原系统又改的，下次会再拉到，靠指纹跳过）。真拉时再往前多拉 拉变化回看毫秒 */
   拉到: string | null;
   上次: { 时间: string; 结果: 同步结果类别; 话: string; 批次Id?: string } | null;
   /** 切换日：之后不再同步 */
@@ -40,6 +40,8 @@ export type 同步设置 = {
 
 export const 能同步的来源: 来源[] = ["feishu", "dingtalk"];
 const 键 = (源: 来源) => `entSync.${源}`;
+/** 拉变化往前多拉这么久：原系统和我们的钟对不齐、或改动晚几秒才记上修改时间的，也拉得到；多拉的靠指纹跳过 */
+export const 拉变化回看毫秒 = 5 * 60_000;
 const 默认: 同步设置 = { 开: false, 频率: "每晚", 几点: 2, 开的人Id: null, 拉到: null, 上次: null, 切换: null };
 
 export async function 读同步设置(源: 来源): Promise<同步设置> {
@@ -122,7 +124,7 @@ export async function 同步一次(源: 来源, opts: { 用户?: Actor; 现在?:
 
   let 记录: 原始记录[];
   try {
-    记录 = await 取适配器(源).拉变化(设置.拉到 ? new Date(设置.拉到) : null);
+    记录 = await 取适配器(源).拉变化(设置.拉到 ? new Date(new Date(设置.拉到).getTime() - 拉变化回看毫秒) : null);
   } catch (e) {
     if (e instanceof 还没接) return 记({ 结果: "没接", 话: e.message });
     return 记({ 结果: "出错", 话: `从${来源名[源]}拉数据没成功：${错话(e)}` });
