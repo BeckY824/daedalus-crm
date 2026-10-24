@@ -71,6 +71,10 @@ describe("不是企业版", () => {
     expect((await 项目of(p1.id)).ownerId).toBe(甲);
     expect((await 项目of(p2.id)).ownerId).toBe(乙);
     expect(await prisma.customerPool.count()).toBe(0);
+    // 审计详情和加开关前一字不差：键和顺序都一样，不多记方式、进公海清单
+    const 记 = await prisma.auditLog.findFirstOrThrow({ where: { action: "deactivate", entityId: 乙 } });
+    expect(Object.keys(JSON.parse(记.detail!))).toEqual(["userId", "transferToId", "转走了"]);
+    expect(Object.keys(JSON.parse(记.detail!).转走了)).toEqual(["客户", "商机", "待办", "计划", "线索", "渠道", "项目"]);
   });
 });
 
@@ -136,6 +140,8 @@ describe("放进公海", () => {
       expect([r.name, r.salesOwnerId, r.pool]).toEqual([c.name, 丙, null]);
     }
     expect((await 项目of(订单项目.id)).ownerId).toBe(丙);
+    const 详情 = JSON.parse((await prisma.auditLog.findFirstOrThrow({ where: { action: "deactivate", entityId: 乙 } })).detail!);
+    expect(详情).toMatchObject({ 方式: "公海", 转走了: { 进公海客户: [跟进中.id], 本来在公海: [本来在公海.id] } });
   });
 
   it("项目：线索 / 商机阶段的回项目公海（留放回痕），订单阶段的只能给接手人，有结局的留着", async () => {
