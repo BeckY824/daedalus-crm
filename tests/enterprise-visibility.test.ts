@@ -2,6 +2,7 @@
  * 企业版「按组织架构看客户」（lib/enterprise/visibility.ts + team-scope 加上限定）。
  * 钉的是：规则关着 = 照旧看全部；开了以后销售只看自己的和公海，直属上级看、改整条下属链，
  * 虚线上级只能看（改、转、在下面加跟进都拦）；老板、总管理员看全部；没认出人只看公海；后台任务不限定。
+ * 虚线上级批量改负责人：客户改不动，客户下面的项目、待办也不能被带走（一周模拟 D2 查出来的）。
  * 用拷出来的一份库、显式单连接，不碰共用的测试库。
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
@@ -17,6 +18,9 @@ const 临时 = vi.hoisted(() => {
   if (fs.existsSync(path.resolve(__dirname, "../prisma/test.db-wal"))) fs.copyFileSync(path.resolve(__dirname, "../prisma/test.db-wal"), path.join(dir, "A.db-wal"));
   return { dir };
 });
+const 登录 = vi.hoisted(() => ({ user: { id: "", name: "", email: "", role: "SALES", title: "", avatar: null } }));
+vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {} }));
+vi.mock("@/lib/auth", async (原) => ({ ...(await 原<object>()), requireUser: async () => 登录.user }));
 vi.mock("@/lib/prisma", async () => {
   const { PrismaClient } = await import("@/generated/prisma");
   const { 加上限定 } = await import("@/lib/team-scope");
@@ -29,6 +33,7 @@ import { 以谁的身份, 忘掉企业版范围, 组织范围of } from "@/lib/en
 import { 建组织 } from "@/lib/enterprise/org-core";
 import { 只读客户, 读的我, 限定条件, 看得到 } from "@/lib/team-scope";
 import { 规则 } from "@/lib/enterprise/rules";
+import { assignSalesOwner } from "@/app/(app)/customers/actions";
 
 const 老板 = "e_boss";
 const 总管 = "e_dir";
@@ -49,7 +54,7 @@ const 开规则 = async (on: boolean) => {
 beforeAll(async () => {
   process.env.CRM_ENTERPRISE = "1";
   delete process.env.DESKTOP_LOCAL;
-  for (const t of ["AiConversation", "AiProject", "Setting", "AuditLog", "ImportBatch", "Task", "FollowPlan", "FollowUpSource", "FollowUp", "ContractOwner", "Contract", "Opportunity", "Contact", "UnassignedContact", "Lead", "CustomerPool", "CustomerClaim", "EntMember", "EntDept"]) await raw.$executeRawUnsafe(`DELETE FROM "${t}"`);
+  for (const t of ["ProjectNodeLog", "Project", "AiConversation", "AiProject", "Setting", "AuditLog", "ImportBatch", "Task", "FollowPlan", "FollowUpSource", "FollowUp", "ContractOwner", "Contract", "Opportunity", "Contact", "UnassignedContact", "Lead", "CustomerPool", "CustomerClaim", "EntMember", "EntDept"]) await raw.$executeRawUnsafe(`DELETE FROM "${t}"`);
   await raw.$executeRawUnsafe('UPDATE "Customer" SET referrerCustomerId = NULL, attributionCustomerId = NULL');
   for (const t of ["Customer", "Channel", "Supplier", "User"]) await raw.$executeRawUnsafe(`DELETE FROM "${t}"`);
   const 人 = (id: string, name: string, role = "SALES") => raw.user.create({ data: { id, email: `${id}@x.com`, name, password: "x", role } });
@@ -190,5 +195,31 @@ describe("规则开着", () => {
     await 开规则(false);
     expect(await 作为(外人, 名单)).toHaveLength(7);
     await 开规则(true);
+  });
+});
+
+describe("虚线上级批量改负责人", () => {
+  beforeAll(() => 开规则(true));
+
+  it("虚线下属的客户改不动，下面的项目、待办留在原负责人名下；实线下属的照常带走", async () => {
+    const 建 = async (name: string, ownerId: string) => {
+      const c = await raw.customer.create({ data: { name, phone: `1390000${name.charCodeAt(0)}`, salesOwnerId: ownerId } });
+      const p = await raw.project.create({ data: { name: `${name}项目`, customerId: c.id, ownerId, creatorId: ownerId } });
+      const t = await raw.task.create({ data: { title: "回访", customerId: c.id, ownerId } });
+      return { c: c.id, p: p.id, t: t.id };
+    };
+    const 虚 = await 建("H小张的", 小张);
+    const 实 = await 建("I小王的", 小王);
+    登录.user = { ...登录.user, id: 经理, name: "经理", role: "SALES" };
+    const r = await 作为(经理, () => assignSalesOwner([虚.c, 实.c], 外人));
+    expect(r).toMatchObject({ ok: true, updated: 1 });
+    const 归谁 = async (x: { c: string; p: string; t: string }) => [
+      (await raw.customer.findUniqueOrThrow({ where: { id: x.c } })).salesOwnerId,
+      (await raw.project.findUniqueOrThrow({ where: { id: x.p } })).ownerId,
+      (await raw.task.findUniqueOrThrow({ where: { id: x.t } })).ownerId,
+    ];
+    expect(await 归谁(虚)).toEqual([小张, 小张, 小张]);
+    expect(await 归谁(实)).toEqual([外人, 外人, 外人]);
+    expect(r.ok && r.原值).toEqual([{ id: 实.c, 值: 小王 }]);
   });
 });
