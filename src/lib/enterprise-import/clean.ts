@@ -22,6 +22,8 @@ import { 实体顺序, 必填, 实体名, 字段中文, type 原始记录, type 
 export type 本地索引 = {
   /** `${实体}|${外部ID}` → 我们这边的 id（以前导过的） */
   引用: Map<string, string>;
+  /** `${实体}|${外部ID}` → 上次导入时的指纹（没给就都当有变化） */
+  指纹?: Map<string, string>;
   /** 客户名键 → 客户 id（可能多个） */
   客户名: Map<string, string[]>;
   /** 号键 → 客户 id（可能多个） */
@@ -223,6 +225,7 @@ export function 清洗(记录: readonly 原始记录[], m: 映射, 本地: 本�
   const 收 = (r: 原始记录, 值: 待写["值"], 附: Partial<待写> = {}): 待写 => {
     const w: 待写 = { 实体: r.实体, 外部ID: r.外部ID, 值, 指纹: "", 原始: r.字段, 行号: r.行号, 出处: r.出处, ...附 };
     w.指纹 = 指纹([w.值, w.父客户 ?? null, w.父商机 ?? null, w.并入 ?? null]);
+    if (w.目标?.方式 === "对照" && 本地.指纹?.get(`${w.实体}|${w.外部ID}`) === w.指纹) w.没变 = true;
     待写们.push(w);
     return w;
   };
@@ -480,12 +483,13 @@ function 同一客户(a: 待写["父客户"], b: 待写["父客户"]): boolean {
 }
 
 /** 报告里按类数一数 */
-export function 数一数(结果: 清洗结果): Record<实体, { 待写: number; 新建: number; 更新: number; 并入: number; 跳过: number; 提醒: number }> {
-  const out = Object.fromEntries(实体顺序.map((e) => [e, { 待写: 0, 新建: 0, 更新: 0, 并入: 0, 跳过: 0, 提醒: 0 }])) as ReturnType<typeof 数一数>;
+export function 数一数(结果: 清洗结果): Record<实体, { 待写: number; 新建: number; 更新: number; 没变: number; 并入: number; 跳过: number; 提醒: number }> {
+  const out = Object.fromEntries(实体顺序.map((e) => [e, { 待写: 0, 新建: 0, 更新: 0, 没变: 0, 并入: 0, 跳过: 0, 提醒: 0 }])) as ReturnType<typeof 数一数>;
   for (const w of 结果.待写) {
     const c = out[w.实体];
     c.待写++;
     if (w.并入) c.并入++;
+    else if (w.没变) c.没变++;
     else if (w.目标) c.更新++;
     else c.新建++;
   }
