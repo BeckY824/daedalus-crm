@@ -57,6 +57,8 @@ export const 不同步表 = [
   "Project", "ProjectMember", "ProjectRole", "ProjectExceptionCategory", "ProjectNodeLog", "FollowUpProject", "CustomerCreator",
   // 客户换负责人的记录（2026-10-24 企业版 D-36）：同项目模式一起先只在本机
   "CustomerOwnerLog",
+  // 企业版组织架构（2026-10-24）：企业版是一台服务器上的网页，不走团队同步
+  "EntDept", "EntMember",
 ] as const;
 
 /**
@@ -117,6 +119,10 @@ export const 指向人的列: [string, string][] = [
   ["CustomerOwnerLog", "userId"],
   ["CustomerOwnerLog", "fromOwnerId"],
   ["CustomerOwnerLog", "toOwnerId"],
+  // 企业版组织架构（2026-10-24）：不建外键
+  ["EntMember", "userId"],
+  ["EntMember", "managerId"],
+  ["EntMember", "dottedManagerId"],
 ];
 
 /**

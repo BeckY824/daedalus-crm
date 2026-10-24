@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Alert, App, Button, Dropdown, Form, Input, Modal, Popconfirm, Select, Table, Tooltip } from "antd";
+import { useCopy } from "@/lib/clipboard";
 import { AppstoreOutlined, ClockCircleOutlined, ExclamationCircleOutlined, MoreOutlined, PlusOutlined, TeamOutlined, WalletOutlined } from "@ant-design/icons";
 import { activate, extendTrial, grantAi, openWorkspace, suspend } from "../actions";
 import { PLANS, type PlanKey } from "@/lib/tenant/plans";
@@ -18,6 +19,7 @@ const 用完了 = (a: { ai: { 送: number; 剩: number } }) => a.ai.送 > 0 && a
  */
 export default function WorkspacesView({ token, rows }: { token: string; rows: 工作区行[] }) {
   const { message } = App.useApp();
+  const 复制 = useCopy();
   const [plan, setPlan] = useState<PlanKey>("year");
   const [busy, setBusy] = useState<string | null>(null);
   const [开号form] = Form.useForm();
@@ -269,12 +271,7 @@ export default function WorkspacesView({ token, rows }: { token: string; rows: �
             <Button
               size="small"
               style={{ marginTop: 8 }}
-              onClick={() => {
-                navigator.clipboard.writeText(交付文本).then(
-                  () => message.success("已复制，粘进邮件回复即可"),
-                  () => message.error("复制失败，手动选中吧"),
-                );
-              }}
+              onClick={() => void 复制(交付文本, "已复制，粘进邮件回复即可", "复制失败，手动选中吧")}
             >
               复制
             </Button>

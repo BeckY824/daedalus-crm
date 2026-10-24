@@ -233,6 +233,30 @@ test("窄（1024 + AI 栏）：先列表，点进去是对话，‹ 回到列表
   外观：深色（科技主题的原底）、白底、Mac 毛玻璃、Windows（让出标题栏那条、压深字色）。
   壳挂的那几个 class 在浏览器里由 addInitScript 代挂：毛玻璃在浏览器里背后没有桌面，只量排版、截图看配色
 */
+// 最近客户的中栏自己滚、不归正文的内边距管：滚到底，最后一样（行或「查看全部」）也得在提示上面（10-22 质量量出 1280 宽还压着）
+// AI 栏常驻、或 1024 宽时详情页把中栏收起了，量不到；只量中栏出着的摆法
+for (const [宽, 摆] of [[1280, "默认"], [1366, "默认"], [1366, "左栏最宽"]] as const) {
+  test(`${宽} 宽 · ${摆}：最近客户中栏滚到底不被提示盖住`, async ({ page }) => {
+    rmSync(path.join(DATA_DIR, "feedback-seen.json"), { force: true });
+    await 摆好(page, 宽, 摆);
+    await expect(page.getByTestId("feedback-dot")).toBeVisible();
+    // 宽的时候最近客户会自己跳到最新那一位（中栏还是这一列）：先跳完，在落定的那一页上清掉记号再开一次，等于刚打开应用
+    await 去(page, "/customers/recent", 摆);
+    await page.evaluate(() => sessionStorage.removeItem("feedback-toast-shown"));
+    await 去(page, new URL(page.url()).pathname, 摆);
+    const 提示 = page.getByTestId("feedback-toast");
+    await expect(提示).toBeVisible();
+    const 栏 = page.locator(".pane-roster .pane-rows");
+    await expect(栏).toBeVisible();
+    await 栏.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+    await page.waitForTimeout(150);
+    const 末 = 栏.locator("> *:visible").last();
+    const [底, 顶] = await Promise.all([末.boundingBox(), 提示.boundingBox()]);
+    expect(底 && 顶, "中栏最后一样和提示都该量得到").toBeTruthy();
+    expect(底!.y + 底!.height, `中栏最后一样底 ${底!.y + 底!.height} 压到了提示顶 ${顶!.y}`).toBeLessThanOrEqual(顶!.y);
+  });
+}
+
 const 外观们: { 名: string; 外观: { paper: string; skin: string }; class?: string; 宽: number }[] = [
   { 名: "深色", 外观: { paper: "tone", skin: "tech" }, 宽: 1280 },
   { 名: "深色-窄", 外观: { paper: "tone", skin: "tech" }, 宽: 1024 },

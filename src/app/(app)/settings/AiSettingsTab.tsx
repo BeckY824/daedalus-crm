@@ -5,6 +5,7 @@ import { isFormValidationError } from "@/lib/form-validation";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Alert, Button, Form, Input, Radio, Select, Space, Switch, Typography, App } from "antd";
+import { useCopy } from "@/lib/clipboard";
 import { 赠送说明 } from "@/lib/credits-copy";
 import type { 云端余额 } from "@/lib/llm";
 import { saveLlmSettings, testLlmSettings, clearLlmSettings, 查MCP接入, 开启MCP, 关闭MCP, 查自动判断, 设自动判断开关 } from "./actions";
@@ -391,18 +392,13 @@ function AssistBlock() {
 }
 
 function McpCmd({ 命令, 多行 = false }: { 命令: string; 多行?: boolean }) {
-  const { message } = App.useApp();
+  const 复制 = useCopy();
   return (
     <div className="mcp-cmd">
       <code style={多行 ? { whiteSpace: "pre" } : undefined}>{命令}</code>
       <Button
         size="small"
-        onClick={() => {
-          navigator.clipboard.writeText(命令).then(
-            () => message.success("命令已复制，去终端里粘贴执行"),
-            () => message.error("复制不了，手动选中拷贝吧"),
-          );
-        }}
+        onClick={() => void 复制(命令, "命令已复制，去终端里粘贴执行", "复制不了，手动选中拷贝吧")}
       >
         复制
       </Button>

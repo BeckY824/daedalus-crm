@@ -196,11 +196,24 @@ try {
     // 站内点链接切页（和用户一样，走客户端路由）。桌面端左栏「客户」去的是 /customers/recent（名单 + 详情），
     // 表格视图 /customers 从名单顶上那个「表格视图」进
     const 点 = async (href) => {
-      const t = Date.now();
-      // runner 的屏幕小，窗口被压窄时中栏会收起、链接看不见，就改用 Next 自己的客户端路由跳，和点链接走的是同一条路
+      // 找入口不算进切页时间（原来先干等 10 秒链接、还算进了耗时，1024 宽时表格切页量出 10 秒）
       const 链接 = page.locator(`a[href="${href}"]:visible`).first();
-      if (await 链接.waitFor({ timeout: 10_000 }).then(() => true, () => false)) await 链接.click();
-      else {
+      // runner 的屏幕小，窗口被压窄时名单收成抽屉，「表格视图」在抽屉里：像人一样先点主区页头那颗侧栏图标打开
+      const 开抽屉 = page.locator('button.pane-toggle[aria-expanded="false"]:visible').first();
+      // 链接和收起后的图标谁先出来用谁，不干等；都没有才等满 10 秒
+      await 链接.or(开抽屉).first().waitFor({ timeout: 10_000 }).catch(() => {});
+      let 有 = await 链接.isVisible();
+      if (!有 && (await 开抽屉.isVisible())) {
+        await 开抽屉.click();
+        有 = await 链接.waitFor({ timeout: 3000 }).then(() => true, () => false);
+        if (有) 结果.navDrawer = [...(结果.navDrawer ?? []), href];
+      }
+      let t = Date.now();
+      // 碰上中栏正在收起，链接点不到：别让 Playwright 一直等，改走路由
+      if (有) 有 = await 链接.click({ timeout: 5000 }).then(() => true, () => false);
+      if (!有) {
+        // 还是找不到入口就直接走 Next 自己的客户端路由，和点链接走的是同一条路
+        t = Date.now();
         await page.evaluate((h) => window.next.router.push(h), href);
         结果.navFallback = [...(结果.navFallback ?? []), href];
       }
