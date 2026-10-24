@@ -37,6 +37,9 @@ const 可写: Record<string, string[]> = {
   // 企业版组织架构（2026-10-24）：设置 → 组织架构（settings/org-actions.ts）
   EntDept: ["name", "parentId"],
   EntMember: ["deptId", "bizRole", "line", "managerId", "dottedManagerId"],
+  // 企业版线索分配（2026-10-24）：leads/assign-actions.ts 的 分配线索 / 设配额
+  EntLeadAssign: ["leadId", "toUserId", "line", "kind"],
+  EntLeadQuota: ["userId", "quota"],
   Customer: ["name", "phone", "school", "grade", "major", "channelId", "referrerCustomerId", "salesOwnerId", "channelOwnerId", "followStatus", "decisionStatus", "expectedSignAt", "remark"],
   Channel: ["name", "phone", "remark", "channelOwnerId", "active"],
   Lead: ["name", "contact", "phone", "email", "industry", "source", "status", "remark", "ownerId"],
@@ -77,6 +80,13 @@ const 可写: Record<string, string[]> = {
 const 派生: Record<string, Record<string, string>> = {
   EntDept: { sort: "新建时排在同一级最后，系统算" },
   EntMember: { userId: "哪个账号，一人一行；设成员时按账号定，不改" },
+  EntLeadAssign: {
+    fromUserId: "分之前线索在谁名下，分配时从线索上抄过来",
+    byUserId: "点分配的那个人，当前登录账号",
+    counted: "算不算进当月配额，按线索种类和设置算出来",
+    month: "分配那一刻的年月，按服务器本地时间算，每月清零靠它",
+  },
+  EntLeadQuota: { setById: "最后改配额的人，当前登录账号" },
   Opportunity: { activityAt: "最近业务推进时间；转交负责人保留，业务字段/报价变化时刷新，老数据为空沿用原修改时间" },
   Customer: {
     expectedSignOn: "预计签约原日历日，随保存/导入/同步保留；旧数据未知为空",
