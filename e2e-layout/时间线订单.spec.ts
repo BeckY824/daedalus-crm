@@ -12,6 +12,7 @@ import { 连库, 我的id, 进门 } from "../e2e-desktop/helpers";
 import { 查排版, 说问题 } from "../e2e/layout-audit";
 import { 灌混排订单, 混排订单号 } from "./种子";
 import { 关掉弹窗, 切外贸 } from "./外贸模版";
+import { 清闸门数据 } from "./复原";
 
 test.describe.configure({ mode: "serial" });
 const 出处 = process.env.E2E_SHOT_DIR ? path.join(process.env.E2E_SHOT_DIR, "时间线订单") : null;
@@ -25,6 +26,9 @@ test.beforeAll(async ({ browser }) => {
   }
   await 切外贸(browser);
 });
+
+// 灌的客户测完删掉：别留给后面的用例
+test.afterAll(() => 清闸门数据());
 
 /** 时间线里每一行：日期（.rec-tl-when）右缘不超过这一行的右缘，订单号那段也不超 */
 const 量日期 = (page: Page) => page.evaluate(() => {
