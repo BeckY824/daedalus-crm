@@ -56,6 +56,7 @@ export default function SettingsView({
   项目设置 = null,
   企业版 = false,
   组织架构 = null,
+  下属可停用 = [],
 }: {
   users: Row[];
   me: SessionUser;
@@ -85,6 +86,8 @@ export default function SettingsView({
   企业版?: boolean;
   /** 企业版多一栏「组织架构」；null = 不是企业版，这一栏不出现 */
   组织架构?: 组织架构 | null;
+  /** 企业版：我是直属上级、能给他们办离职的人 */
+  下属可停用?: string[];
 }) {
   const [搜, set搜] = useState("");
   // 当前页签由地址栏 ?tab= 决定：中栏那列设置项就是一组带 tab 的链接，刷新、回退都对得上
@@ -100,7 +103,7 @@ export default function SettingsView({
      * 于是销售想改自己的名字得去求管理员。
      */
     { key: "profile", label: "个人资料", children: <ProfileTab me={{ name: me.name, title: me.title, email: me.email }} 云端账号={桌面端?.账号 ?? null} /> },
-    { key: "members", label: "团队成员", children: <MembersTab users={users} me={me} isAdmin={isAdmin} 用邮箱登录={用邮箱登录} 企业版={企业版} /> },
+    { key: "members", label: "团队成员", children: <MembersTab users={users} me={me} isAdmin={isAdmin} 用邮箱登录={用邮箱登录} 企业版={企业版} 下属可停用={下属可停用} /> },
     { key: "keymap", label: "快捷键", children: <KeymapTab 桌面端={Boolean(桌面端)} /> },
     { key: "appearance", label: "外观", children: <AppearanceTab /> },
     { key: "password", label: "登录与密码", children: <PasswordTab 机器={机器} /> },
