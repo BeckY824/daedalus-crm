@@ -142,6 +142,15 @@ describe("飞书适配器", () => {
     expect(记录.map((r) => r.外部ID)).toEqual(["recCust2", "recCont2", "recOpp1", "recFol1"]);
   });
 
+  it("appToken / tableId 带了 / ? # 也原样编码进路径，不会拼到别的接口上", async () => {
+    const 怪 = { 实体: "customer" as const, appToken: "bas/cn?x#y", tableId: "tbl&1" };
+    const 路 = `/open-apis/bitable/v1/apps/${encodeURIComponent(怪.appToken)}/tables/${encodeURIComponent(怪.tableId)}`;
+    const 空 = { body: { code: 0, data: { items: [], has_more: false } } };
+    const n = 假网(飞书录, { [`GET ${路}/fields`]: [空], [`POST ${路}/records/search`]: [空] });
+    expect(await new 飞书适配器({ ...飞书, 表们: [怪] }, n.网).拉全量()).toEqual([]);
+    expect(n.调用们.filter((c) => c.键 !== 令牌路由).map((c) => new URL(c.url).pathname)).toEqual([`${路}/fields`, `${路}/records/search`]);
+  });
+
   it("限流（HTTP 429、99991400、1254290）：1s、2s、4s 退避后接着拉", async () => {
     const n = 假网(飞书录, {
       [`GET ${表路径("tblCust")}/fields`]: [{ status: 429, body: {} }, { status: 400, body: { code: 99991400, msg: "request trigger frequency limit" } }],
