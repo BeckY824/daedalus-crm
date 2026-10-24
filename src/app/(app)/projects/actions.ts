@@ -11,7 +11,9 @@ import { recordAudit } from "@/lib/audit";
 import { 不在了 } from "@/lib/not-there";
 import { getBusiness } from "@/lib/business";
 import { 规整向导, 向导接着建, type 建好的, type 向导联系人, type 向导项目, type 向导跟进 } from "@/lib/project/wizard";
-import { 改节点, 勾交付, 加角色, 改角色, 加异常类别, 改异常类别, 删项目, 交付项们, 改项目, 加组员, 换组员角色, 移出组员, 放回公海, 领取公海项目, type 交付项 } from "@/lib/project/db";
+import { 改节点, 勾交付, 加角色, 改角色, 加异常类别, 改异常类别, 删项目, 交付项们, 改项目, 加组员, 换组员角色, 移出组员, 放回公海, 领取公海项目, 超上限, type 交付项 } from "@/lib/project/db";
+import { 合上改动, type 规则改动 } from "@/lib/project/org-rules";
+import { 读组织规则, 存组织规则 } from "@/lib/project/org-rules-store";
 import type { 位置 } from "@/lib/project/nodes";
 import { saveCustomer, type CustomerInput } from "../customers/actions";
 
@@ -42,6 +44,11 @@ export async function 建档向导(input: 建档向导输入) {
     if ("error" in 好) return { ok: false as const, error: 好.error };
     const 负责人 = await prisma.user.findUnique({ where: { id: 好.项目.ownerId }, select: { name: true, active: true } });
     if (!负责人?.active) return { ok: false as const, error: "项目负责人不存在或已停用，请选一位在职成员" };
+    // 负责人选了别人 = 指派，开了持有上限的要算；自己建给自己不拦（lib/project/db.ts 超上限）
+    if (好.项目.ownerId !== me.id) {
+      const 超 = await 超上限(prisma, await 读组织规则(), 好.项目.ownerId, { phase: "线索", result: null });
+      if (超) return { ok: false as const, error: 超 };
+    }
 
     const 建了: Partial<建好的> = {};
     const r = await saveCustomer({ ...input.客户, id: undefined, updatedAt: null, base: null }, 向导接着建(me, 好, 建了));
@@ -268,5 +275,25 @@ export async function 移出项目组员(memberId: string) {
       刷新项目(m.projectId);
     }
     return r;
+  } catch (e) { return 不在了(e); }
+}
+
+/** 企业版组织规则（持有上限等）：只有老板能改，每条默认关（lib/project/org-rules.ts） */
+export async function 改组织规则(改: 规则改动) {
+  try {
+    const me = await requireUser();
+    if (!(await 开着())) return 没开;
+    if (me.role !== "ADMIN") return { ok: false as const, error: "组织规则只有老板能改" };
+    const 新 = 合上改动(await 读组织规则(), 改);
+    if ("error" in 新) return { ok: false as const, error: 新.error };
+    await 存组织规则(新);
+    const g = 新.公海;
+    await recordAudit({
+      user: me, action: "update", entity: "Setting", entityId: "orgRules",
+      summary: g.持有上限开 ? `组织规则：项目持有上限开，默认 ${g.默认上限} 个，单独设了 ${Object.keys(g.每人上限).length} 人` : "组织规则：项目持有上限关",
+      detail: 新,
+    });
+    revalidatePath("/settings");
+    return { ok: true as const };
   } catch (e) { return 不在了(e); }
 }

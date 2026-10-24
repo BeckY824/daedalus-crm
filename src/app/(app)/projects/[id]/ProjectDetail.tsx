@@ -19,10 +19,12 @@ export type 项目详情 = {
   customer: { id: string; name: string; school: string | null } | null;
   contact: { id: string; name: string; position: string | null } | null;
   ownerId: string; ownerName: string; creatorName: string; createdAt: string;
+  /** 历史负责人：把这个项目放回过公海的人，最近放回的在前，同一个人只列一次 */
+  historyOwners: string[];
   phase: string; node: string; result: string | null;
   /** 异常状态时：选的异常类别名、备注（可空） */
   exceptionReason: string | null; exceptionCategory: string | null;
-  /** 在项目公海里；能放公海 = 我是负责人且在线索 / 商机阶段；能领取 = 在公海里且不是我放回去的 */
+  /** 在项目公海里；能放公海 = 我是负责人且在线索 / 商机阶段；能领取 = 在公海里（放回去的那位也能领回） */
   pooled: boolean; 能放公海: boolean; 能领取: boolean;
   balanceSettled: boolean; balanceSettledBy: string | null; balanceSettledAt: string | null;
   acceptancePassed: boolean; acceptancePassedBy: string | null; acceptancePassedAt: string | null;
@@ -176,7 +178,7 @@ export default function ProjectDetail({
         extra={
           <Space wrap>
             {p.能放公海 && (
-              <Popconfirm title="放回项目公海？" description="放回去以后谁都能领，你自己不能再领回来" okText="放回公海" onConfirm={() => void 跑(() => 放回项目公海(p.id), "已放回项目公海")}>
+              <Popconfirm title="放回项目公海？" description="放回去以后谁都能领，你自己也能再领回来；你会记成这个项目的历史负责人" okText="放回公海" onConfirm={() => void 跑(() => 放回项目公海(p.id), "已放回项目公海")}>
                 <Button disabled={忙}>放回公海</Button>
               </Popconfirm>
             )}
@@ -191,7 +193,7 @@ export default function ProjectDetail({
       />
 
       {p.pooled && (
-        <Alert type="info" showIcon style={{ marginBottom: 16 }} title="这个项目在项目公海里" description={p.能领取 ? "领取了你就是负责人，可以接着推节点" : "是你放回去的，等同事领取"} />
+        <Alert type="info" showIcon style={{ marginBottom: 16 }} title="这个项目在项目公海里" description="领取了你就是负责人，可以接着推节点" />
       )}
 
       {异常 && (
@@ -241,6 +243,9 @@ export default function ProjectDetail({
           {p.contact && <div style={行样}><span style={键样}>联系人</span>{p.contact.name}{p.contact.position ? ` · ${p.contact.position}` : ""}</div>}
           <div style={行样}><span style={键样}>金额</span>{金额(p.amount, p.currency)}</div>
           <div style={行样}><span style={键样}>负责人</span>{p.pooled ? <span>在公海里<span style={{ color: "var(--text-muted)" }}>（{p.ownerName} 放回的）</span></span> : p.ownerName}</div>
+          {p.historyOwners.length > 0 && (
+            <div style={行样}><span style={键样}>历史</span><span style={{ minWidth: 0, overflowWrap: "anywhere" }} title="历史负责人：把这个项目放回过公海的人">{p.historyOwners.join("、")}</span></div>
+          )}
           {p.remark && <div style={{ marginTop: 8, whiteSpace: "pre-wrap", color: "var(--text-muted)" }}>{p.remark}</div>}
         </Card>
         <Card title="交付">

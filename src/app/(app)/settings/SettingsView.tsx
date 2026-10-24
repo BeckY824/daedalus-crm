@@ -102,7 +102,7 @@ export default function SettingsView({
     // AI 接入是本机的（桌面端团队版的业务员在自己电脑上也能配）；业务配置全团队一份，只有管理员 / 老板改
     ...(isAdmin || 桌面端 ? [{ key: "ai", label: "AI 接入", children: <AiSettingsTab llm={llm} usage={aiUsage} /> }] : []),
     ...(isAdmin ? [{ key: "business", label: "业务配置", children: <BusinessSettingsTab value={business} 多人={users.filter((u) => u.active).length > 1} /> }] : []),
-    ...(项目设置 ? [{ key: "project", label: "项目模式", children: <ProjectSettingsTab value={项目设置} isAdmin={isAdmin} /> }] : []),
+    ...(项目设置 ? [{ key: "project", label: "项目模式", children: <ProjectSettingsTab value={项目设置} isAdmin={isAdmin} 成员={users.filter((u) => u.active).map((u) => ({ id: u.id, name: u.name }))} /> }] : []),
     { key: "imports", label: "导入记录", children: <ImportsTab /> },
     { key: "audit", label: "操作日志", children: <AuditTab logs={logs} /> },
   ]

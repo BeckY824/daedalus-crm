@@ -7,6 +7,8 @@ import { prisma } from "../prisma";
 import { 查完再写 } from "../check-then-write";
 import { 改节点问题, 原因上限, type 位置 } from "./nodes";
 import { 规整项目, type 向导项目 } from "./wizard";
+import { 持有上限of, type 组织规则 } from "./org-rules";
+import { 读组织规则 } from "./org-rules-store";
 
 type 谁 = { id: string; role: string };
 type 结果 = { ok: true } | { ok: false; error: string };
@@ -20,7 +22,7 @@ export const 角色名上限 = 20;
 /**
  * 能改这个项目（节点、尾款 / 验收、负责人）：项目负责人本人、老板、业务主管。
  * 业务员看得到同事客户下的项目（互看）也只是看。
- * 在公海里的项目没有负责人：放回去的人也不能再改，只有老板、主管能动；其他人要改先领取
+ * 在公海里的项目没有负责人：只有老板、主管能动；其他人（放回去的那位也一样）要改先领取
  */
 export function 能管项目(me: 谁, p: { ownerId: string; pooledAt?: Date | null }): boolean {
   if (me.role === "ADMIN" || me.role === "MANAGER") return true;
@@ -280,6 +282,7 @@ async function 在职(tx: Prisma.TransactionClient, userId: string) {
  */
 export async function 改项目(me: 谁, projectId: string, patch: 向导项目 & { contactId?: string | null }): Promise<结果 & { 变了?: string[] }> {
   if (!patch || typeof patch !== "object") return { ok: false, error: "要改什么？" };
+  const 规则 = await 读组织规则();
   return 查完再写(async (tx) => {
     const p = await tx.project.findUnique({ where: { id: String(projectId ?? "") } });
     if (!p) return { ok: false as const, error: "这个项目已经不在了，刷新看看" };
@@ -296,6 +299,10 @@ export async function 改项目(me: 谁, projectId: string, patch: 向导项目 
     const 变了 = (Object.keys(新) as (keyof typeof 新)[]).filter((k) => 新[k] !== p[k]);
     if (!变了.length) return { ok: true as const, 变了 };
     const 换人 = 新.ownerId !== p.ownerId;
+    if (换人) {
+      const 超 = await 超上限(tx, 规则, 新.ownerId, p);
+      if (超) return { ok: false as const, error: 超 };
+    }
     await tx.project.update({ where: { id: p.id }, data: { ...新, ...(换人 && p.pooledAt ? { pooledAt: null } : {}) } });
     if (换人) await 记转让(tx, p, me.id, p.ownerId, 新.ownerId);
     return { ok: true as const, 变了 };
@@ -306,7 +313,35 @@ export async function 改项目(me: 谁, projectId: string, patch: 向导项目 
 export const 能进公海的阶段 = ["线索", "商机"] as const;
 
 /**
- * 放回公海：只有负责人本人能放，线索 / 商机阶段才行。ownerId 留着放回去的人（他不能自己领回），
+ * 手上的项目数（企业版持有上限按这个算）：线索 / 商机阶段、还在走（没结局）、不在公海。
+ * 不管怎么到手的——自己建的、领的、被指派的、自动分配的——都算
+ */
+export async function 持有数(db: Pick<Prisma.TransactionClient, "project">, userId: string): Promise<number> {
+  return db.project.count({ where: { ownerId: userId, pooledAt: null, result: null, phase: { in: [...能进公海的阶段] } } });
+}
+
+/**
+ * 再把这个项目给 userId 会不会超持有上限：超了返回一句报错，没超 / 没开上限 / 这个项目不算持有（订单阶段、有结局）返回 null。
+ * 拦领取、拦指派（改负责人、建档时负责人选别人）、自动分配也调这个；自己建档、跟着客户转、离职交接不拦。
+ * 规则在进事务前读好传进来：事务占着库的唯一连接，事务里再走 getSetting 会等到超时
+ */
+export async function 超上限(
+  db: Pick<Prisma.TransactionClient, "project" | "user">,
+  规则: 组织规则,
+  userId: string,
+  p: { phase: string; result: string | null },
+): Promise<string | null> {
+  if (p.result || !(能进公海的阶段 as readonly string[]).includes(p.phase)) return null;
+  const 上限 = 持有上限of(规则, userId);
+  if (上限 === null) return null;
+  const 有 = await 持有数(db, userId);
+  if (有 < 上限) return null;
+  const 谁 = (await db.user.findUnique({ where: { id: userId }, select: { name: true } }))?.name ?? "这位成员";
+  return `${谁}手上已经有 ${有} 个线索 / 商机阶段的项目，到持有上限（${上限} 个）了，先推进或放回一些再接`;
+}
+
+/**
+ * 放回公海：只有负责人本人能放，线索 / 商机阶段才行。ownerId 留着放回去的人（他就是「历史负责人」，自己也能再领回），
  * 记一行 pool-release。项目组、节点、交付两项都不动
  */
 export async function 放回公海(me: 谁, projectId: string): Promise<结果> {
@@ -322,14 +357,19 @@ export async function 放回公海(me: 谁, projectId: string): Promise<结果> 
   });
 }
 
-/** 从公海领取：除了放回去的那位，谁都能领；领了就是新负责人，记一行 pool-claim */
+/**
+ * 从公海领取：谁都能领，放回去的那位也能领回（10-24 定）；领了就是新负责人，记一行 pool-claim。
+ * 开了持有上限的，到上限了领不了
+ */
 export async function 领取公海项目(me: 谁, projectId: string): Promise<结果> {
+  const 规则 = await 读组织规则();
   return 查完再写(async (tx) => {
     const p = await tx.project.findUnique({ where: { id: String(projectId ?? "") } });
     if (!p) return { ok: false as const, error: "这个项目已经不在了，刷新看看" };
     if (!p.pooledAt) return { ok: false as const, error: "这个项目已经被人领走了，刷新看看" };
-    if (me.id === p.ownerId) return { ok: false as const, error: "自己放回公海的项目不能自己领回" };
     if (!(await 在职(tx, me.id))) return { ok: false as const, error: "账号已停用" };
+    const 超 = await 超上限(tx, 规则, me.id, p);
+    if (超) return { ok: false as const, error: 超 };
     await tx.project.update({ where: { id: p.id }, data: { ownerId: me.id, pooledAt: null } });
     await 记转让(tx, p, me.id, p.ownerId, me.id, "pool-claim");
     return { ok: true as const };

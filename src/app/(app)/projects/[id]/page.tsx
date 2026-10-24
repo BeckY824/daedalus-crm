@@ -29,17 +29,20 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const 能改 = 能管项目(me, p);
   // 公海里同事客户的项目：只给项目本身，客户、联系人、沟通内容领了再看（lib/project/db.ts 露客户）
   const 露 = 露客户(me, p, await 看得到的客户([p.customerId]));
-  const [候选, 在职, 联系人们, 角色们, 类别们] = await Promise.all([
+  const [候选, 在职, 联系人们, 角色们, 类别们, 放回过] = await Promise.all([
     负责人候选(),
     prisma.user.findMany({ where: { active: true }, select: { id: true, name: true, email: true }, orderBy: { name: "asc" } }),
     能改 ? prisma.contact.findMany({ where: { customerId: p.customerId }, select: { id: true, name: true, position: true }, orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] }) : [],
     角色字典(),
     异常类别字典(),
+    // 历史负责人：放回过公海的人。单独查，不受上面节点变更只取 200 行的限
+    prisma.projectNodeLog.findMany({ where: { projectId: p.id, kind: "pool-release" }, orderBy: { at: "desc" }, select: { fromOwnerId: true } }),
   ]);
   const 类别名 = new Map(类别们.map((c) => [c.id, c.name]));
   const 公海 = !!p.pooledAt;
 
-  const 人id = new Set<string>([p.ownerId, p.creatorId, ...p.members.map((m) => m.userId), ...p.logs.flatMap((l) => [l.userId, l.fromOwnerId, l.toOwnerId].filter((x): x is string => !!x)), ...(露 ? p.followUps.map((f) => f.followUp.ownerId) : [])]);
+  const 历史负责人 = [...new Set(放回过.map((l) => l.fromOwnerId).filter((x): x is string => !!x))];
+  const 人id = new Set<string>([...历史负责人, p.ownerId, p.creatorId, ...p.members.map((m) => m.userId), ...p.logs.flatMap((l) => [l.userId, l.fromOwnerId, l.toOwnerId].filter((x): x is string => !!x)), ...(露 ? p.followUps.map((f) => f.followUp.ownerId) : [])]);
   for (const x of [p.balanceSettledById, p.acceptancePassedById]) if (x) 人id.add(x);
   const 人 = await prisma.user.findMany({ where: { id: { in: [...人id] } }, select: { id: true, name: true } });
   const 名 = new Map(人.map((u) => [u.id, u.name]));
@@ -48,11 +51,11 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const 详情: 项目详情 = {
     id: p.id, name: p.name, remark: p.remark, amount: p.amount, currency: p.currency,
     customer: 露 ? p.customer : null, contact: 露 ? p.contact : null,
-    ownerId: p.ownerId, ownerName: 叫(p.ownerId)!, creatorName: 叫(p.creatorId)!, createdAt: p.createdAt.toISOString(),
+    ownerId: p.ownerId, ownerName: 叫(p.ownerId)!, historyOwners: 历史负责人.map((x) => 叫(x)!), creatorName: 叫(p.creatorId)!, createdAt: p.createdAt.toISOString(),
     phase: p.phase, node: p.node, result: p.result, exceptionReason: p.exceptionReason, exceptionCategory: p.exceptionCategory?.name ?? null,
     pooled: 公海,
     能放公海: !公海 && me.id === p.ownerId && (能进公海的阶段 as readonly string[]).includes(p.phase),
-    能领取: 公海 && me.id !== p.ownerId,
+    能领取: 公海,
     balanceSettled: p.balanceSettled, balanceSettledBy: 叫(p.balanceSettledById), balanceSettledAt: p.balanceSettledAt?.toISOString() ?? null,
     acceptancePassed: p.acceptancePassed, acceptancePassedBy: 叫(p.acceptancePassedById), acceptancePassedAt: p.acceptancePassedAt?.toISOString() ?? null,
     logs: p.logs.map((l) => ({
