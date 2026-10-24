@@ -992,7 +992,7 @@ model EntImportBatch {
   source     String
   /// full = 首次全量；sync = 增量同步
   kind       String         @default("full")
-  /// preview = 只试跑出了报告；applying = 写到一半（可续）；done；reverted = 已整批撤回
+  /// preview = 只试跑出了报告；applying = 写到一半（可续）；done；reverting / restoring = 撤回 / 恢复到一半（可续）；reverted = 已整批撤回
   status     String         @default("preview")
   userId     String?
   /// 试跑报告 JSON（见 report.ts 的 试跑报告）
@@ -1015,6 +1015,8 @@ model EntImportBatch {
   createdAt  DateTime       @default(now())
   finishedAt DateTime?
   revertedAt DateTime?
+  /// 最近一次整批撤回 / 恢复的账 JSON：{ 动作, 删掉, 还原, 恢复, 留下数, 留下: [{ 实体, 外部ID, 名称, 原因 }]（最多 200 条） }
+  revertNote String?
   rows       EntImportRow[]
 
   @@index([createdAt])
@@ -1037,6 +1039,8 @@ model EntImportRow {
   written    String
   /// 写之前的对照行 JSON（update 撤回时把 EntExternalRef 也退回去）
   refBefore  String?
+  /// 整批撤回时这一行怎么处理的：空 = 还没处理；撤了；留下（导入后被动过等，原因记在批次的 revertNote）
+  undo       String?
   createdAt  DateTime       @default(now())
 
   @@index([batchId, entity])
@@ -1077,7 +1081,7 @@ model EntConflict {
   incoming     String
   /// 本地那条已经被删了
   localDeleted Boolean   @default(false)
-  /// 待定 | 采用原系统 | 保留我们
+  /// 待定 | 采用原系统 | 保留我们 | 已撤回（那一批整批撤回了；恢复后回到待定）
   status       String    @default("待定")
   resolvedById String?
   resolvedAt   DateTime?
@@ -1093,10 +1097,12 @@ model EntTrash {
   batchId    String
   entity     String
   targetId   String
-  /// 删之前整条记录 JSON（客户带外贸档案）
+  /// 新建的：删之前整条记录 JSON（客户带外贸档案、录入人、公海；商机带结单）；改过的：{ 还原: 改回去的那几格 }
   data       String
-  /// 一起删掉的对照行 JSON
+  /// 撤回时的对照行 JSON（恢复时照它建回 / 改回）
   ref        String?
+  /// 对应哪一行 EntImportRow（恢复时照它的 kind / written 来）
+  rowId      String?
   createdAt  DateTime  @default(now())
   restoredAt DateTime?
 

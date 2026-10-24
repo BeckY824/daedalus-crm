@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS "EntImportBatch" (
     "note" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "finishedAt" DATETIME,
-    "revertedAt" DATETIME
+    "revertedAt" DATETIME,
+    "revertNote" TEXT
 );
 
 CREATE TABLE IF NOT EXISTS "EntImportRow" (
@@ -34,6 +35,7 @@ CREATE TABLE IF NOT EXISTS "EntImportRow" (
     "before" TEXT,
     "written" TEXT NOT NULL,
     "refBefore" TEXT,
+    "undo" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "EntImportRow_batchId_fkey" FOREIGN KEY ("batchId") REFERENCES "EntImportBatch" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
@@ -75,6 +77,7 @@ CREATE TABLE IF NOT EXISTS "EntTrash" (
     "targetId" TEXT NOT NULL,
     "data" TEXT NOT NULL,
     "ref" TEXT,
+    "rowId" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "restoredAt" DATETIME
 );

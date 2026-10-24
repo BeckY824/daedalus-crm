@@ -28,8 +28,8 @@ import { 客户附加列 } from "./clean";
 import { 来源名, type 来源, type 实体, type 映射, type 待写 } from "./types";
 
 type Tx = Prisma.TransactionClient;
-type 标量 = string | number | boolean | null;
-type 值表 = Record<string, 标量>;
+export type 标量 = string | number | boolean | null;
+export type 值表 = Record<string, 标量>;
 type 结果 = "新建" | "更新" | "跳过" | "冲突";
 
 /** 每类拿来比对、记进对照表的格子（落库的列名；客户的外贸几格、商机的结单日期在附表里） */
@@ -89,7 +89,7 @@ function 解<T>(s: string | null | undefined, 缺: T): T {
 }
 
 /** 比对前规整："" / undefined → null，日期 → ISO */
-function 规(v: unknown): 标量 {
+export function 规(v: unknown): 标量 {
   if (v === undefined || v === null || v === "") return null;
   if (v instanceof Date) return v.toISOString();
   return v as 标量;
@@ -253,7 +253,7 @@ async function 建(tx: Tx, e: 实体, v: 值表, 现在: string): Promise<string
 }
 
 /** 改已有记录的这几格。现值 = 改之前读到的（商机结单要看原来的状态） */
-async function 改(tx: Tx, e: 实体, id: string, 改动: 值表, 现值: 值表, 现在: string): Promise<void> {
+export async function 改(tx: Tx, e: 实体, id: string, 改动: 值表, 现值: 值表, 现在: string): Promise<void> {
   const 有 = (k: string) => k in 改动;
   if (e === "customer") {
     const data: Prisma.CustomerUncheckedUpdateInput = {};
@@ -313,7 +313,7 @@ async function 改(tx: Tx, e: 实体, id: string, 改动: 值表, 现值: 值表
 
 /* ───────────────────────── 一条 ───────────────────────── */
 
-const 引用键 = (源: 来源, entity: string, externalId: string) => ({ source_entity_externalId: { source: 源, entity, externalId } });
+export const 引用键 = (源: 来源, entity: string, externalId: string) => ({ source_entity_externalId: { source: 源, entity, externalId } });
 
 /** 父记录：本批的外部 ID → 对照表；我们这边的 id → 还在不在 */
 async function 认父(tx: Tx, 源: 来源, e: "customer" | "opportunity", 父: { 外部ID: string } | { 本地ID: string }): Promise<string | null> {
