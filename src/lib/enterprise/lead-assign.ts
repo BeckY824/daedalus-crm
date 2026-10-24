@@ -12,6 +12,7 @@
  *
  * 纯函数在上半截（测试直接用），下半截读写库。权限、规则开关的检查在 leads/assign-actions.ts。
  */
+import type { Prisma } from "@/generated/prisma";
 import { prisma, defaultClient } from "@/lib/prisma";
 import { 管理员类别of, 直属上级of, 虚线上级of, type 组织 } from "./org-core";
 
@@ -62,15 +63,53 @@ export function 计不计数(kind: 线索种类, 企划算数: boolean | null): 
 /** 配额满了没：配额 null = 不限 */
 export const 满了 = (已分: number, 配额: number | null) => 配额 !== null && 已分 >= 配额;
 
-// —— 读库 ——
+/** 不参与自动分配的人：Setting 里存 JSON string[]，没存 = 人人参与。设置 → 组织架构 →「线索分配」里每人一个开关 */
+export const 自动分配不参与key = "enterprise.lead_assign.auto_excluded";
 
-/** 本月已经算进数的分配条数 */
-export async function 本月已分(userId: string, 月 = 月份()): Promise<number> {
-  return prisma.entLeadAssign.count({ where: { toUserId: userId, month: 月, counted: true } });
+export type 候选人 = { userId: string; 已分: number; 配额: number | null; 进池: Date };
+
+/**
+ * 自动分配挑谁（D-38）：去掉不参与的、（这一条算数时）分满的，挑本月已分最少的；
+ * 一样多给最早进分配池的。EntMember 没记进池时间，先按建号时间算；再一样按 id，结果不随查询顺序变
+ */
+export function 挑接手人(候选: 候选人[], 不参与: ReadonlySet<string>, 查满: boolean): string | null {
+  const 可 = 候选.filter((c) => !不参与.has(c.userId) && !(查满 && 满了(c.已分, c.配额)));
+  可.sort((a, b) => a.已分 - b.已分 || a.进池.getTime() - b.进池.getTime() || (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0));
+  return 可[0]?.userId ?? null;
 }
 
-export async function 配额of(userId: string): Promise<number | null> {
-  return (await prisma.entLeadQuota.findUnique({ where: { userId } }))?.quota ?? null;
+/**
+ * 挑中 谁 的理由，给界面上的结果提示用（「为什么是他」）。和 挑接手人 用同一套筛法：
+ * 这一条不算数时不看配额；并列最少时说明是按进池先后给的
+ */
+export function 挑的理由(候选: 候选人[], 不参与: ReadonlySet<string>, 查满: boolean, 谁: string): string {
+  const 可 = 候选.filter((c) => !不参与.has(c.userId) && !(查满 && 满了(c.已分, c.配额)));
+  const 他 = 可.find((c) => c.userId === 谁);
+  if (!他) return "";
+  const 并列 = 可.filter((c) => c.已分 === 他.已分).length;
+  const 理由 = 并列 > 1 ? `本月已分最少（${他.已分} 条，和 ${并列 - 1} 人并列，先给最早进分配池的）` : `本月已分最少（${他.已分} 条）`;
+  return 查满 ? 理由 : `${理由}；这条不算数，不看配额`;
+}
+
+/** 能改「参与自动分配」开关的人（Q-12 默认）：老板、总管理员、销售管理；直属上级只能看 */
+export function 能改参与(org: 组织, 我: { id: string; role: string }): boolean {
+  if (我.role === "ADMIN") return true;
+  const 类 = 管理员类别of(org, 我.id);
+  return 类 === "总管理员" || 类 === "销售管理";
+}
+
+// —— 读库 ——
+
+/** 查完再写 的事务里传 tx 进来，查的和写的落在同一个事务 */
+type 库 = Pick<Prisma.TransactionClient, "entLeadAssign" | "entLeadQuota">;
+
+/** 本月已经算进数的分配条数 */
+export async function 本月已分(userId: string, 月 = 月份(), db: 库 = prisma): Promise<number> {
+  return db.entLeadAssign.count({ where: { toUserId: userId, month: 月, counted: true } });
+}
+
+export async function 配额of(userId: string, db: 库 = prisma): Promise<number | null> {
+  return (await db.entLeadQuota.findUnique({ where: { userId } }))?.quota ?? null;
 }
 
 export type 分出去的线索 = {

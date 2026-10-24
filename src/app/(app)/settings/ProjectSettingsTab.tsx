@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { App, Button, Card, Input, Popconfirm, Space, Tag } from "antd";
-import { 加组员角色, 改组员角色, 加项目异常类别, 改项目异常类别 } from "@/app/(app)/projects/actions";
+import { App, Button, Card, Input, InputNumber, Popconfirm, Space, Switch, Tag } from "antd";
+import { 加组员角色, 改组员角色, 加项目异常类别, 改项目异常类别, 改组织规则, 预览超时回收 } from "@/app/(app)/projects/actions";
+import { 上限最大, 时长最大, type 组织规则, type 规则改动 } from "@/lib/project/org-rules";
+import { 节点们 } from "@/lib/project/nodes";
 
 type 字典项 = { id: string; name: string; active: boolean; 用的人: number };
 type 结果 = Promise<{ ok: boolean; error?: string }>;
@@ -12,13 +14,17 @@ export type 项目设置 = {
   角色们: 字典项[];
   /** 进异常状态时选的类别；用的人 = 现在停在这个类别上的项目数 */
   类别们: 字典项[];
+  /** 企业版组织规则，每条默认关；不是企业版 = null，卡片不出（服务端读的 企业版()） */
+  组织规则: 组织规则 | null;
+  /** 每人手上线索 / 商机阶段的项目数（userId → 个数），算持有上限的口径 */
+  持有: Record<string, number>;
 };
 
 /**
  * 设置里的「项目模式」一栏（开关开着才有）：项目组员的角色字典、异常类别字典，只有老板能改，其他人只看。
  * 成员的上级归部门编制管，不在这里
  */
-export default function ProjectSettingsTab({ value, isAdmin }: { value: 项目设置; isAdmin: boolean }) {
+export default function ProjectSettingsTab({ value, isAdmin, 成员 }: { value: 项目设置; isAdmin: boolean; 成员: { id: string; name: string }[] }) {
   const router = useRouter();
   const { message } = App.useApp();
   const [忙, set忙] = useState(false);
@@ -55,6 +61,8 @@ export default function ProjectSettingsTab({ value, isAdmin }: { value: 项目�
         停用说明="停用后不能再选；已经用着它的项目不变"
         项们={value.类别们} isAdmin={isAdmin} 忙={忙} 跑={跑} 加={加项目异常类别} 改={改项目异常类别}
       />
+      {value.组织规则 && <HoldCapCard 规则={value.组织规则.公海} 持有={value.持有} 成员={成员} isAdmin={isAdmin} 忙={忙} 跑={跑} />}
+      {value.组织规则 && <TimeoutCard 规则={value.组织规则.超时回收} isAdmin={isAdmin} 忙={忙} 跑={跑} />}
     </div>
   );
 }
@@ -119,6 +127,153 @@ function DictCard({
           <Input placeholder={新的提示} aria-label={`新${叫法}名`} maxLength={20} value={新的} onChange={(e) => set新的(e.target.value)} onPressEnter={() => void 加上()} />
           <Button disabled={忙 || !新的.trim()} onClick={() => void 加上()}>加上</Button>
         </Space.Compact>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * 项目持有上限（企业版组织规则，默认关）：开了以后每人手上线索 / 商机阶段的项目到了上限，就领不了公海、也不能再被指派。
+ * 自己建档、跟着客户转、离职交接不拦。每人可以单独设，空着 = 用默认
+ */
+function HoldCapCard({
+  规则, 持有, 成员, isAdmin, 忙, 跑,
+}: {
+  规则: 组织规则["公海"]; 持有: Record<string, number>; 成员: { id: string; name: string }[];
+  isAdmin: boolean; 忙: boolean; 跑: (f: () => 结果, 成了?: string) => Promise<boolean>;
+}) {
+  const [默认, set默认] = useState<number | null>(规则.默认上限);
+  const [每人, set每人] = useState<Record<string, number | null>>(规则.每人上限);
+  const 改了 = 默认 !== 规则.默认上限 || 成员.some((u) => (每人[u.id] ?? null) !== (规则.每人上限[u.id] ?? null));
+  const 保存 = () => 跑(() => 改组织规则({ 公海: { 默认上限: 默认 ?? undefined, 每人上限: 每人 } }), "已保存");
+
+  return (
+    <Card
+      title="项目持有上限"
+      extra={
+        <Space>
+          {!isAdmin && <span style={{ color: "var(--text-muted)" }}>只有老板能改</span>}
+          <Switch
+            aria-label="项目持有上限"
+            checked={规则.持有上限开}
+            disabled={!isAdmin || 忙}
+            onChange={(开) => void 跑(() => 改组织规则({ 公海: { 持有上限开: 开 } }), 开 ? "已开持有上限" : "已关持有上限")}
+          />
+        </Space>
+      }
+    >
+      <div style={{ color: "var(--text-muted)", marginBottom: 12 }}>
+        开了以后，每人手上线索 / 商机阶段、还在跟的项目到了上限，就不能再从项目公海领、也不能再被指派新项目；自己建档的不拦。默认关，不限个数。
+      </div>
+      {规则.持有上限开 && (
+        <>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
+            <span>默认每人最多</span>
+            <InputNumber aria-label="默认持有上限" min={1} max={上限最大} precision={0} suffix="个" style={{ width: 120 }} disabled={!isAdmin} value={默认} onChange={(v) => set默认(v)} />
+          </div>
+          {成员.map((u) => (
+            <div key={u.id} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, minWidth: 0 }}>
+              <span style={{ flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={u.name}>{u.name}</span>
+              <span style={{ color: "var(--text-muted)", fontSize: 12, flex: "0 0 auto" }}>手上 {持有[u.id] ?? 0} 个</span>
+              <InputNumber
+                aria-label={`${u.name}的持有上限`}
+                min={0} max={上限最大} precision={0} suffix="个" style={{ width: 120, flex: "0 0 auto" }}
+                placeholder={`默认 ${默认 ?? 规则.默认上限}`}
+                disabled={!isAdmin}
+                value={每人[u.id] ?? null}
+                onChange={(v) => set每人((m) => ({ ...m, [u.id]: v }))}
+              />
+            </div>
+          ))}
+          {isAdmin && (
+            <Button type="primary" style={{ marginTop: 4 }} disabled={忙 || !改了 || 默认 === null} onClick={() => void 保存()}>保存</Button>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * 超时回收（企业版组织规则，默认关）：线索、商机阶段按节点设最长处理天数，超过还没跟进的项目自动回到项目公海、负责人收到提醒。
+ * 没设天数的节点不回收；订单阶段不回收。开了以后在项目上记沟通要填下一步时间。
+ * 保存前先按新设置数一遍「现在会回收几个」，有的话让老板确认
+ */
+function TimeoutCard({
+  规则, isAdmin, 忙, 跑,
+}: {
+  规则: 组织规则["超时回收"]; isAdmin: boolean; 忙: boolean;
+  跑: (f: () => 结果, 成了?: string) => Promise<boolean>;
+}) {
+  const { message, modal } = App.useApp();
+  const [天数, set天数] = useState<Record<string, number | null>>(规则.节点天数);
+  const 节点 = [...节点们.线索, ...节点们.商机];
+  const 改了 = 节点.some((n) => (天数[n] ?? null) !== (规则.节点天数[n] ?? null));
+
+  /** 先数会回收几个，有就确认；改完提示真收了几个 */
+  const 确认后存 = async (改: 规则改动, 成了: string) => {
+    const 看 = await 预览超时回收(改).catch(() => null);
+    if (!看) return void message.error("没改成，请稍后再试");
+    if (!看.ok) return void message.error(看.error ?? "没改成，请稍后再试");
+    const 存 = () => 跑(async () => {
+      const r = await 改组织规则(改);
+      if (r.ok) message.success(r.收回 ? `${成了}，${r.收回} 个项目回到了项目公海` : 成了);
+      return r;
+    });
+    if (!看.个数) return void (await 存());
+    modal.confirm({
+      title: `按新设置，现在会有 ${看.个数} 个项目回到项目公海`,
+      content: 看.团队
+        ? "这些项目在节点上已经超过处理时长没跟进。确认后你名下的马上回到公海；别人名下的在他下次打开首页或项目列表时回到公海。负责人都会收到提醒。"
+        : "这些项目在节点上已经超过处理时长没跟进。确认后它们马上回到公海，负责人会收到提醒。",
+      okText: "确认保存",
+      cancelText: "再想想",
+      onOk: () => void 存(),
+    });
+  };
+
+  return (
+    <Card
+      title="超时回收"
+      extra={
+        <Space>
+          {!isAdmin && <span style={{ color: "var(--text-muted)" }}>只有老板能改</span>}
+          <Switch
+            aria-label="超时回收"
+            checked={规则.开}
+            disabled={!isAdmin || 忙}
+            onChange={(开) => void (开 ? 确认后存({ 超时回收: { 开 } }, "已开超时回收") : 跑(() => 改组织规则({ 超时回收: { 开 } }), "已关超时回收"))}
+          />
+        </Space>
+      }
+    >
+      <div style={{ color: "var(--text-muted)", marginBottom: 12 }}>
+        开了以后，线索、商机阶段的项目在一个节点上超过处理时长还没跟进，自动回到项目公海，负责人会收到提醒；记沟通时填了下一步时间的，过了那天还没跟进也会回收。项目上记沟通要填下一步时间。没填天数的节点不回收，订单阶段不回收。默认关。
+      </div>
+      {规则.开 && (
+        <>
+          {(["线索", "商机"] as const).map((阶段) => (
+            <div key={阶段} style={{ marginBottom: 8 }}>
+              <div style={{ fontWeight: 500, marginBottom: 8 }}>{阶段}阶段</div>
+              {节点们[阶段].map((n) => (
+                <div key={n} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, minWidth: 0 }}>
+                  <span style={{ flex: "1 1 auto", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={n}>{n}</span>
+                  <InputNumber
+                    aria-label={`「${n}」的处理时长`}
+                    min={1} max={时长最大} precision={0} suffix="天" style={{ width: 120, flex: "0 0 auto" }}
+                    placeholder="不回收"
+                    disabled={!isAdmin}
+                    value={天数[n] ?? null}
+                    onChange={(v) => set天数((m) => ({ ...m, [n]: v }))}
+                  />
+                </div>
+              ))}
+            </div>
+          ))}
+          {isAdmin && (
+            <Button type="primary" style={{ marginTop: 4 }} disabled={忙 || !改了} onClick={() => void 确认后存({ 超时回收: { 节点天数: 天数 } }, "已保存")}>保存</Button>
+          )}
+        </>
       )}
     </Card>
   );

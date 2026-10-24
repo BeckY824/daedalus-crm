@@ -1,7 +1,7 @@
 "use client";
 
 import { useBusinessTimeZone } from "@/lib/business-client";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Segmented, Space, Button, App, Tag } from "antd";
 import { PlusOutlined, UnorderedListOutlined, CheckCircleOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
@@ -9,6 +9,8 @@ import { PageHead, UserCell } from "@/components/ui";
 import EmptyState from "@/components/EmptyState";
 import { dayjs, fmtDateTime } from "@/lib/utils";
 import { 是逾期 } from "@/lib/overdue";
+import { 每批, 组名, 写每组 } from "@/lib/plans-groups";
+import type { 轻行 as 轻列表行 } from "@/lib/plans-page";
 import { toggleTask, completePlan, deletePlan, deleteTask } from "../../customers/[id]/actions";
 import TaskForm from "../../customers/[id]/TaskForm";
 import InlineConfirm from "@/components/InlineConfirm";
@@ -84,6 +86,18 @@ type 事项 = {
   ownerName: string;
 };
 
+/** 分组只要这三样：分批时页面手里只有「全部」的这三样，详情只有要摆出来的那些（lib/plans-page.ts） */
+type 轻事项 = { key: string; 时间: string | null; ownerId: string };
+
+const 计划成事项 = (p: Plan): 事项 => ({
+  key: `plan:${p.id}`, kind: "plan", id: p.id, 标题: p.subject, 时间: p.plannedAt, 明确钟点: p.plannedHasTime, 方式: p.method, 版本: p.updatedAt,
+  customerId: p.customerId, customerName: p.customerName, 有WhatsApp: p.有WhatsApp, ownerId: p.ownerId, ownerName: p.ownerName,
+});
+const 待办成事项 = (t: Task): 事项 => ({
+  key: `task:${t.id}`, kind: "task", id: t.id, 标题: t.title, 时间: t.dueAt, 明确钟点: t.dueHasTime, 版本: t.updatedAt,
+  customerId: t.customerId, customerName: t.customerName, ownerId: t.ownerId, ownerName: t.ownerName,
+});
+
 /**
  * 跟进计划。
  *
@@ -102,6 +116,10 @@ export default function PlansView({
   预选客户,
   直接新建,
   全员 = false,
+  轻,
+  负责人,
+  每组,
+  补详情,
 }: {
   plans: Plan[];
   tasks: Task[];
@@ -116,6 +134,17 @@ export default function PlansView({
    * 原来写死「我的」：卡上写团队逾期 12，点进来「逾期 3」，对不上（2026-10-01 排查 C2）
    */
   全员?: boolean;
+  /**
+   * 分批（2026-10-24 企业版压测，lib/plans-page.ts）：事项太多时 plans / tasks 只有每组前 N 条的详情，
+   * 轻 是全部未完成事项的 [key, 时间, 负责人下标]，组头条数、「我的 / 全部成员」都在它上面算。
+   * 全取回来了的时候（个人版几乎都是）这四样都不带，页面和原来一模一样。
+   */
+  轻?: 轻列表行[];
+  负责人?: string[];
+  /** 每组摆几条（逾期、今天、本周、以后），「再看 50 条」加一批 */
+  每组?: number[];
+  /** 要摆、手里却没详情的那几条去取（plan-rows.ts）：刚新建的、浏览器和服务器时区不同分组差了的 */
+  补详情?: (keys: string[]) => Promise<{ plans: Plan[]; tasks: Task[] }>;
 }) {
   const timeZone = useBusinessTimeZone();
   const router = useRouter();
@@ -152,6 +181,17 @@ export default function PlansView({
     void window.desktopReminders?.刷新();
     router.refresh();
   }
+  /** 手里有详情的事项：服务端给的，加上分批时页面后来补取的（换了一版 plans / tasks 就作废，新的一版里有） */
+  const 带来的 = useMemo(() => new Map([...plans.map(计划成事项), ...tasks.map(待办成事项)].map((x) => [x.key, x])), [plans, tasks]);
+  const [补到, set补到] = useState<{ 源: Map<string, 事项>; 行: Map<string, 事项>; 没了: Set<string> }>(() => ({ 源: 带来的, 行: new Map(), 没了: new Set() }));
+  const 补 = 补到.源 === 带来的 ? 补到 : null;
+  const 详 = useMemo(() => (补?.行.size ? new Map([...带来的, ...补.行]) : 带来的), [带来的, 补]);
+  /** 全部未完成的事项（分批时只有 key、时间、负责人）：条数、分组都在它上面算 */
+  const 全部: 轻事项[] = useMemo(
+    () => (轻 && 负责人 ? 轻.map(([key, 时间, i]) => ({ key, 时间, ownerId: 负责人[i] })) : [...带来的.values()]),
+    [轻, 负责人, 带来的],
+  );
+
   /**
    * 「新建计划」就地弹框（2026-09-29）。原来它跳去客户列表，让人自己挑一位再进记录页排——
    * 按钮写着「新建」却把人带走了，被当成 bug 报上来。现在框里第一格挑人，
@@ -163,7 +203,9 @@ export default function PlansView({
   /** 刚建的那条计划：等它出现在列表里亮两秒（和 DataList 的 row-fresh 同一个样子） */
   const [刚建, set刚建] = useState<string | null>(null);
   const 刚建那行 = useRef<HTMLDivElement | null>(null);
-  const 刚建到了 = 刚建 !== null && plans.some((p) => `plan:${p.id}` === 刚建);
+  /** 这一页上新建过的：分批时排在第 N 条之后也一直摆着，不然亮完两秒就从眼前没了 */
+  const [新建过, set新建过] = useState<string[]>([]);
+  const 刚建到了 = 刚建 !== null && 详.has(刚建);
   useEffect(() => {
     if (!刚建到了) return;
     // 排在下面几组的时候人看不见它：滚到眼前。减弱动态时直接跳过去，不滑
@@ -175,21 +217,7 @@ export default function PlansView({
    * 这一页上的事全是我的（一个人的库就是这样）：「我的 / 全部成员」这一层不摆（审查 D2）——
    * 两边永远一样，摆着只是让人多想一下「全部成员」里会不会还有别的
    */
-  const 只有我 = plans.every((p) => p.ownerId === meId) && tasks.every((t) => t.ownerId === meId) && done.every((d) => d.ownerId === meId);
-
-  const 全部: 事项[] = useMemo(
-    () => [
-      ...plans.map((p) => ({
-        key: `plan:${p.id}`, kind: "plan" as const, id: p.id, 标题: p.subject, 时间: p.plannedAt, 明确钟点: p.plannedHasTime, 方式: p.method, 版本: p.updatedAt,
-        customerId: p.customerId, customerName: p.customerName, 有WhatsApp: p.有WhatsApp, ownerId: p.ownerId, ownerName: p.ownerName,
-      })),
-      ...tasks.map((t) => ({
-        key: `task:${t.id}`, kind: "task" as const, id: t.id, 标题: t.title, 时间: t.dueAt, 明确钟点: t.dueHasTime, 版本: t.updatedAt,
-        customerId: t.customerId, customerName: t.customerName, ownerId: t.ownerId, ownerName: t.ownerName,
-      })),
-    ],
-    [plans, tasks],
-  );
+  const 只有我 = 全部.every((x) => x.ownerId === meId) && done.every((d) => d.ownerId === meId);
 
   const 我的 = useMemo(() => 全部.filter((x) => (scope === "我的" ? x.ownerId === meId : true)), [全部, scope, meId]);
 
@@ -200,7 +228,7 @@ export default function PlansView({
   const 组 = useMemo(() => {
     const 今天结束 = dayjs().endOf("day");
     const 本周结束 = dayjs().endOf("week");
-    const out = { 逾期: [] as 事项[], 今天: [] as 事项[], 本周: [] as 事项[], 以后: [] as 事项[] };
+    const out = { 逾期: [] as 轻事项[], 今天: [] as 轻事项[], 本周: [] as 轻事项[], 以后: [] as 轻事项[] };
     for (const x of 我的) {
       if (!x.时间) out.以后.push(x);
       else {
@@ -217,6 +245,42 @@ export default function PlansView({
     }
     return out;
   }, [我的]);
+
+  /** 每组摆出来的：前 N 条（分批时），加上这一页新建过的；没详情的先占一行「正在取」 */
+  const 摆 = useMemo(() => {
+    const 留 = new Set(新建过);
+    return Object.fromEntries(组名.map((g, i) => {
+      const n = 每组?.[i] ?? Infinity;
+      const 这些 = 组[g].filter((x, j) => (j < n || 留.has(x.key)) && !补?.没了.has(x.key));
+      return [g, { 行: 这些.map((x) => 详.get(x.key) ?? { key: x.key, 待取: true as const }), 还有: Math.max(0, 组[g].length - n) }];
+    })) as Record<(typeof 组名)[number], { 行: (事项 | 待取)[]; 还有: number }>;
+  }, [组, 每组, 新建过, 详, 补]);
+  const 缺 = 组名.flatMap((g) => 摆[g].行.filter((x) => "待取" in x).map((x) => x.key)).slice(0, 500).join(",");
+  useEffect(() => {
+    if (!缺 || !补详情) return;
+    let 停 = false;
+    const keys = 缺.split(",");
+    补详情(keys).then((r) => {
+      if (停) return;
+      set补到((v) => {
+        const 行 = new Map(v.源 === 带来的 ? v.行 : []);
+        for (const x of [...r.plans.map(计划成事项), ...r.tasks.map(待办成事项)]) 行.set(x.key, x);
+        // 取了却没有：刚被别人做完、删掉了。不摆，也不再去取
+        const 没了 = new Set(v.源 === 带来的 ? v.没了 : []);
+        for (const k of keys) if (!行.has(k)) 没了.add(k);
+        return { 源: 带来的, 行, 没了 };
+      });
+    }).catch(() => { /* 没取到：那几行留着「正在取」，刷新一下就有 */ });
+    return () => { 停 = true; };
+  }, [缺, 补详情, 带来的]);
+
+  /** 换 URL 参数重新取（每组几条 n），页面不跳回顶上；和商机看板同一个做法 */
+  const [翻着, 开始翻] = useTransition();
+  const 再看 = (i: number) => {
+    const p = new URLSearchParams(window.location.search);
+    p.set("n", 写每组(组名.map((_, j) => (每组?.[j] ?? 每批) + (j === i ? 每批 : 0))));
+    开始翻(() => router.replace(`${window.location.pathname}?${p}`, { scroll: false }));
+  };
 
   /** 点了计划前面的 ✓：先弹小框（方式 + 一句话 + 下次），待办照旧直接完成 */
   function 点完成(x: 事项) {
@@ -367,11 +431,11 @@ export default function PlansView({
           <div className="plans">
             {/* 三组的空文案各不相同：全写「这一组是空的」，人分不出
                 「今天没排」和「已经全做完了」——那是两件完全不同的事 */}
-            <组块 名="逾期" 说明="计划时间已经过去了，先处理这些" 空话="没有逾期的，都跟上了" 事项={组.逾期} 危险 完成={点完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
-            <组块 名="今天" 说明="今天之内要做的" 空话="今天没有排计划" 事项={组.今天} 完成={点完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
-            <组块 名="本周" 说明="这周剩下的几天" 空话="这周剩下的几天还没排" 事项={组.本周} 完成={点完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
+            <组块 名="逾期" 说明="计划时间已经过去了，先处理这些" 空话="没有逾期的，都跟上了" 行={摆.逾期.行} 共={组.逾期.length} 还有={摆.逾期.还有} 再看={() => 再看(0)} 翻着={翻着} 危险 完成={点完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
+            <组块 名="今天" 说明="今天之内要做的" 空话="今天没有排计划" 行={摆.今天.行} 共={组.今天.length} 还有={摆.今天.还有} 再看={() => 再看(1)} 翻着={翻着} 完成={点完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
+            <组块 名="本周" 说明="这周剩下的几天" 空话="这周剩下的几天还没排" 行={摆.本周.行} 共={组.本周.length} 还有={摆.本周.还有} 再看={() => 再看(2)} 翻着={翻着} 完成={点完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
             {组.以后.length > 0 && (
-              <组块 名="以后" 说明="更远的，和还没定时间的" 空话="没有更远的" 事项={组.以后} 完成={点完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
+              <组块 名="以后" 说明="更远的，和还没定时间的" 空话="没有更远的" 行={摆.以后.行} 共={组.以后.length} 还有={摆.以后.还有} 再看={() => 再看(3)} 翻着={翻着} 完成={点完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
             )}
           </div>
           )}
@@ -387,7 +451,7 @@ export default function PlansView({
           if (!x) return;
           if (r.kind === "saved") return 记完了(x, r);
           // 跳过：和原来点 ✓ 一模一样（先原地打勾、再存；提示里带撤销、排下一次）
-          const 原 = 全部.find((y) => y.key === x.key);
+          const 原 = 详.get(x.key);
           if (原) void 完成(原);
         }}
       />
@@ -419,7 +483,7 @@ export default function PlansView({
           set新建开着(false);
           // 新的一条在「待办」里；人正看着「已完成」的话切回来，不然亮的那行看不见
           set看("待办");
-          if (id) set刚建(`plan:${id}`);
+          if (id) { set刚建(`plan:${id}`); set新建过((v) => [...v, `plan:${id}`]); }
           router.refresh();
         }}
         预选客户={预选客户}
@@ -429,8 +493,11 @@ export default function PlansView({
   );
 }
 
+/** 分批时要摆、详情还在路上的那一行 */
+type 待取 = { key: string; 待取: true };
+
 function 组块({
-  名, 说明, 空话, 事项, 危险, 完成, 刚完成, 刚建, 刚建那行, scope, 只有我, 改, 删,
+  名, 说明, 空话, 行, 共, 还有, 再看, 翻着, 危险, 完成, 刚完成, 刚建, 刚建那行, scope, 只有我, 改, 删,
 }: {
   /** 改这一条：计划开计划表单，待办开待办表单（2026-10-02 排查 3-4：原来计划页上只能「完成」） */
   改: (x: 事项) => void;
@@ -439,7 +506,14 @@ function 组块({
   说明: string;
   /** 这一组空着时说的那句话。每组都不一样 */
   空话: string;
-  事项: 事项[];
+  /** 摆出来的那些（不分批时就是这一组全部） */
+  行: (事项 | 待取)[];
+  /** 这一组一共多少条：组头上写的数 */
+  共: number;
+  /** 还没摆出来的条数：大于 0 时底下给「再看 50 条」 */
+  还有: number;
+  再看: () => void;
+  翻着: boolean;
   危险?: boolean;
   完成: (x: 事项) => void;
   刚完成: string[];
@@ -453,13 +527,23 @@ function 组块({
     <section className={`plan-g${危险 ? " plan-g-warn" : ""}`}>
       <div className="plan-g-h">
         <b>{名}</b>
-        <span className="plan-g-n">{事项.length}</span>
+        <span className="plan-g-n">{共}</span>
         <span className="plan-g-s">{说明}</span>
       </div>
-      {事项.length === 0 ? (
+      {共 === 0 ? (
         <div className="plan-empty">{空话}</div>
       ) : (
-        事项.map((x) => {
+        行.map((x) => {
+          if ("待取" in x) {
+            return (
+              <div key={x.key} className="plan-row plan-row-wait" aria-busy="true">
+                <span className="plan-row-m">
+                  <span className="plan-row-t">正在取…</span>
+                  <span className="plan-row-s">&nbsp;</span>
+                </span>
+              </div>
+            );
+          }
           const 完了 = 刚完成.includes(x.key);
           return (
             <div
@@ -497,6 +581,12 @@ function 组块({
             </div>
           );
         })
+      )}
+      {还有 > 0 && (
+        <Button block type="text" size="small" className="pipe-more" loading={翻着} onClick={再看}>
+          {还有 > 每批 ? `再看 ${每批} 条` : `再看剩下 ${还有} 条`}
+          {还有 > 每批 && <span className="pipe-n">还有 {还有}</span>}
+        </Button>
       )}
     </section>
   );

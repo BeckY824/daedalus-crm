@@ -9,53 +9,9 @@ import { 清洗 } from "@/lib/enterprise-import/clean";
 import { 钉钉适配器, 钉钉值, 改于之后, type 钉钉配置 } from "@/lib/enterprise-import/dingtalk";
 import { 飞书适配器, 飞书值, type 飞书配置 } from "@/lib/enterprise-import/feishu";
 import { 规则猜列 } from "@/lib/enterprise-import/mapping";
-import { 接口出错, type 联网 } from "@/lib/enterprise-import/net";
+import { 接口出错 } from "@/lib/enterprise-import/net";
 import { 实体名, type 原始记录, type 实体, type 映射 } from "@/lib/enterprise-import/types";
-
-type 响应 = { status?: number; body: unknown };
-type 录制 = { 路由: Record<string, 响应[]> };
-type 调用 = { 键: string; url: string; body?: Record<string, unknown>; headers: Record<string, string> };
-
-const 起始钟 = 1792810800000; // 北京时间 2026-10-24 11:00
-
-/** 路由键 = 方法 + 路径 + 认页 / 认对象的参数（query 和 body 里的都算） */
-function 键(method: string, url: string, body?: string): string {
-  const u = new URL(url);
-  const b = body ? (JSON.parse(body) as Record<string, unknown>) : {};
-  const 选: string[] = [];
-  for (const k of ["relationType", "page_token", "nextToken"]) if (u.searchParams.get(k)) 选.push(`${k}=${u.searchParams.get(k)}`);
-  for (const k of ["nextToken", "cursor", "name", "userid"]) if (b[k] !== undefined) 选.push(`${k}=${String(b[k])}`);
-  return `${method} ${u.pathname}${选.length ? `?${选.join("&")}` : ""}`;
-}
-
-/** 假网：每个键一队响应，一条条给，最后一条一直给；先给 = 插到队头（限流、令牌过期、没权限） */
-function 假网(录: 录制, 先给: Record<string, 响应[]> = {}) {
-  const 队 = new Map<string, 响应[]>();
-  for (const [k, v] of Object.entries(录.路由)) 队.set(k, [...v]);
-  for (const [k, v] of Object.entries(先给)) 队.set(k, [...v, ...(队.get(k) ?? [])]);
-  const 调用们: 调用[] = [];
-  const 等过: number[] = [];
-  let 钟 = 起始钟;
-  const 网: 联网 = {
-    fetch: async (url, init) => {
-      const method = init?.method ?? "GET";
-      const 体 = typeof init?.body === "string" ? init.body : undefined;
-      const k = 键(method, url, 体);
-      调用们.push({ 键: k, url, body: 体 ? JSON.parse(体) : undefined, headers: { ...(init?.headers as Record<string, string>) } });
-      const q = 队.get(k);
-      if (!q?.length) throw new Error(`没录这个接口：${k}`);
-      const r = q.length > 1 ? q.shift()! : q[0];
-      return new Response(JSON.stringify(r.body), { status: r.status ?? 200, headers: { "Content-Type": "application/json" } });
-    },
-    等: async (ms) => {
-      等过.push(ms);
-      钟 += ms;
-    },
-    现在: () => 钟,
-  };
-  const 调过 = (前缀: string) => 调用们.filter((c) => c.键.startsWith(前缀));
-  return { 网, 调用们, 等过, 调过 };
-}
+import { 假网, 起始钟, type 录制 } from "./helpers/ent-fake-net";
 
 /** 拉出来的记录按规则猜列、清洗一遍（值 / 负责人对照都空着，对不上的落默认负责人） */
 function 走一遍(记录: 原始记录[]) {
@@ -140,6 +96,15 @@ describe("飞书适配器", () => {
   it("增量：只要 since 之后改过的（飞书搜索接口按 last_modified_time 在本地筛）", async () => {
     const 记录 = await new 飞书适配器(飞书, 假网(飞书录).网).拉变化(new Date(1792600000000));
     expect(记录.map((r) => r.外部ID)).toEqual(["recCust2", "recCont2", "recOpp1", "recFol1"]);
+  });
+
+  it("appToken / tableId 带了 / ? # 也原样编码进路径，不会拼到别的接口上", async () => {
+    const 怪 = { 实体: "customer" as const, appToken: "bas/cn?x#y", tableId: "tbl&1" };
+    const 路 = `/open-apis/bitable/v1/apps/${encodeURIComponent(怪.appToken)}/tables/${encodeURIComponent(怪.tableId)}`;
+    const 空 = { body: { code: 0, data: { items: [], has_more: false } } };
+    const n = 假网(飞书录, { [`GET ${路}/fields`]: [空], [`POST ${路}/records/search`]: [空] });
+    expect(await new 飞书适配器({ ...飞书, 表们: [怪] }, n.网).拉全量()).toEqual([]);
+    expect(n.调用们.filter((c) => c.键 !== 令牌路由).map((c) => new URL(c.url).pathname)).toEqual([`${路}/fields`, `${路}/records/search`]);
   });
 
   it("限流（HTTP 429、99991400、1254290）：1s、2s、4s 退避后接着拉", async () => {
