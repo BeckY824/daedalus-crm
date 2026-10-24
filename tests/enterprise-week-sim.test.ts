@@ -150,9 +150,7 @@ async function 作为<T>(key: string, fn: () => Promise<T>): Promise<T> {
   mocks.user = s;
   (await 可有("lib/enterprise/visibility", "忘掉企业版范围"))?.();
   const 以谁的身份 = await 可有<(id: string, f: () => Promise<T>) => Promise<T>>("lib/enterprise/visibility", "以谁的身份");
-  // 先在事务外查一次把范围算好（页面打开时就是这样）：冷缓存时范围要现查，落在交互式事务里会等那唯一的连接到超时
-  const 先暖 = async () => { await prisma.project.count(); return fn(); };
-  return 当前人.run(s, () => (以谁的身份 ? 以谁的身份(s.id, 先暖) : fn()));
+  return 当前人.run(s, () => (以谁的身份 ? 以谁的身份(s.id, fn) : fn()));
 }
 
 const 两位 = (n: number) => String(n).padStart(2, "0");
