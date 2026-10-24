@@ -128,13 +128,30 @@ jobs:
   # 企业版网页 vs Mac / Windows 桌面端截图对比（10-24）：同一台服务器、四种身份看同一批页面，逐块比像素，差过 0.1% 就红。
   # 单独一个 job 和 E2E 并行跑，不拖总耗时。有意的差别见 e2e-parity/有意的差别.json，不许为了变绿往里加没理由的条目
   parity:
-    name: 网页对桌面端截图
+    name: 网页对桌面端截图 ${{ matrix.width }}
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.56.1-noble
+    # 三个宽度各一片并行：30 页 × 4 身份一片跑完要十几分钟，分开后每片和 E2E 差不多
+    strategy:
+      fail-fast: false
+      matrix:
+        width: [1024, 1280, 1440]
     steps:
       - uses: actions/checkout@v4
+      - name: 缓存 npm 下载
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-e2e-${{ hashFiles('package-lock.json') }}
       - run: npm ci
+      - name: 缓存 Next 构建
+        uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: next-parity-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**', 'next.config.ts', 'public/**') }}
+          restore-keys: |
+            next-parity-${{ hashFiles('package-lock.json') }}-
       - run: npx prisma generate
       - run: npx prisma generate --schema=prisma/control.prisma
         env:
@@ -145,12 +162,13 @@ jobs:
           HOME: /root
           TZ: Asia/Shanghai
           E2E_SHOT_DIR: test-results/parity
+          PARITY_WIDTHS: ${{ matrix.width }}
       - name: 写进 Summary
         if: always()
         run: cat test-results/parity/报告.md >> "$GITHUB_STEP_SUMMARY" || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: parity-report
+          name: parity-report-${{ matrix.width }}
           path: test-results/parity/
           retention-days: 7

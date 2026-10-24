@@ -28,7 +28,8 @@ import 有意的差别 from "./有意的差别.json";
 test.describe.configure({ mode: "serial" });
 
 const 出处 = path.resolve(process.env.E2E_SHOT_DIR ?? "test-results/parity");
-const 宽们 = [1024, 1280, 1440];
+/** CI 按宽度分三片并行跑（PARITY_WIDTHS=1024）；本机不设就三个宽度都量 */
+const 宽们 = (process.env.PARITY_WIDTHS ?? "1024,1280,1440").split(",").map(Number);
 const 高 = 1600;
 /** 每个通道差多少以内算同一个颜色；超过阈值比例的块判红 */
 const 容差 = 16;
@@ -36,6 +37,10 @@ const 阈值 = 0.001;
 
 const 页们: { 名: string; 址: string }[] = [
   { 名: "首页", 址: "/" },
+  { 名: "数据", 址: "/overview" },
+  { 名: "线索", 址: "/leads" },
+  { 名: "报表", 址: "/reports" },
+  { 名: "反馈", 址: "/feedback" },
   { 名: "客户列表", 址: "/customers" },
   { 名: "客户记录页", 址: "/customers/gate-scandi" },
   { 名: "客户记录页-长英文名", 址: "/customers/gate-long-uk" },
@@ -52,6 +57,15 @@ const 页们: { 名: string; 址: string }[] = [
   { 名: "设置-AI", 址: "/settings?tab=ai" },
   { 名: "设置-桌面端", 址: "/settings?tab=desktop" },
   { 名: "设置-团队", 址: "/settings?tab=team" },
+  { 名: "设置-个人资料", 址: "/settings?tab=profile" },
+  { 名: "设置-成员", 址: "/settings?tab=members" },
+  { 名: "设置-快捷键", 址: "/settings?tab=keymap" },
+  { 名: "设置-外观", 址: "/settings?tab=appearance" },
+  { 名: "设置-密码", 址: "/settings?tab=password" },
+  { 名: "设置-组织架构", 址: "/settings?tab=org" },
+  { 名: "设置-导入记录", 址: "/settings?tab=imports" },
+  { 名: "设置-企业版导入", 址: "/settings?tab=enterprise" },
+  { 名: "设置-操作日志", 址: "/settings?tab=audit" },
 ];
 
 /** 左栏各段 + 正文；正文按直接子块一块一块比（Windows 桌面端正文多让出标题栏那条，整块高度本来就不一样） */
