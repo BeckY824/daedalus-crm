@@ -372,7 +372,13 @@ export async function deactivateUser(id: string, transferToId: string, 方式: �
       `${转走了.线索.length} 条线索、${转走了.渠道.length} 个渠道` + (转走了.项目.length ? `、${转走了.项目.length} 个项目` : "") +
       (方式 === "公海" ? `；${进公海} 位客户放进公海` + (转走了.进公海项目.length ? `、${转走了.进公海项目.length} 个项目放回项目公海` : "") : "") +
       "（历史业绩不动）",
-    detail: { userId: id, transferToId, 方式, 转走了 },
+    // 转交时详情和开关加入前一字不差（差分测试逐字段比）；只有放进公海才多记方式和进公海的清单
+    detail: 方式 === "公海"
+      ? { userId: id, transferToId, 方式, 转走了 }
+      : {
+          userId: id, transferToId,
+          转走了: { 客户: 转走了.客户, 商机: 转走了.商机, 待办: 转走了.待办, 计划: 转走了.计划, 线索: 转走了.线索, 渠道: 转走了.渠道, 项目: 转走了.项目 },
+        },
   });
 
   revalidatePath("/settings");
