@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { 要选模版 } from "@/lib/onboarding";
 import { requireUser } from "@/lib/auth";
 import { 自动掉公海 } from "@/lib/pool-db";
+import { 公海超时收回 } from "@/lib/project/db";
 import { llmEnabled, listModelOptions } from "@/lib/llm";
 import { 唯一负责人 } from "@/lib/owners";
 import { dayjs } from "@/lib/utils";
@@ -29,6 +30,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   if (await 要选模版()) redirect("/start");
   // 公海：开了「N 天没跟进自动放进公海」就一天扫一次（lib/pool-db.ts）。首页是每天第一眼，在这儿扫
   await 自动掉公海(user);
+  // 企业版超时回收：项目在节点上超过处理时长没跟进，回到项目公海（lib/project/db.ts，没开不扫）
+  if ((await getBusiness()).projectMode === true) await 公海超时收回(user);
   /*
     地址上的 ?c= 指哪条对话。在服务端读，不在浏览器里再取一次：
     翻一条老对话时不该先看见一屏空白再看见内容。

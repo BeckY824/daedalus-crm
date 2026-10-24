@@ -872,6 +872,8 @@ model Project {
   exceptionReason      String?
   /// 在公海里的那一刻；空 = 不在公海。在公海时 ownerId 留着放回去的人（历史负责人，他自己也能领回）
   pooledAt             DateTime?
+  /// 下一步时间：在项目上记沟通时填（企业版开了超时回收时线索、商机阶段必填）。超时回收按它算、但不晚于节点时长，见 lib/project/timeout.ts；回到公海时清掉
+  nextStepAt           DateTime?
   /// 尾款结清：谁勾的、何时
   balanceSettled       Boolean                   @default(false)
   balanceSettledById   String?
