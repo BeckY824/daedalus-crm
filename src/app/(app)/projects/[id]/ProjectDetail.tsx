@@ -34,7 +34,7 @@ export type 项目详情 = {
   企业版: boolean;
   /**
    * 企业版超时回收：nextStepAt 是最近一次沟通填的下一步时间（服务端排好的 YYYY-MM-DD）；回收日 = 哪天没人跟进就自动回公海（null = 不会）；
-   * 要下一步 = 记沟通必须填下一步时间；能记沟通 = 负责人、老板、主管、项目组成员，且不在公海
+   * 要下一步 = 记沟通必须填下一步时间；能记沟通 = 企业版里的负责人、老板、主管、项目组成员，且不在公海（不是企业版照原来去客户页记）
    */
   nextStepAt: string | null; 回收日: string | null; 要下一步: boolean; 能记沟通: boolean;
   balanceSettled: boolean; balanceSettledBy: string | null; balanceSettledAt: string | null;
@@ -311,7 +311,7 @@ export default function ProjectDetail({
                   <div>{l.kind !== "node" ? 换人文字(l) : l.from ? `${位置文字(l.from)} → ${位置文字(l.to)}` : `建档，落在 ${位置文字(l.to)}`}</div>
                   {l.category && <div style={{ color: "var(--danger-text)" }}>异常类别：{l.category}</div>}
                   {l.reason && l.reason !== 超时理由 && <div style={{ color: "var(--danger-text)", whiteSpace: "pre-wrap" }}>{l.category ? "备注" : "原因"}：{l.reason}</div>}
-                  <div style={{ color: "var(--text-muted)", fontSize: 12 }}>{l.who} · {fmtDateTime(l.at)}</div>
+                  <div style={{ color: "var(--text-muted)", fontSize: 12 }}>{l.reason === 超时理由 ? "系统" : l.who} · {fmtDateTime(l.at)}</div>
                 </div>
               ),
             }))}
@@ -319,7 +319,7 @@ export default function ProjectDetail({
         </Card>
         <Card
           title="沟通"
-          extra={p.能记沟通 ? <Button type="link" size="small" disabled={忙} onClick={() => set记一条开着(true)}>记一条</Button> : p.customer && <Link href={`/customers/${p.customer.id}`}>去{b.customer}页看看</Link>}
+          extra={p.能记沟通 ? <Button type="link" size="small" disabled={忙} onClick={() => set记一条开着(true)}>记一条</Button> : p.customer && <Link href={`/customers/${p.customer.id}`}>去{b.customer}页{p.企业版 ? "看看" : "记一条"}</Link>}
         >
           {p.followUps.length === 0 && <div style={{ color: "var(--text-muted)" }}>{p.customer ? "还没有挂在这个项目上的沟通" : "领取后显示"}</div>}
           {p.followUps.map((f) => (
