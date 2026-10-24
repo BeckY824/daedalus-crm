@@ -76,6 +76,14 @@ describe("不是企业版", () => {
     expect(Object.keys(JSON.parse(记.detail!))).toEqual(["userId", "transferToId", "转走了"]);
     expect(Object.keys(JSON.parse(记.detail!).转走了)).toEqual(["客户", "商机", "待办", "计划", "线索", "渠道", "项目"]);
   });
+
+  it("名下一个项目都没有：审计详情不写「项目」这个键（和加开关前一样）", async () => {
+    await 客户("乙的客户", 乙);
+    expect(await deactivateUser(乙, 甲)).toEqual({ ok: true });
+    const 记 = await prisma.auditLog.findFirstOrThrow({ where: { action: "deactivate", entityId: 乙 } });
+    expect(Object.keys(JSON.parse(记.detail!))).toEqual(["userId", "transferToId", "转走了"]);
+    expect(Object.keys(JSON.parse(记.detail!).转走了)).toEqual(["客户", "商机", "待办", "计划", "线索", "渠道"]);
+  });
 });
 
 describe("转交（默认）", () => {
