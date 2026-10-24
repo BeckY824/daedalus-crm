@@ -27,7 +27,12 @@ npm run test:team  # 团队版五台真实对齐（本机云端 + 5 台桌面端
 git config core.hooksPath hooks
 ```
 
-之后 `git push` 会先跑 `tsc --noEmit`、`eslint`、`vitest run`。CI 上会再跑一遍加上 E2E 与 gitleaks。
+之后 `git push` 会先跑检查，分两档：
+
+- 推 `main` 或 tag：`tsc --noEmit`、`eslint .`、`vitest run` 全套。
+- 推功能分支：`tsc --noEmit` 照跑；`eslint` 只查相对 `origin/main` 改过的文件；单测只跑相关用例（`vitest related` + 按路径读源码的用例）。改到 vitest 配置、测试库建表、`prisma/`、`package.json`、`tsconfig.json`、eslint 配置时退回全套。要在功能分支上也跑全套：`PREPUSH_FULL=1 git push …`。
+
+CI 上一条不少地跑全套，再加上 E2E 与 gitleaks。
 
 ## 几条纪律
 

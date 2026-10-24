@@ -40,6 +40,10 @@ const 不算列表页 = [
   "src/app/(app)/settings/AuditTab.tsx",
   // 导入记录：列的是导入批次，不是业务记录；只有一颗撤销，没有筛选分页批量
   "src/app/(app)/settings/ImportsTab.tsx",
+  // 企业版导入（2026-10-24）：批次、冲突列的是导入账本，不是业务记录；试跑报告列的是这份文件的列、值、负责人对照，都还没进库。
+  // 冲突那张有分页勾选，但只为「采用原系统 / 保留我们」两颗，没有筛选、列设置、空态这些 DataList 的事
+  "src/app/(app)/settings/EnterpriseImportTab.tsx",
+  "src/app/(app)/settings/EnterpriseImportReport.tsx",
   // 导入抽屉：一张列文件的列，一张列读不懂的格子。都还没进库
   "src/app/(app)/customers/ImportDrawer.tsx",
   "src/app/(app)/customers/import-steps.tsx",
