@@ -13,6 +13,7 @@
  */
 import { PrismaClient } from "../src/generated/prisma";
 import bcrypt from "bcryptjs";
+import { 企业版 } from "../src/lib/enterprise/switch";
 
 const prisma = new PrismaClient();
 
@@ -32,18 +33,17 @@ export const USERS = [
 ];
 
 /**
- * 企业版（私有部署，CRM_ENTERPRISE=1）只建 admin：张三、李四是演示 / 小团队的默认账号，
- * 企业的成员都由管理员在界面上加。界面上加的人不在 USERS 里，所以企业版也不碰「名单外」的账号，
- * 设了 PRUNE_ACCOUNTS 也不删（2026-10-24，#113 审查意见）。
+ * 企业版（私有部署，CRM_ENTERPRISE=1）只建 admin：张三、李四是给试用的人看的演示账号，
+ * 放进一家公司的正式系统里只会被当成真人、占席位。成员由管理员在界面上加。
+ * 界面上加的人不在 USERS 里，所以企业版也不碰「名单外」的账号，设了 PRUNE_ACCOUNTS 也不删（2026-10-24，#113 审查意见）。
  */
-const 企业版 = process.env.CRM_ENTERPRISE === "1";
 export const 要建的账号 = (enterprise: boolean) => (enterprise ? USERS.filter((u) => u.role === "ADMIN") : USERS);
 
 async function main() {
   const hash = await bcrypt.hash(PASSWORD, 10);
   const 重置密码 = process.env.RESET_PASSWORDS === "1";
 
-  for (const u of 要建的账号(企业版)) {
+  for (const u of 要建的账号(企业版())) {
     await prisma.user.upsert({
       where: { email: u.email },
       // 姓名和角色跟着名单走，重跑能同步改名；密码默认不动，免得误重置
@@ -54,7 +54,7 @@ async function main() {
   }
 
   // 名单外的账号：默认只提示，不擅自处理——有人可能是在界面上正常加的。企业版的人都是界面上加的，整段跳过
-  const 名单外 = 企业版 ? [] : await prisma.user.findMany({
+  const 名单外 = 企业版() ? [] : await prisma.user.findMany({
     where: { email: { notIn: USERS.map((u) => u.email) } },
     select: {
       id: true, email: true, name: true, active: true,

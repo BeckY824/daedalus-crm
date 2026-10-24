@@ -65,6 +65,6 @@ describe("首启建哪些账号", () => {
   });
 
   it("企业版跳过名单外账号那一段（界面上加的成员不提示、PRUNE_ACCOUNTS 也不删）", () => {
-    expect(读("prisma/seed.ts")).toMatch(/const 名单外 = 企业版 \? \[\] :/);
+    expect(读("prisma/seed.ts")).toMatch(/const 名单外 = 企业版\(\) \? \[\] :/);
   });
 });
