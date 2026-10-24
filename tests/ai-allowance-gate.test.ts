@@ -319,6 +319,9 @@ const 不扣: Record<string, string> = {
   // 背调的分析（2026-10-16）：打的是我们的模型网关，次数在服务器上开始背调时一次扣足（api/gateway/v1/research/start，
   // 默认 60 次），后面的每步带同一个编号、网关认得不另扣。这里再套 带额度 就成了一次背调多扣一次
   "lib/research/gateway-model.ts": "背调开始时在服务器上一次扣足",
+  // 企业版导入的字段映射建议（2026-10-24）：企业版私有部署在客户自己的服务器上、用客户自己的 Key，
+  // 不开 MULTI_TENANT，没有我们的工作区账本可扣
+  "lib/enterprise-import/mapping.ts": "企业版私有部署，花的是客户自己的 Key",
 };
 
 type 函数段 = { 名: string; 导出: boolean; 体: string };
