@@ -377,7 +377,10 @@ export async function deactivateUser(id: string, transferToId: string, 方式: �
       ? { userId: id, transferToId, 方式, 转走了 }
       : {
           userId: id, transferToId,
-          转走了: { 客户: 转走了.客户, 商机: 转走了.商机, 待办: 转走了.待办, 计划: 转走了.计划, 线索: 转走了.线索, 渠道: 转走了.渠道, 项目: 转走了.项目 },
+          转走了: {
+            客户: 转走了.客户, 商机: 转走了.商机, 待办: 转走了.待办, 计划: 转走了.计划, 线索: 转走了.线索, 渠道: 转走了.渠道,
+            ...(转走了.项目.length ? { 项目: 转走了.项目 } : {}),
+          },
         },
   });
 
