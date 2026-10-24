@@ -23,7 +23,7 @@ export async function 当前是共享区(): Promise<boolean> {
 }
 
 /**
- * 给服务端页面用的号码脱敏器：共享区打码，自部署实例原样返回。
+ * 给服务端页面用的号码脱敏器：共享区打码，企业版字段权限里电话「看不到」的角色打码，其余原样返回。
  *
  * 返回的是函数而不是布尔值，调用点就不必各写一遍三元表达式，
  * 也不会出现「这一页记得打码、那一页忘了」的漂移——客户列表、联系人、
@@ -31,5 +31,7 @@ export async function 当前是共享区(): Promise<boolean> {
  */
 export async function 号码脱敏器(): Promise<<T extends string | null>(p: T) => T> {
   const 共享 = await 当前是共享区();
-  return <T extends string | null>(p: T): T => (共享 && p ? (maskPhone(p) as T) : p);
+  // 企业版「字段权限」把电话设成看不到的角色，也从这同一个出口打码（规则没开不读库）
+  const 藏 = !共享 && (await (await import("@/lib/enterprise/field-perm")).字段权限of())("电话") === "藏";
+  return <T extends string | null>(p: T): T => ((共享 || 藏) && p ? (maskPhone(p) as T) : p);
 }

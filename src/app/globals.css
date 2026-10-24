@@ -2532,4 +2532,9 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .team-dept-members, .team-dept-scopes { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--s2); }
 .team-dept-members li, .team-dept-scopes li { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
 .team-dept-members li > b { min-width: 72px; }
+.org-field-perm { border-collapse: collapse; }
+.org-field-perm th, .org-field-perm td { padding: 4px 6px; text-align: left; white-space: nowrap; }
+.org-field-perm thead th { font-weight: 600; }
+.org-field-perm tbody th { font-weight: 500; }
+.org-field-perm tbody th .muted { font-size: 12px; font-weight: 400; }
 .team-dept-role { min-width: 72px; }
