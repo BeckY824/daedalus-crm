@@ -167,6 +167,7 @@ const 全部 = vi.hoisted(() => ({ rows: [] as 订单行[] }));
 vi.mock("@/lib/auth", () => ({ requireUser: async () => ({ id: "u0" }) }));
 vi.mock("@/lib/owners", () => ({ 负责人候选: async () => [{ id: "u0", name: "老板" }, { id: "u1", name: "业务员" }] }));
 vi.mock("@/lib/order-db", () => ({ 订单列表: async () => 全部.rows }));
+vi.mock("@/lib/team-scope", async (原) => ({ ...(await 原<typeof import("@/lib/team-scope")>()), 限定的我: async () => null }));
 
 describe("订单页：企业版超过 分页起 单才分页，别的一样都不变", () => {
   const 原环境 = process.env.CRM_ENTERPRISE;

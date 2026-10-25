@@ -36,8 +36,8 @@ export type 订单行 = {
   未收: number;
 };
 
-/** 订单一览：每行一单，带 12 个节点。超期多的排上面，其次新的在前（和 Excel 总表同一个看法） */
-export async function 订单列表(where: Prisma.TradeOrderWhereInput = {}, 现在: Date = new Date()): Promise<订单行[]> {
+/** 订单一览要的原始行：订单（带客户、节点、签约、供应商）+ 负责人名字。不看日子 */
+async function 取订单原始(where: Prisma.TradeOrderWhereInput) {
   const readBatch = (after?: string) => prisma.tradeOrder.findMany({
     where: after ? {AND:[where,{id:{gt:after}}]} : where,
     orderBy: { id: "asc" },
@@ -58,6 +58,23 @@ export async function 订单列表(where: Prisma.TradeOrderWhereInput = {}, 现�
     after = batch.at(-1)!.id;
   }
   const 人 = new Map((await prisma.user.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.ownerId))] } }, select: { id: true, name: true } })).map((u) => [u.id, u.name]));
+  return { rows, 人 };
+}
+
+/**
+ * 订单一览：每行一单，带 12 个节点。超期多的排上面，其次新的在前（和 Excel 总表同一个看法）。
+ *
+ * `共用`：不限定（lib/team-scope 的 限定的我 是 null：老板、个人版、企业版没开按组织看）时页面传 lib/home-cache.ts 的
+ * 缓存着 进来——同一个筛选下各人取回的原始行一样，库一有提交就重取，企业版才开。超期依赖 现在，仍每次现算。
+ * 2026-10-25 企业版压测：2000 单时两批带 include 的查询约 36 ms，全占着读连接，拼行不到 1 ms。
+ * 共用的原始行只读（下面只取值、展开成新对象），别改
+ */
+export async function 订单列表(
+  where: Prisma.TradeOrderWhereInput = {},
+  现在: Date = new Date(),
+  共用?: <T>(key: string, 算: () => Promise<T>) => Promise<T>,
+): Promise<订单行[]> {
+  const { rows, 人 } = 共用 ? await 共用(`订单列表:${JSON.stringify(where)}`, () => 取订单原始(where)) : await 取订单原始(where);
   return rows
     .map((o) => {
       const nodes = o.nodes.map(节点出);
