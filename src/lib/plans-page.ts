@@ -111,15 +111,38 @@ export async function 取详情(db: Db, keys: readonly string[] | "全部", 稳�
   return { plans: plans.map(成计划), tasks: tasks.map(成待办) };
 }
 
-export async function 取计划页(db: Db, 每组: readonly number[], meId: string): Promise<计划页> {
+type 轻项 = { key: string; 时间: string | null; ownerId: string };
+/** 轻列表一份：全部未完成事项，和压成 轻 / 负责人 的样子（要给页面时才压，压一次记在这份上） */
+type 轻份 = { 全部: 轻项[]; 压好?: { 轻: 轻行[]; 负责人: string[] } };
+
+async function 取轻份(db: Db): Promise<轻份> {
   const [轻计划, 轻待办] = await Promise.all([
     db.followPlan.findMany({ where: { done: false }, orderBy: 计划排序, select: { id: true, plannedAt: true, plannedOn: true, ownerId: true } }),
     db.task.findMany({ where: { done: false }, orderBy: 待办排序, select: { id: true, dueAt: true, dueOn: true, ownerId: true } }),
   ]);
-  const 全部 = [
-    ...轻计划.map((p) => ({ key: `plan:${p.id}`, 时间: scheduleValue(p.plannedAt, p.plannedOn), ownerId: p.ownerId })),
-    ...轻待办.map((t) => ({ key: `task:${t.id}`, 时间: scheduleValue(t.dueAt, t.dueOn), ownerId: t.ownerId })),
-  ];
+  return {
+    全部: [
+      ...轻计划.map((p) => ({ key: `plan:${p.id}`, 时间: scheduleValue(p.plannedAt, p.plannedOn), ownerId: p.ownerId })),
+      ...轻待办.map((t) => ({ key: `task:${t.id}`, 时间: scheduleValue(t.dueAt, t.dueOn), ownerId: t.ownerId })),
+    ],
+  };
+}
+
+/**
+ * `共用`：不限定（lib/team-scope 的 限定的我 是 null：老板、个人版、企业版没开按组织看）时页面传 lib/home-cache.ts 的
+ * 缓存着 进来——轻列表不分人、不看日子（分组在下面每次现分），30 人同一时刻取的是同一份，库一有提交就重取，企业版才开。
+ * 2026-10-25 企业版压测：1.5 万条时两句轻查询加拼列表约 33 ms、压成 轻 约 10 ms，每次开页都是白算。
+ * 这里不直接引它：本文件还要打进浏览器跑（tests/plans-pager.ui.test.ts），不能带 node:fs。
+ * 共用时给出的 轻 / 负责人 是共用的那份（页面只读：压紧或原样交给 PlansView），别改
+ */
+export async function 取计划页(
+  db: Db,
+  每组: readonly number[],
+  meId: string,
+  共用?: <T>(key: string, 算: () => Promise<T>) => Promise<T>,
+): Promise<计划页> {
+  const 份 = 共用 ? await 共用("计划页轻列表", () => 取轻份(db)) : await 取轻份(db);
+  const { 全部 } = 份;
 
   // 两种看法各挑每组前 N 条
   const 要 = new Set<string>();
@@ -132,7 +155,10 @@ export async function 取计划页(db: Db, 每组: readonly number[], meId: stri
   if (要.size === 全部.length) return 取详情(db, "全部", 每组.some((n) => n > 每批));
   const 详 = await 取详情(db, [...要]);
 
-  const 负责人 = [...new Set(全部.map((x) => x.ownerId))];
-  const 下标 = new Map(负责人.map((id, i) => [id, i]));
-  return { ...详, 轻: 全部.map((x) => [x.key, x.时间, 下标.get(x.ownerId)!]), 负责人 };
+  份.压好 ??= (() => {
+    const 负责人 = [...new Set(全部.map((x) => x.ownerId))];
+    const 下标 = new Map(负责人.map((id, i) => [id, i]));
+    return { 轻: 全部.map((x): 轻行 => [x.key, x.时间, 下标.get(x.ownerId)!]), 负责人 };
+  })();
+  return { ...详, ...份.压好 };
 }

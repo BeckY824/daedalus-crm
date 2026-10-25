@@ -27,7 +27,21 @@ function ISO毫秒(s: string): number | null {
   return Number.isFinite(ms) && new Date(ms).toISOString() === s ? ms : null;
 }
 
+/**
+ * 同一份轻列表只压一次：不限定的人从 取计划页() 拿到的是缓存里共用的那份（同一个数组），压好的结果也共用。
+ * 按数组本身记（WeakMap），那份被缓存换掉就跟着回收；负责人是从同一份算出来的，跟着轻走
+ */
+const 压过 = new WeakMap<readonly 轻行[], { 负责人: readonly string[]; 紧: 紧轻 | null }>();
+
 export function 压轻(轻: readonly 轻行[], 负责人: readonly string[]): 紧轻 | null {
+  const 有 = 压过.get(轻);
+  if (有 && 有.负责人 === 负责人) return 有.紧;
+  const 紧 = 现压(轻, 负责人);
+  压过.set(轻, { 负责人, 紧 });
+  return 紧;
+}
+
+function 现压(轻: readonly 轻行[], 负责人: readonly string[]): 紧轻 | null {
   const 键: string[] = [];
   for (const [key] of 轻) {
     const 头 = key.slice(0, 5);

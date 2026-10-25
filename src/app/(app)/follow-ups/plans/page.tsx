@@ -1,5 +1,7 @@
 import { scheduleValue } from "@/lib/schedule-date";
-import { prisma } from "@/lib/prisma";
+import { prisma, defaultClient } from "@/lib/prisma";
+import { 限定的我 } from "@/lib/team-scope";
+import { 缓存着 } from "@/lib/home-cache";
 import { requireUser } from "@/lib/auth";
 import PlansView from "./PlansView";
 import { 带过来的客户 } from "@/lib/options";
@@ -34,7 +36,8 @@ export default async function PlansPage({
     include: { customer: { select: { id: true, name: true } }, owner: { select: { id: true, name: true } } },
   });
   const [{ plans, tasks, 轻, 负责人 }, teamPlans, teamTasks, myPlans, myTasks, 预选客户] = await Promise.all([
-    取计划页(prisma, 每组, me.id),
+    // 不限定（老板、个人版、企业版没开按组织看）时轻列表走短时缓存（lib/plans-page.ts）
+    (async () => 取计划页(prisma, 每组, me.id, (await 限定的我(defaultClient)) ? undefined : 缓存着))(),
     completedPlans(), completedTasks(), completedPlans(me.id), completedTasks(me.id),
     带过来的客户(sp.customer),
   ]);
