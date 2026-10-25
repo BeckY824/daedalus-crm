@@ -142,6 +142,26 @@ it("表分块暂存（每块 1 MB 以内、拼回去一样），一段一段写�
   await page.close();
 }, 60_000);
 
+it("界面写的上限：1 万行 × 50 列的中文表，每块都在 1 MB 以内、一行不少（D-16）", async () => {
+  const 列 = 50, 行 = 10000;
+  const 头 = ["姓名", "手机号", ...Array.from({ length: 列 - 2 }, (_, c) => `资料${c}`)];
+  const 大表 = [头.join(","), ...Array.from({ length: 行 }, (_, i) =>
+    [`客户${i}`, `139${String(i).padStart(8, "0")}`, ...Array.from({ length: 列 - 2 }, (_, c) => `第${i}位客户的第${c}项资料，照明灯具采购`)].join(","))].join("\n");
+  const page = await 开(`async () => ({ ok: true, batchId: "b1", 新建: ${行}, 补空: 0, 跳过: 0, 进不了: 0, 下一个: null, 共: ${行} })`, { name: "最大.csv", 内容: 大表 });
+  expect(await page.getByText(/读到了/).innerText()).toContain("10000 行、50 列");
+  await 走到开始导入(page);
+  await page.getByText("导完了").waitFor({ timeout: 60_000 });
+  const 暂存 = (await 调用(page, "暂存")) as [string, { 数据: string[][] }, { 表头: string[]; 共: number } | undefined][];
+  expect(暂存[0][2]).toEqual({ 表头: 头, 共: 行 });
+  const 收到 = 暂存.flatMap((x) => x[1].数据);
+  expect(收到).toHaveLength(行);
+  expect(收到.every((r) => r.length === 列)).toBe(true);
+  expect(收到[行 - 1][0]).toBe(`客户${行 - 1}`);
+  // server action 收 1 MB（next.config 没放宽）：留出 Next 自己包一层的余量
+  for (const n of await page.evaluate(() => (window as unknown as { __块大小: number[] }).__块大小)) expect(n).toBeLessThan(1024 * 1024 * 0.9);
+  await page.close();
+}, 120_000);
+
 it("连不上后台：重试两次后停下说清写到哪；接着导从断处、同一批往下", async () => {
   const page = await 开(`async ([, , 续]) => {
     if (续.起 === 1000 && window.__断 > 0) { window.__断--; throw new TypeError("Failed to fetch"); }

@@ -146,7 +146,8 @@ describe("范围同步：本机表结构变了就从头重拉", () => {
   });
 
   it("老版本收不下的新列：升级以后从头重拉补齐，后面的照常收", async () => {
-    // 业务员这台是老版本：外贸档案没有阿里 ID 那一列
+    // 业务员这台是老版本：外贸档案没有阿里 ID 那一列（也没有引用它的查重索引 048，先拆索引才删得了列）
+    await 改表('DROP INDEX IF EXISTS "CustomerExtra_alibabaIdKey_idx"');
     await 改表('ALTER TABLE "CustomerExtra" DROP COLUMN "alibabaId"');
     await 都轮("li");
     const 老签名 = await 本机结构签名(db("li"));

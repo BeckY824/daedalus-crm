@@ -35,15 +35,24 @@ export async function 按阿里找(db: 能裸查, 阿里们: string[]): Promise<
   return 按档案格找(db, "alibabaId", 阿里们);
 }
 
-async function 按档案格找(db: 能裸查, 列: "email" | "wechat" | "alibabaId", 值们: string[]): Promise<{ id: string; 键: string }[]> {
+type 档案格 = "email" | "wechat" | "alibabaId";
+
+/**
+ * 库那一侧走表达式索引（migrations/048，D-16 2026-10-25）：没有它的时候导入每一片、落库每一行都把 CustomerExtra 整张扫一遍，
+ * 库里 1 万位时外贸只有邮箱的表再导 3000 行要多花一倍多。式子必须和索引原样一致（tests/import-10k-timing.test.ts 钉着查询计划）
+ */
+export const 档案格索引名 = { email: "CustomerExtra_emailKey_idx", wechat: "CustomerExtra_wechatKey_idx", alibabaId: "CustomerExtra_alibabaIdKey_idx" } as const;
+
+export function 按档案格找SQL(列: 档案格, n: number): string {
+  return `SELECT "customerId" AS id, lower(trim("${列}")) AS 键 FROM "CustomerExtra" WHERE lower(trim("${列}")) IN (${Array.from({ length: n }, () => "?").join(", ")})`;
+}
+
+async function 按档案格找(db: 能裸查, 列: 档案格, 值们: string[]): Promise<{ id: string; 键: string }[]> {
   const 键们 = [...new Set(值们.map(邮箱键).filter(Boolean))];
   const 出: { id: string; 键: string }[] = [];
   for (let i = 0; i < 键们.length; i += 500) {
     const 段 = 键们.slice(i, i + 500);
-    出.push(...(await db.$queryRawUnsafe<{ id: string; 键: string }[]>(
-      `SELECT "customerId" AS id, lower(trim("${列}")) AS 键 FROM "CustomerExtra" WHERE lower(trim("${列}")) IN (${段.map(() => "?").join(", ")})`,
-      ...段,
-    )));
+    出.push(...(await db.$queryRawUnsafe<{ id: string; 键: string }[]>(按档案格找SQL(列, 段.length), ...段)));
   }
   return 出;
 }
