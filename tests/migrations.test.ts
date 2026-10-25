@@ -131,9 +131,9 @@ describe("迁移文件", () => {
       const db = new DatabaseSync(临时库);
       /*
         迁移只在已有业务表的库上跑（全新安装先 schema.sql、桌面端先拷模板库）。021 给 Customer 的号码建表达式索引（R-067），
-        所以先放一张最小的 Customer——真实的库里它从第一版就在。024 给归属列建索引，这一列也是第一版就有
+        所以先放一张最小的 Customer——真实的库里它从第一版就在。024 给归属列建索引，这一列也是第一版就有。049 给 createdAt 建索引，同样第一版就有
       */
-      db.exec('CREATE TABLE "Customer" ("id" TEXT NOT NULL PRIMARY KEY, "phone" TEXT NOT NULL, "attributionCustomerId" TEXT)');
+      db.exec('CREATE TABLE "Customer" ("id" TEXT NOT NULL PRIMARY KEY, "phone" TEXT NOT NULL, "attributionCustomerId" TEXT, "createdAt" DATETIME)');
       db.exec('CREATE TABLE "FollowPlan" ("id" TEXT PRIMARY KEY, "done" BOOLEAN, "plannedAt" DATETIME)');
       // 028及030–035也在存量基础表加列。这里保留旧表形状，不能直接用新schema掩盖加列失败。
       db.exec('CREATE TABLE "Opportunity" ("id" TEXT PRIMARY KEY)');

@@ -167,6 +167,8 @@ model Customer {
   @@index([attributionCustomerId])
   @@index([followStatus])
   @@index([decisionStatus])
+  /// 客户列表默认按建档时间倒序翻页（迁移 049）：10 万客户时没有它每页都要全表排序一遍
+  @@index([createdAt, id])
 }
 
 /// 签约记录。同一学员可多次签约（续费、补课），便于按月/季/年复盘
