@@ -78,14 +78,14 @@ const Mac = devices["Desktop Chrome"].userAgent.replace(/\(Windows[^)]*\)/, "(Ma
 const Win = devices["Desktop Chrome"].userAgent.replace(/\([^)]*\)/, "(Windows NT 10.0; Win64; x64)");
 const 壳 = (ua: string) => ua.replace(/ Safari\//, " daedalus-crm/0.46.27 Electron/38.2.0 Safari/");
 
-/** 壳的 preload 在页面脚本之前挂的东西；口子只给到左栏「检查更新」那一行能画出来的程度 */
+/** 壳的 preload 在页面脚本之前挂的东西；口子只给到左栏「检查更新」那一行、设置-外观「窗口」那一行（毛玻璃，默认关成实底）能画出来的程度 */
 function 假壳(win: boolean) {
   return `(() => {
     ${win ? `const 挂 = () => document.documentElement && document.documentElement.classList.add("os-win"); 挂(); addEventListener("DOMContentLoaded", 挂);` : ""}
     const 空 = new Proxy({}, { get: (_, k) => String(k).startsWith("on") ? () => () => {} : async () => null });
     for (const n of ["desktopAttachments", "desktopNotify", "desktopReminders", "desktopNav", "desktopTeam"]) window[n] = 空;
     window.desktopUpdate = new Proxy({ state: async () => ({ 阶段: "idle" }) }, { get: (o, k) => k in o ? o[k] : 空[k] });
-    window.desktopShell = new Proxy({ version: async () => "0.46.27" }, { get: (o, k) => k in o ? o[k] : 空[k] });
+    window.desktopShell = new Proxy({ version: async () => "0.46.27", glass: async () => ({ 可用: true, 开: false }), setGlass: async (开) => ({ 可用: true, 开 }) }, { get: (o, k) => k in o ? o[k] : 空[k] });
   })();`;
 }
 
