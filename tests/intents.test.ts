@@ -11,6 +11,7 @@
 import { describe, it, expect } from "vitest";
 import { 认意图, 意图表 } from "@/lib/agent/intents";
 import { 扩同义词 } from "@/lib/agent/synonyms";
+import { 供应商页 } from "@/lib/features";
 
 describe("该命中的", () => {
   const 样本: [string, string, string][] = [
@@ -246,6 +247,46 @@ describe("首页摆的问句", () => {
     ["今天要联系的客户是谁介绍的", "问的是介绍人，不是该跟谁"],
     ["这个月哪个业务员的订单最多", "没说金额，可能问的是笔数——宁可漏"],
     ["这个月哪个业务员的订单金额最多的客户是谁", "问的是客户"],
+  ];
+  for (const [问, 为什么] of 放过) {
+    it(`「${问}」不命中——${为什么}`, () => {
+      expect(认意图(问)).toBeNull();
+    });
+  }
+});
+
+/*
+  2026-10-25（#159 真模型对照，质量抓的）：「做LED灯的供应商有哪些」两边模型都调了 search_customers——
+  搜出来的是买 LED 的客户，说成供应商。供应商页开着查 list_suppliers；关着（这一版）只有订单上登记着供应商，列订单。
+*/
+describe("供应商清单", () => {
+  const 首个工具 = 供应商页 ? "list_suppliers" : "list_orders";
+  for (const 问 of ["做LED灯的供应商有哪些", "做LED灯的供应商有哪些？", "有哪些供应商", "供应商有哪些", "我们有哪些供应商", "工厂都有哪几家", "列一下供应商", "看看做家具的工厂"]) {
+    it(`「${问}」→ ${首个工具}，不去搜客户`, () => {
+      const r = 认意图(问);
+      expect(r?.名).toBe("供应商清单");
+      expect(r?.调用.map((c) => c.name)).toEqual([首个工具]);
+    });
+  }
+
+  it.runIf(供应商页)("「做 X 的」那个 X 当关键词；没说就不带", () => {
+    expect(认意图("做LED灯的供应商有哪些")!.调用[0].args).toEqual({ keyword: "LED灯" });
+    expect(认意图("看看做家具的工厂")!.调用[0].args).toEqual({ keyword: "家具" });
+    expect(认意图("有哪些供应商")!.调用[0].args).toEqual({});
+  });
+
+  it.runIf(!供应商页)("供应商页关着：list_suppliers 不开放，不能直连它", () => {
+    expect(认意图("做LED灯的供应商有哪些")!.调用[0]).toEqual({ name: "list_orders", args: {} });
+  });
+
+  const 放过: [string, string][] = [
+    ["王总的供应商有哪些", "某个客户的供应商，要先找到那位客户"],
+    ["这个客户的供应商有哪些", "指代，要靠页面 / 上文"],
+    ["供应商有哪些是没开票的", "带条件，不是整张清单"],
+    ["把LED灯的供应商改成张三工厂", "写入"],
+    ["哪家供应商最便宜", "要比价，交给模型"],
+    ["这个工厂怎么样", "问评价，不是清单"],
+    ["工厂", "光一个词，不知道要干什么"],
   ];
   for (const [问, 为什么] of 放过) {
     it(`「${问}」不命中——${为什么}`, () => {
