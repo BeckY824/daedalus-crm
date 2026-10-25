@@ -118,9 +118,10 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
     }),
     负责人候选(),
     可选渠道(),
-    prisma.customer.findMany({ where: { grade: { not: null } }, distinct: ["grade"], select: { grade: true } }),
+    // 下拉只要去重后的值：用 groupBy 在库里去重。Prisma 的 distinct 是整列拉回来在 JS 里去重，10 倍数据一次 50–60 ms（2026-10-25）
+    prisma.customer.groupBy({ by: ["grade"], where: { grade: { not: null } } }),
     // 国家筛选只给库里真有的（外贸，2026-10-05）：一百多个国家摆一长串，挑到的多半是 0 条
-    prisma.customerExtra.findMany({ where: { country: { not: null } }, distinct: ["country"], select: { country: true }, orderBy: { country: "asc" } }),
+    prisma.customerExtra.groupBy({ by: ["country"], where: { country: { not: null } }, orderBy: { country: "asc" } }),
   ]);
   // 业务配置里删掉了、库里还有人在用的职位：筛选下拉照样给（第 2 期 2b「删选项后老记录照样能筛」）
   const 旧职位 = 用着的职位.map((c) => c.grade!.trim()).filter((g) => g && !b.grades.includes(g)).sort();
