@@ -1,6 +1,7 @@
 /**
  * 首页重查询的短时缓存（lib/home-cache.ts）。钉的是：
- * - 库指纹（WAL 索引头）：任何提交都会变——模型写、裸 SQL 写、交互式事务提交、另一个连接写；只读不变
+ * - 库指纹（WAL 索引头）：任何提交都会变——模型写、裸 SQL 写、交互式事务提交、另一个连接 / 别的进程写；只读不变；
+ *   取指纹不关 -shm（关了会丢 SQLite 的锁，别的进程写库时本进程 SIGBUS）
  * - 缓存着：同一份只数一次、同时来的共用一次；库一变下一次立刻重数；数失败不留；非企业版 / CRM_HOME_CACHE=0 每次现数
  * - 对拍：客户数、沉睡前几名开着缓存和关着结果一模一样；刚写进去的客户 / 跟进马上反映出来
  * 用拷出来的一份库（绝对路径，企业版开只读通道），不碰共用的测试库。
@@ -8,6 +9,8 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { vi } from "vitest";
 import fs from "node:fs";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 const 临时 = vi.hoisted(() => {
   const fs = process.getBuiltinModule("node:fs") as typeof import("node:fs");
@@ -117,6 +120,44 @@ describe("库指纹", () => {
       await 另.$disconnect();
     }
     expect(库指纹()).not.toBe(t);
+  });
+
+  // 取指纹要是 open/close -shm，会把本进程 SQLite 在 -shm 上的 fcntl 锁一起放掉；别的进程一打开库就以为没人在用，
+  // 清空重建 -shm、退出时连 -wal/-shm 一起删——本进程 mmap 着的那块越界，整个进程 SIGBUS（压测时踩到）
+  it("取指纹不关 -shm；别的进程写库，本进程的 -shm 不被重建、查询照常、指纹会变", async () => {
+    开();
+    const 库 = path.join(临时.dir, "H.db");
+    await raw.customer.count();
+    await prisma.customer.count();
+    const 关过 = vi.spyOn(fs, "closeSync");
+    const 原 = fs.statSync(`${库}-shm`);
+    const 起 = 库指纹();
+    const 写 = `const { DatabaseSync } = require("node:sqlite"); const db = new DatabaseSync(process.argv[1]);
+      db.exec("PRAGMA busy_timeout = 5000"); db.prepare("UPDATE Customer SET name = name || '!' WHERE rowid = (SELECT min(rowid) FROM Customer)").run(); db.close();`;
+    const 探锁 = `import fcntl, os, sys
+fd = os.open(sys.argv[1], os.O_RDWR)
+try:
+    fcntl.lockf(fd, fcntl.LOCK_EX | fcntl.LOCK_NB, 1, 128); print("free")
+except OSError:
+    print("held")`;
+    try {
+      for (let i = 0; i < 3; i++) {
+        expect(库指纹()).not.toBeNull();
+        const r = spawnSync(process.execPath, ["-e", 写, 库], { encoding: "utf8" });
+        expect(r.status, r.stderr).toBe(0);
+        const 现 = fs.statSync(`${库}-shm`);
+        expect([现.ino, 现.dev]).toEqual([原.ino, 原.dev]);
+        // SQLite「还有人在用」那把锁（-shm 第 128 字节的读锁）本进程还拿着：别的进程拿不到写锁
+        const 探 = spawnSync("python3", ["-c", 探锁, `${库}-shm`], { encoding: "utf8" });
+        if (!探.error) expect(探.stdout.trim(), 探.stderr).toBe("held");
+        await prisma.customer.findMany({ take: 5 });
+        await raw.customer.count();
+      }
+      expect(关过).not.toHaveBeenCalled();
+    } finally {
+      关过.mockRestore();
+    }
+    expect(库指纹()).not.toBe(起);
   });
 });
 

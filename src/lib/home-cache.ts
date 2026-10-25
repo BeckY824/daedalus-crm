@@ -37,22 +37,39 @@ export function shm路径(url = process.env.DATABASE_URL ?? ""): string | null {
   return 库 && path.isAbsolute(库) ? `${库}-shm` : null;
 }
 
+/**
+ * -shm 的文件句柄：每个文件只开一次，永远不关。
+ *
+ * 不能每次 open / close：POSIX 的 fcntl 锁按「进程 + 文件」算，进程里关掉指向这个文件的任何一个 fd，
+ * 本进程在这个文件上的锁全没了——包括 Prisma 里 SQLite 拿着的那把「还有人在用」的锁（DMS）。
+ * 锁一丢，别的进程（sqlite3 命令行、备份、另一个服务）一打开库就以为没人在用，把 -shm 清空重建，
+ * 本进程 mmap 着的那块一读就越界，整个进程 SIGBUS 退出、日志里一个字没有（2026-10-25 压测时踩到）。
+ * 文件被删了重建（inode 变了）就再开一个新的，旧的也照样不关。
+ */
+const 句柄表 = ((globalThis as unknown as { __shm句柄?: Map<string, { fd: number; ino: number; dev: number }> }).__shm句柄 ??= new Map());
+
+function shm句柄(shm: string): number {
+  const 现 = fs.statSync(shm); // stat 不开 fd，不碰锁
+  const 有 = 句柄表.get(shm);
+  if (有 && 有.ino === 现.ino && 有.dev === 现.dev) return 有.fd;
+  const fd = fs.openSync(shm, "r");
+  const 实 = fs.fstatSync(fd);
+  句柄表.set(shm, { fd, ino: 实.ino, dev: 实.dev });
+  return fd;
+}
+
 /** 库的提交指纹：WAL 索引头第一份拷贝（48 字节）。读不出 / 没初始化回 null */
 export function 库指纹(shm = shm路径()): string | null {
   if (!shm) return null;
-  let fd: number | undefined;
   try {
-    fd = fs.openSync(shm, "r");
     const b = Buffer.alloc(48);
-    if (fs.readSync(fd, b, 0, 48, 0) !== 48) return null;
+    if (fs.readSync(shm句柄(shm), b, 0, 48, 0) !== 48) return null;
     // iVersion = 3007000、isInit = 1 才是 SQLite 写好的头
     if (b.readUInt32LE(0) !== 3007000 && b.readUInt32BE(0) !== 3007000) return null;
     if (b[12] !== 1) return null;
     return b.toString("hex");
   } catch {
     return null;
-  } finally {
-    if (fd !== undefined) fs.closeSync(fd);
   }
 }
 
