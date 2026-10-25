@@ -15,9 +15,12 @@ import { 读通道开着 } from "./read-pool";
  *   每次提交都会改它（iChange / mxFrame / salt），这就是 SQLite 自己告诉读连接「库变了」的那几个字节。
  *   读一次是一次 pread，几微秒。
  * - 最多活 30 秒（兜底：沉睡那句里有「此刻」，跟进时间写在未来的那几个客户会随时间换算法）。
+ *   过了 30 秒但库没变：先照旧给这份，后台重数一次，数好了换上（2026-10-25）。压测里每 30 秒一到，
+ *   下一个人要等重数、几句重查询一起压在库上，同一秒里首页和别的页一起慢到 130–225 ms，p95 的长尾就是这一下；
+ *   库没变，旧的那份和重数出来的一样（只差沉睡里「此刻」那一点）。过期再满 30 秒（这期间没人来取）就不给旧的，现数。
  * - key 里带当天零点，过了零点自然换一份。
  *
- * 同一份正在数的，后来的人直接等它（不各自再数一遍）。
+ * 同一份正在数的，后来的人直接等它（不各自再数一遍）；后台重数同一份也只有一个。
  *
  * 只在企业版开（只读通道开着）；CRM_HOME_CACHE=0 一键关。库路径不是绝对路径、没有 -shm（不是 WAL）、
  * 头读不出来，一律不缓存，照原样每次现数。
@@ -26,7 +29,7 @@ import { 读通道开着 } from "./read-pool";
 const 最长 = 30_000;
 const 最多条 = 64;
 
-type 条 = { 指纹: string; 到期: number; 值: Promise<unknown> };
+type 条 = { 指纹: string; 到期: number; 值: Promise<unknown>; 好?: true; 刷新中?: true };
 const g = globalThis as unknown as { __首页缓存?: Map<string, 条> };
 const 表 = (g.__首页缓存 ??= new Map());
 
@@ -84,7 +87,7 @@ export function 首页缓存开着(): boolean {
 }
 
 /**
- * 按 key 取缓存，没有 / 库变了 / 过期就现数一次。`算` 必须只依赖 key 里写明的东西和库里的数据。
+ * 按 key 取缓存，没有 / 库变了就现数一次；过期但库没变先给旧的、后台重数。`算` 必须只依赖 key 里写明的东西和库里的数据。
  * 返回的值是共用的，调用方别改它
  */
 export async function 缓存着<T>(key: string, 算: () => Promise<T>): Promise<T> {
@@ -94,15 +97,34 @@ export async function 缓存着<T>(key: string, 算: () => Promise<T>): Promise<
   if (指纹 === null) return 算();
   const 此刻 = Date.now();
   const 有 = 表.get(key);
-  if (有 && 有.指纹 === 指纹 && 有.到期 > 此刻) return 有.值 as Promise<T>;
-
+  if (有 && 有.指纹 === 指纹) {
+    if (有.到期 > 此刻) return 有.值 as Promise<T>;
+    if (有.好 && 此刻 < 有.到期 + 最长) {
+      if (!有.刷新中) 后台重数(key, 有, 指纹, 此刻, 算);
+      return 有.值 as Promise<T>;
+    }
+  }
   const 值 = 算();
-  const 新 = { 指纹, 到期: 此刻 + 最长, 值 };
+  const 新: 条 = { 指纹, 到期: 此刻 + 最长, 值 };
+  放(key, 新, 此刻);
+  值.then(() => { 新.好 = true; }, () => { if (表.get(key) === 新) 表.delete(key); });
+  return 值;
+}
+
+function 后台重数(key: string, 旧: 条, 指纹: string, 此刻: number, 算: () => Promise<unknown>): void {
+  旧.刷新中 = true;
+  const 值 = 算();
+  值.then(
+    // 数的过程中这条已经被换掉（库变了有人现数过）/ 淘汰了，就不放
+    () => { if (表.get(key) === 旧) 放(key, { 指纹, 到期: 此刻 + 最长, 值, 好: true }, Date.now()); },
+    () => { delete 旧.刷新中; }, // 失败接着用旧的，下一个人来再试
+  );
+}
+
+function 放(key: string, 新: 条, 此刻: number): void {
   表.delete(key); // 先删再放，换过的 key 挪到末尾，超量时先淘汰最久没换的
   表.set(key, 新);
-  值.catch(() => { if (表.get(key) === 新) 表.delete(key); });
   if (表.size > 最多条) for (const [k, v] of 表) if (v.到期 <= 此刻 || 表.size > 最多条) 表.delete(k);
-  return 值;
 }
 
 /** 测试用 */

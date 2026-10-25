@@ -2,7 +2,8 @@
  * 首页重查询的短时缓存（lib/home-cache.ts）。钉的是：
  * - 库指纹（WAL 索引头）：任何提交都会变——模型写、裸 SQL 写、交互式事务提交、另一个连接 / 别的进程写；只读不变；
  *   取指纹不关 -shm（关了会丢 SQLite 的锁，别的进程写库时本进程 SIGBUS）
- * - 缓存着：同一份只数一次、同时来的共用一次；库一变下一次立刻重数；最多活 30 秒；数失败不留；最多 64 条、先淘汰最久没换的；
+ * - 缓存着：同一份只数一次、同时来的共用一次；库一变下一次立刻重数；过了 30 秒库没变先给旧的、后台重数一份（失败接着给旧的、
+ *   重数中被换掉的不覆盖），过期再满 30 秒不给旧的；数失败不留；最多 64 条、先淘汰最久没换的；
  *   非企业版 / CRM_HOME_CACHE=0 每次现数
  * - 指纹带 -shm 的 inode（-shm 删了重建，新头可能和旧头逐字相同）
  * - key：过了零点换一份；沉睡按 谁的 各一份；限定可见范围的人不走缓存
@@ -213,21 +214,155 @@ describe("缓存着", () => {
     expect(await 缓存着("k", async () => 7)).toBe(7);
   });
 
-  it("最多活 30 秒", async () => {
-    开();
-    let n = 0;
-    const 算 = async () => ++n;
+  // 控制 算 什么时候数完
+  const 待定 = <T,>() => { let 好!: (v: T) => void, 坏!: (e: Error) => void; const p = new Promise<T>((r, j) => { 好 = r; 坏 = j; }); return { p, 好, 坏 }; };
+  const 让一下 = () => 等(0);
+  const 拨钟 = () => {
     const 起 = Date.now();
     const 钟 = vi.spyOn(Date, "now");
+    const 到 = (ms: number) => 钟.mockReturnValue(起 + ms);
+    到(0);
+    return { 到, 还原: () => 钟.mockRestore() };
+  };
+
+  it("过了 30 秒库没变：先给旧的、后台重数一次，数好了下一次拿新的", async () => {
+    开();
+    const 钟 = 拨钟();
     try {
-      钟.mockReturnValue(起);
+      let n = 0;
+      const 下一份 = 待定<number>();
+      const 算 = async () => (++n === 1 ? 1 : 下一份.p);
       expect(await 缓存着("k", 算)).toBe(1);
-      钟.mockReturnValue(起 + 29_999);
+      钟.到(29_999);
       expect(await 缓存着("k", 算)).toBe(1);
-      钟.mockReturnValue(起 + 30_000);
+      expect(n).toBe(1);
+      钟.到(30_000);
+      // 后台在数，这期间来的都拿旧的，也不再另起一份
+      expect(await Promise.all([缓存着("k", 算), 缓存着("k", 算), 缓存着("k", 算)])).toEqual([1, 1, 1]);
+      钟.到(31_000);
+      expect(await 缓存着("k", 算)).toBe(1);
+      expect(n).toBe(2);
+      下一份.好(2);
+      await 让一下();
+      expect(await 缓存着("k", 算)).toBe(2);
+      // 换上的那份从开始重数算起再活 30 秒
+      钟.到(59_999);
+      expect(await 缓存着("k", 算)).toBe(2);
+      expect(n).toBe(2);
+      钟.到(60_000);
+      expect(await 缓存着("k", 算)).toBe(2);
+      expect(n).toBe(3);
+    } finally {
+      钟.还原();
+    }
+  });
+
+  it("过期又满 30 秒没人取：不给旧的，现数等它", async () => {
+    开();
+    const 钟 = 拨钟();
+    try {
+      let n = 0;
+      const 算 = async () => ++n;
+      expect(await 缓存着("k", 算)).toBe(1);
+      钟.到(59_999);
+      expect(await 缓存着("k", 算)).toBe(1);
+      await 让一下();
+      expect(n).toBe(2);
+      清首页缓存();
+      钟.到(0);
+      expect(await 缓存着("k", 算)).toBe(3);
+      钟.到(60_000);
+      expect(await 缓存着("k", 算)).toBe(4);
+    } finally {
+      钟.还原();
+    }
+  });
+
+  it("过期且库变了：不给旧的，现数等它", async () => {
+    开();
+    const 钟 = 拨钟();
+    try {
+      let n = 0;
+      const 算 = async () => ++n;
+      expect(await 缓存着("k", 算)).toBe(1);
+      await 新客户("过期又变", 天);
+      钟.到(30_000);
+      expect(await 缓存着("k", 算)).toBe(2);
+      expect(n).toBe(2);
+    } finally {
+      钟.还原();
+    }
+  });
+
+  it("后台重数失败：接着给旧的，下一个人来再试", async () => {
+    开();
+    const 钟 = 拨钟();
+    try {
+      let n = 0;
+      const 算 = async () => { n++; if (n === 2) throw new Error("坏了"); return n; };
+      expect(await 缓存着("k", 算)).toBe(1);
+      钟.到(30_000);
+      expect(await 缓存着("k", 算)).toBe(1);
+      await 让一下();
+      expect(n).toBe(2);
+      expect(await 缓存着("k", 算)).toBe(1);
+      await 让一下();
+      expect(n).toBe(3);
+      expect(await 缓存着("k", 算)).toBe(3);
+    } finally {
+      钟.还原();
+    }
+  });
+
+  it("还没数完的那份过期了：不当旧值给，现数", async () => {
+    开();
+    const 钟 = 拨钟();
+    try {
+      const 慢 = 待定<number>();
+      let n = 0;
+      const 算 = async () => (++n === 1 ? 慢.p : n);
+      const 第一 = 缓存着("k", 算);
+      钟.到(30_000);
+      expect(await 缓存着("k", 算)).toBe(2);
+      慢.好(1);
+      expect(await 第一).toBe(1);
       expect(await 缓存着("k", 算)).toBe(2);
     } finally {
-      钟.mockRestore();
+      钟.还原();
+    }
+  });
+
+  it("后台重数的过程中库变了：有人现数换上了新的，后台数完的旧份不覆盖；没人换，存的是旧指纹、下一次重数", async () => {
+    开();
+    const 钟 = 拨钟();
+    try {
+      let n = 0;
+      const 后台 = 待定<number>();
+      const 算 = async () => (++n === 2 ? 后台.p : n);
+      expect(await 缓存着("k", 算)).toBe(1);
+      钟.到(30_000);
+      expect(await 缓存着("k", 算)).toBe(1); // 起了后台（第 2 次）
+      await 新客户("重数中变了", 天);
+      expect(await 缓存着("k", 算)).toBe(3); // 库变了现数
+      后台.好(2);
+      await 让一下();
+      expect(await 缓存着("k", 算)).toBe(3);
+
+      // 没人现数：后台数到一半库变了，换上的那份带的是旧指纹
+      清首页缓存();
+      钟.到(0);
+      n = 10;
+      const 后台2 = 待定<number>();
+      const 算2 = async () => (++n === 12 ? 后台2.p : n);
+      expect(await 缓存着("k", 算2)).toBe(11);
+      钟.到(30_000);
+      expect(await 缓存着("k", 算2)).toBe(11);
+      await 新客户("重数中变了2", 天);
+      后台2.好(12);
+      await 让一下();
+      expect(await 缓存着("k", 算2)).toBe(13);
+    } finally {
+      钟.还原();
     }
   });
 
