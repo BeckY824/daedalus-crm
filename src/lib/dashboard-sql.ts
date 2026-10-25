@@ -2,6 +2,7 @@ import type { Dayjs } from "dayjs";
 import type { PrismaClient } from "@/generated/prisma";
 import { dayjs } from "@/lib/utils";
 import { 近90天趋势, 最近8周, 每周新增, type 趋势点 } from "@/lib/dashboard-trend";
+import { 带币种 } from "@/lib/money-db";
 
 /**
  * 看板上「数客户」的那几样（近 90 天两条线、本月 / 上月新增、每周新增），在库里按天先数好再取回来。
@@ -199,5 +200,50 @@ export async function 客户数(db: PrismaClient, now: Dayjs, 不限定: boolean
   return 计 ? 库里数(db, 计) : 取行数(db, now);
 }
 
+/** 首页那一份「全部商机」要的列：赢单窗口、漏斗、两条小曲线都从这一份里挑 */
+const 商机列 = { createdAt: true, updatedAt: true, amount: true, stage: true, status: true, closed: { select: { closedAt: true } }, ...带币种.商机 } as const;
+
+export type 商机行 = {
+  createdAt: Date;
+  updatedAt: Date;
+  amount: number;
+  stage: string;
+  status: string;
+  closed: { closedAt: Date } | null;
+  money: { currency: string } | null;
+};
+
+/**
+ * 首页的全部商机（2026-10-25）。原来是 Prisma 带两个一对一关联（赢单时刻、币种）整表取：
+ * 企业版 1 万商机时，关联要另发查询、再在 Node 里一行行拼对象，单次 60 多毫秒，几乎全是 CPU。
+ * 不限定时改成一句 LEFT JOIN 取回来再拼成原来的形状，约 18 毫秒；行、值、顺序和原来一样。
+ *
+ * - 「有没有这一行关联」看关联表的主键是不是 NULL，不看值：和 Prisma 的 closed / money 是不是 null 一个口径
+ * - 日期列裸 SQL 也按列类型（DATETIME）换成 Date：整数毫秒、ISO 文本、「YYYY-MM-DD HH:MM:SS」老数据和 Prisma 换算得一样
+ * - 顺序：两边都是不排序的整表扫，按 rowid 出；金额是浮点，合计的先后顺序要和原来一样，ORDER BY rowid 钉住
+ *
+ * 业务员（限定的我 不为 null）照旧走 Prisma：裸 SQL 不过 lib/team-scope 的那层 where。
+ * tests/dashboard-opps.test.ts 拿 Prisma 那一路对拍
+ */
+export async function 全部商机(db: PrismaClient, 不限定: boolean): Promise<商机行[]> {
+  if (!不限定) return db.opportunity.findMany({ select: 商机列 });
+  const 行 = await db.$queryRawUnsafe<
+    { createdAt: Date; updatedAt: Date; amount: number; stage: string; status: string; cid: string | null; closedAt: Date | null; mid: string | null; currency: string | null }[]
+  >(
+    `SELECT o.createdAt, o.updatedAt, o.amount, o.stage, o.status, c.opportunityId AS cid, c.closedAt, m.opportunityId AS mid, m.currency
+     FROM Opportunity o LEFT JOIN OpportunityClose c ON c.opportunityId = o.id LEFT JOIN OpportunityMoney m ON m.opportunityId = o.id
+     ORDER BY o.rowid`,
+  );
+  return 行.map((r) => ({
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+    amount: r.amount,
+    stage: r.stage,
+    status: r.status,
+    closed: r.cid === null ? null : { closedAt: r.closedAt as Date },
+    money: r.mid === null ? null : { currency: r.currency as string },
+  }));
+}
+
 /** 测试用 */
-export const _内部 = { 排边界, 库里数, 第几天, 除出第几天 };
+export const _内部 = { 排边界, 库里数, 第几天, 除出第几天, 商机列 };
