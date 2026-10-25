@@ -24,6 +24,8 @@ services:
       CRM_ENTERPRISE: "1"
       # 只读通道：查询另开 4 个连接，写入照旧 1 个（多人同时用时页面快很多）。出问题填 0 一键关回单连接
       CRM_READ_POOL: "${CRM_READ_POOL:-1}"
+      # 首页全库统计的短时缓存（库一变就作废、最多 30 秒）。出问题填 0 关：首页每次现数（会慢一些，功能不变）
+      CRM_HOME_CACHE: "${CRM_HOME_CACHE:-1}"
       # 只经 HTTPS 访问
       COOKIE_SECURE: "true"
       # 会话密钥：不填就首启生成并存进数据卷（/data/.auth-secret），备份会一起带上
