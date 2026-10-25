@@ -140,5 +140,10 @@ export function buildWatchlist(
     if (!cur || it.score > cur.score) byCustomer.set(it.customerId, it);
   }
 
-  return [...byCustomer.values()].sort((a, b) => b.score - a.score || a.customerId.localeCompare(b.customerId)).slice(0, limit);
+  return [...byCustomer.values()].sort(盯盘排序).slice(0, limit);
+}
+
+/** 清单的顺序：分高在前，同分按客户 id */
+export function 盯盘排序(a: WatchItem, b: WatchItem): number {
+  return b.score - a.score || a.customerId.localeCompare(b.customerId);
 }
