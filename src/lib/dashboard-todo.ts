@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@/generated/prisma";
 import { scheduleValue, scheduleOrder, isCalendarDate } from "@/lib/schedule-date";
+import { 缓存着 } from "@/lib/home-cache";
 
 /**
  * 首页「近期跟进任务」那张卡：未完成的任务 + 跟进计划按时间合并，取最近几条。
@@ -150,4 +151,14 @@ export async function 近期待办(db: 库, 条数 = 5): Promise<待办条[]> {
     }
   }
   return out;
+}
+
+/**
+ * 首页接的这个。不限定（老板、个人版）时不分人、不看日子：30 人同一时刻取的是同一份，走短时缓存
+ * （lib/home-cache.ts，企业版才开，库一变就作废）。要扫全部没做完的计划和待办（企业版 1.5 万行），每次 25 毫秒，
+ * 几乎全是 CPU（2026-10-25）。缓存里那份是共用的，每次给一份拷贝。限定的人照旧现取（行要过 team-scope 那层 where）
+ */
+export async function 首页待办(db: 库, 不限定: boolean): Promise<待办条[]> {
+  if (!不限定) return 近期待办(db);
+  return (await 缓存着("近期待办", () => 近期待办(db))).map((t) => ({ ...t }));
 }

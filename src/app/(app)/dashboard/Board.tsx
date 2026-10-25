@@ -13,7 +13,7 @@ import { 按币种合计, 取币种, 同币环比 } from "@/lib/currency";
 import { getBusiness } from "@/lib/business";
 import { 最近8周, 每周进行中金额, 每周赢单率 } from "@/lib/dashboard-trend";
 import { 客户数, 全部商机 } from "@/lib/dashboard-sql";
-import { 近期待办 } from "@/lib/dashboard-todo";
+import { 首页待办 } from "@/lib/dashboard-todo";
 
 /**
  * 「现在」这个视图：指标卡、趋势、漏斗、排行、待办、盯盘。
@@ -29,7 +29,7 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
   const lastMonthStart = now.subtract(1, "month").startOf("month").toDate();
   /** 下月 1 号零点。「本月」要两头都截：签约日期能选到未来，只有下界会把下个月登记的单算进本月（排查 C3） */
   const nextMonthStart = now.add(1, "month").startOf("month").toDate();
-  // 老板、个人版、企业版没开按组织看 = 不限定：客户数和全部商机在库里直接数 / 连表取。两处共用一次判断
+  // 老板、个人版、企业版没开按组织看 = 不限定：客户数和全部商机在库里直接数 / 连表取，近期待办走短时缓存。三处共用一次判断
   let 判过: Promise<boolean> | undefined;
   const 不限定 = () => (判过 ??= 限定的我(defaultClient).then((我) => !我));
 
@@ -75,7 +75,7 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
       没排时间的（Task.dueAt 可空）排在最后：它不是「近期」，只是还没排期。
       先只取时间排出前 5，再取这 5 条的标题和客户，见 lib/dashboard-todo.ts
     */
-    近期待办(prisma),
+    (async () => 首页待办(prisma, await 不限定()))(),
     /*
       近 90 天两条线、本月 / 上月新增、每周新增：不限定（老板、个人版）时在库里按天数好再取回来，
       业务员照旧取限定后的行算。口径和对拍见 lib/dashboard-sql.ts

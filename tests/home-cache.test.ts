@@ -6,7 +6,7 @@
  *   非企业版 / CRM_HOME_CACHE=0 每次现数
  * - 指纹带 -shm 的 inode（-shm 删了重建，新头可能和旧头逐字相同）
  * - key：过了零点换一份；沉睡按 谁的 各一份；限定可见范围的人不走缓存
- * - 对拍：客户数、沉睡前几名开着缓存和关着结果一模一样；刚写进去的客户 / 跟进马上反映出来
+ * - 对拍：客户数、沉睡前几名、全部商机、近期待办开着缓存和关着结果一模一样；刚写进去的客户 / 跟进 / 商机 / 计划马上反映出来
  * 用拷出来的一份库（绝对路径，企业版开只读通道），不碰共用的测试库。
  */
 import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
@@ -31,7 +31,8 @@ import { prisma, defaultClient as raw } from "@/lib/prisma";
 import { PrismaClient } from "@/generated/prisma";
 import { 关读通道 } from "@/lib/read-pool";
 import { 库指纹, shm路径, 缓存着, 首页缓存开着, 清首页缓存, 首页缓存条数 } from "@/lib/home-cache";
-import { 客户数, 取行数 } from "@/lib/dashboard-sql";
+import { 客户数, 取行数, 全部商机 } from "@/lib/dashboard-sql";
+import { 首页待办, 近期待办 } from "@/lib/dashboard-todo";
 import { _内部 as 盯盘 } from "@/lib/sentinel-data";
 import { dayjs } from "@/lib/utils";
 
@@ -307,6 +308,70 @@ describe("对拍：开着缓存和关着一模一样，刚写的马上反映", (
     expect(只它.重叠).toBe(1);
     const 没有 = await 盯盘.沉睡前几名({ now, 边界, 前几名: 8, 别的客户: [] });
     expect(没有.重叠).toBe(0);
+  });
+
+  it("全部商机：改返回值不影响缓存；新商机、改阶段马上反映", async () => {
+    const 客户 = (await raw.customer.findFirst({ select: { id: true } }))!.id;
+    for (let i = 0; i < 6; i++) await raw.opportunity.create({ data: { name: `商机${i}`, customerId: 客户, ownerId: 老板, amount: 1000 * (i + 1), stage: ["初步沟通", "需求确认", "赢单成交"][i % 3], status: i % 3 === 2 ? "WON" : "OPEN" } });
+    const 取 = () => 全部商机(prisma, true);
+    const r1 = await 两边(取);
+    expect(r1.现数).toHaveLength(6);
+    expect(r1.缓存).toEqual(r1.现数);
+    expect(r1.再取).toEqual(r1.现数);
+    r1.再取.length = 0;
+    expect(await 取()).toEqual(r1.现数);
+
+    const o = await raw.opportunity.create({ data: { name: "刚建的商机", customerId: 客户, ownerId: 老板, amount: 99, stage: "初步沟通" } });
+    await raw.opportunity.updateMany({ where: { name: "商机0" }, data: { stage: "需求确认" } });
+    const r2 = await 两边(取);
+    expect(r2.缓存).toEqual(r2.现数);
+    expect(r2.再取).toEqual(r2.现数);
+    expect(r2.现数).toHaveLength(7);
+    expect(r2.现数.some((x) => x.amount === 99)).toBe(true);
+    expect(r2.现数.filter((x) => x.stage === "需求确认")).toHaveLength(r1.现数.filter((x) => x.stage === "需求确认").length + 1);
+    await raw.opportunity.delete({ where: { id: o.id } });
+  });
+
+  it("近期待办：改返回值不影响缓存；新计划、做完马上反映；限定的人不走缓存", async () => {
+    const [甲, 乙] = await raw.customer.findMany({ select: { id: true, name: true }, take: 2, orderBy: { id: "asc" } });
+    for (let i = 0; i < 4; i++) await raw.followPlan.create({ data: { subject: `计划${i}`, plannedAt: new Date(Date.now() + (i + 1) * 天), customerId: 甲.id, ownerId: 老板 } });
+    await raw.task.create({ data: { title: "没排时间的待办", customerId: 乙.id, ownerId: 老板 } });
+    const 取 = () => 首页待办(prisma, true);
+    const r1 = await 两边(取);
+    expect(r1.现数).toEqual(await 近期待办(prisma));
+    expect(r1.现数).toHaveLength(5);
+    expect(r1.缓存).toEqual(r1.现数);
+    expect(r1.再取).toEqual(r1.现数);
+    r1.再取[0].title = "改了";
+    r1.再取.length = 1;
+    expect(await 取()).toEqual(r1.现数);
+
+    // 新计划排到最前、做完一条：缓存开着也马上换
+    const 新 = await raw.followPlan.create({ data: { subject: "最急的", plannedAt: new Date(Date.now() + 3_600_000), customerId: 乙.id, ownerId: 老板 } });
+    await raw.followPlan.updateMany({ where: { subject: "计划0" }, data: { done: true } });
+    const r2 = await 两边(取);
+    expect(r2.缓存).toEqual(r2.现数);
+    expect(r2.再取).toEqual(r2.现数);
+    expect(r2.现数[0]).toMatchObject({ id: `plan:${新.id}`, title: "最急的", customerName: 乙.name });
+    expect(r2.现数.some((x) => x.title === "计划0")).toBe(false);
+
+    // 限定（业务员）：现取，不进缓存
+    const 限定 = {
+      task: { findMany: async () => [] },
+      followPlan: { findMany: async () => [] },
+    } as unknown as typeof prisma;
+    开();
+    清首页缓存();
+    expect(await 首页待办(限定, false)).toEqual([]);
+    expect(首页缓存条数()).toBe(0);
+    expect(await 首页待办(prisma, true)).toEqual(r2.现数);
+  });
+
+  it("首页接的是缓存那两个", () => {
+    const src = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/dashboard/Board.tsx"), "utf8");
+    expect(src).toMatch(/首页待办\(prisma, await 不限定\(\)\)/);
+    expect(src).not.toMatch(/近期待办\(prisma/);
+    expect(src).toMatch(/全部商机\(prisma, await 不限定\(\)\)/);
   });
 
   it("客户数：过了零点换一份，不拿昨天那份", async () => {

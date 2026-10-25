@@ -245,6 +245,12 @@ export type 商机行 = {
  */
 export async function 全部商机(db: PrismaClient, 不限定: boolean): Promise<商机行[]> {
   if (!不限定) return db.opportunity.findMany({ select: 商机列 });
+  // 不分人、不看日子，30 人同一时刻取的是同一份：短时缓存（lib/home-cache.ts，企业版才开，库一变就作废）。
+  // 1 万行的取回和拼装每次 17 毫秒，几乎全是 CPU（2026-10-25）。行是共用的，调用方只读不改
+  return (await 缓存着("全部商机", () => 连表取商机(db))).slice();
+}
+
+async function 连表取商机(db: PrismaClient): Promise<商机行[]> {
   const 行 = await db.$queryRawUnsafe<
     { createdAt: Date; updatedAt: Date; amount: number; stage: string; status: string; cid: string | null; closedAt: Date | null; mid: string | null; currency: string | null }[]
   >(
