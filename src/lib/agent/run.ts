@@ -341,18 +341,20 @@ export async function runAgent(
    * `tools` 字段里，怎么调是模型自己训练过的事，我们不该再教一遍。
    */
   const 原生模式 = process.env.AGENT_TOOLCALLS !== "0";
-  const 工作方式 = 原生模式
-    ? `工作方式：需要数据就直接调用工具（可以连着调几次）；够了就不要再调，直接开口回答。`
-    : `工作方式：每一轮只输出严格 JSON，二选一：
+  /** 原生调用中途 4xx 退回 JSON 协议时要换成 `系统提示(false)`：不换，模型手里既没有工具表，也不知道要输出 JSON */
+  const 系统提示 = (原生: boolean) => {
+    const 工作方式 = 原生
+      ? `工作方式：需要数据就直接调用工具（可以连着调几次）；够了就不要再调，直接开口回答。`
+      : `工作方式：每一轮只输出严格 JSON，二选一：
   {"thought": "一句话：打算干什么、为什么", "action": {"tool": "工具名", "args": {...}}}
   {"final": true}`;
-  const system =
-    buildSystemPrompt(b.brief).replace(/必须只输出用户要求的 JSON[^。]*。?/, "") +
-    `\n你是销售「${user.name}」的助手，回答关于${b.customer}和业务数字的问题。现在是 ${现在带周几()}。
+    return (
+      buildSystemPrompt(b.brief).replace(/必须只输出用户要求的 JSON[^。]*。?/, "") +
+      `\n你是销售「${user.name}」的助手，回答关于${b.customer}和业务数字的问题。现在是 ${现在带周几()}。
 ${日期对照()}
 ${页面范围?.筛选 && Object.keys(页面范围.筛选).length ? "当前客户页的筛选已在search_customers、query_records及query_metric中自动叠加。要回答这个子集，使用这三个工具；其他清单工具不代表本页范围。" : ""}
 query_records 的客户字段使用当前业务叫法：${Object.values(查询表("客户", b).字段).map(f => f.名).join("、")}。旧字段名学校/年级/专业也兼容；职位等档案字段可以查询已有自由文本。
-${原生模式 ? "" : `你能调用的工具：\n${toolDoc}\n`}
+${原生 ? "" : `你能调用的工具：\n${toolDoc}\n`}
 取值表（propose_* 的参数只能用这里的词）：
 ${proposalVocab(b)}
 
@@ -381,10 +383,12 @@ ${工作方式}
 - **当前所在页面：${页面上下文}** 这是用户此刻正在看的东西，用来解开"这些人""这一批""他"指的是谁、范围有多大。
   它不代替查库：该调工具还得调，只是把范围用上。用户明确问了别的范围时以他说的为准`
       : ""
-  }`;
+  }`
+    );
+  };
 
   const messages: ToolMessage[] = [
-    { role: "system", content: system },
+    { role: "system", content: 系统提示(原生模式) },
     { role: "user", content: 拼上下文(history, question, 页面上下文) },
   ];
 
@@ -581,6 +585,7 @@ ${工作方式}
         const 换协议也没用 = 名 === "TimeoutError" || 名 === "AbortError" || (状态 !== undefined && ([401, 402, 403, 429].includes(状态) || 状态 >= 500));
         if (换协议也没用) throw e;
         用原生 = false;
+        messages[0] = { role: "system", content: 系统提示(false) };
         console.warn(`[agent] 原生 function calling 不可用，退回 JSON 协议：${e instanceof Error ? e.message.slice(0, 160) : e}`);
       }
     }

@@ -102,20 +102,40 @@ export type 同步一次结果 = { 结果: 同步结果类别; 话: string; 批�
 /** 报错留最后一行（Prisma 的报错很长，最后一行认得出是什么） */
 const 错话 = (e: unknown) => ((e instanceof Error ? e.message : String(e)).trim().split("\n").pop() ?? "").trim().slice(0, 200);
 
+// 放 globalThis：instrumentation 起的钟和页面上的 server action 不一定是同一份模块
+const 在同步 = ((globalThis as unknown as { __entSyncRunning?: Partial<Record<来源, { 开始: string; 谁: string }>> }).__entSyncRunning ??= {});
+
 /**
  * 拉一次变化并写完。手动点「立即同步」和定时都走这里；关着也能手动拉（试接口用），切换过的不拉。
  * 上一次同步写到一半（服务重启）的，先接着写完那一批，这次不再拉。
  */
 export async function 同步一次(源: 来源, opts: { 用户?: Actor; 现在?: Date } = {}): Promise<同步一次结果> {
   const 设置 = await 读同步设置(源);
+  if (设置.切换) return { 结果: "跳过", 话: "已经切换，不再同步" };
+  // 同一来源已经在拉（定时那次还没完又点了立即同步，或点了两下）：不叠，也不改「上次」，等那次自己记
+  const 在 = 正在同步(源);
+  if (在) return { 结果: "跳过", 话: `正在同步（${在.谁} ${new Date(在.开始).toTimeString().slice(0, 5)} 开始的那次还没完），这次不再拉` };
   const 开始 = opts.现在 ?? new Date();
+  在同步[源] = { 开始: new Date().toISOString(), 谁: opts.用户?.name || "定时同步" };
+  try {
+    return await 拉了写(源, 设置, 开始, opts.用户);
+  } finally {
+    delete 在同步[源];
+  }
+}
+
+/** 正在拉的那次（谁点的、什么时候开始，服务器时间）；没在拉给 null。界面拿它显示「正在同步」 */
+export function 正在同步(源: 来源): { 开始: string; 谁: string } | null {
+  return 在同步[源] ?? null;
+}
+
+async function 拉了写(源: 来源, 设置: 同步设置, 开始: Date, 手动的人?: Actor): Promise<同步一次结果> {
   const 记 = async (r: 同步一次结果, 拉到?: string) => {
     await 存(源, { 上次: { 时间: 开始.toISOString(), ...r }, ...(拉到 ? { 拉到 } : {}) });
     return r;
   };
-  if (设置.切换) return { 结果: "跳过", 话: "已经切换，不再同步" };
 
-  const 用户 = opts.用户 ?? (await 记名的人(设置.开的人Id));
+  const 用户 = 手动的人 ?? (await 记名的人(设置.开的人Id));
   if (!用户) return 记({ 结果: "出错", 话: "开同步的人找不到了（账号被删或停用），请重新开一次同步" });
 
   const 半截 = await prisma.entImportBatch.findFirst({ where: { source: 源, kind: "sync", status: "applying" }, select: { id: true } });

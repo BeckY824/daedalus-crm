@@ -1053,6 +1053,7 @@ export const TOOLS: Tool[] = [
   proposeTool(
     "propose_channel_update",
     "建议修改一个**渠道**（不是客户）的负责人 / 电话 / 备注，只影响之后由它新增的客户。" +
+      "**直接提，不用先调 list_channels 核对渠道名**：名字差一点会自动对上，对不上卡片会说，人能在卡上改。" +
       "改某一位已有客户的渠道负责人用 propose_customer_update 的 channelOwnerName。",
     '{"channelName": "渠道名称", "ownerName": "新的渠道负责人姓名，可空", "phone": "可空", "remark": "可空", "reason": "一句话：为什么"}',
     "update_channel",
@@ -1072,6 +1073,8 @@ function proposeTool(name: string, description: string, args: string, kind: Prop
     args,
     async run(a, ctx) {
       let c = { id: "", name: str(a.name, 60) };
+      /** 渠道名没对上时给模型的一句话，回答里照实说 */
+      let 渠道提示 = "";
       /** 改之前是什么样。只有改档案 / 改状态这两类需要，其余是新建，没有「之前」 */
       let 现值: Record<string, string> | undefined;
       if (needsCustomer) {
@@ -1099,7 +1102,21 @@ function proposeTool(name: string, description: string, args: string, kind: Prop
       */
       if (kind === "update_channel") {
         const 名 = str(a.channelName, 60);
-        const 渠道们 = 名 ? await prisma.channel.findMany({ where: { name: 名 }, select: { phone: true, remark: true }, take: 2 }) : [];
+        let 渠道们 = 名 ? await prisma.channel.findMany({ where: { name: 名 }, select: { name: true, phone: true, remark: true }, take: 2 }) : [];
+        /*
+          精确名对不上再按「包含」找一次（2026-10-25）：人说「抖音」，库里叫「抖音直播」。
+          只有唯一一个包含它的渠道才换成库里的全名——确认时 apply.ts 按全名精确找，不换就必然「没有这个渠道」。
+          原来模型为了避开这一步，会先调 list_channels 核对名字，查完常常就答了张清单、卡没出（#159 对照）。
+        */
+        if (名 && 渠道们.length === 0) {
+          const 近似 = await prisma.channel.findMany({ where: { name: { contains: 名 } }, select: { name: true, phone: true, remark: true }, take: 2 });
+          if (近似.length === 1) {
+            渠道们 = 近似;
+            a = { ...a, channelName: 近似[0].name };
+          } else {
+            渠道提示 = 近似.length ? `不止一个渠道名里带「${名}」，卡片上写的是「${名}」，请人在卡上改成准确的渠道名` : `库里没有叫「${名}」的渠道，卡片照样给出，请人在卡上改成准确的渠道名`;
+          }
+        }
         if (渠道们.length === 1) {
           const 号 = 脱敏(ctx);
           现值 = { phone: 号(渠道们[0].phone ?? ""), remark: 渠道们[0].remark ?? "" };
@@ -1115,7 +1132,7 @@ function proposeTool(name: string, description: string, args: string, kind: Prop
       const miss = missingFields(r.proposal, ctx.b);
       return {
         summary: `建议：${describeProposal(r.proposal, ctx.b.customer, undefined, ctx.b)}${miss.length ? `（还差 ${miss.join("、")}）` : ""}`,
-        data: { ok: true, missing: miss, note: miss.length ? "建议卡已给出，留空的字段人会在卡片上补。不要再调同一个工具，也不要在回答里让人照格式打字" : "建议卡已给出，等人确认。不要再调同一个工具" },
+        data: { ok: true, missing: miss, note: miss.length ? "建议卡已给出，留空的字段人会在卡片上补。不要再调同一个工具，也不要在回答里让人照格式打字" : "建议卡已给出，等人确认。不要再调同一个工具", ...(渠道提示 ? { 渠道名: 渠道提示 } : {}) },
       };
     },
   };
@@ -1144,7 +1161,7 @@ export function proposalVocab(b: BusinessConfig): string {
 档案里能改的字段：${可改字段名单.map((f) => `${f}（${字段表[f].label}）`).join("、")}
 渠道负责人有两种改法，别混：
   改**某一位**${b.customer ?? "客户"}的渠道负责人（登记错误、单个订正）→ propose_customer_update 的 channelOwnerName，只动这一位
-  改**渠道本身**的负责人（换人接手）→ propose_channel_update，只影响之后新增的${b.customer ?? "客户"}，已有的不动
+  改**渠道本身**的负责人（换人接手）→ propose_channel_update，只影响之后新增的${b.customer ?? "客户"}，已有的不动；直接提，不用先 list_channels 查名字
 channelName 收的是渠道名、referrerName 收的是${b.customer ?? "客户"}名，绝不要把销售的名字塞进去。
 ${字段表.grade.label}：${(字段表.grade.values ?? []).join(" / ")}`;
 }

@@ -25,6 +25,8 @@ export const 退避 = (第几次: number) => Math.min(30_000, 1000 * 2 ** 第几
 export const 请求超时毫秒 = 30_000;
 /** 连不上（断网、DNS 解析不了、连接被重置、超时）时再试几次，退避同限流 */
 export const 连不上重试 = 2;
+/** 一个请求最坏要多久：每次都等满超时、中间退避两回（30 × 3 + 1 + 2 = 93 秒）。界面「正在同步」按这个说 */
+export const 单个请求最长毫秒 = 请求超时毫秒 * (连不上重试 + 1) + Array.from({ length: 连不上重试 }, (_, i) => 退避(i)).reduce((a, b) => a + b, 0);
 
 function 连不上原因(e: unknown): string {
   const err = e as { name?: string; message?: string; cause?: { code?: string } };
@@ -66,11 +68,12 @@ export function 北京时间串(ms: number): string {
  * 读返回内容。不是 JSON 的给 null（调用方按「没有返回内容」报）；
  * 响应头到了、内容读到一半超时 / 断开的，和连不上一样抛 接口出错——不能当成「对方回了空」
  */
-export async function 读JSON(res: Response, 谁 = "原系统"): Promise<Record<string, unknown> | null> {
+export async function 读JSON(res: Response, 谁 = "原系统", 超时毫秒 = 请求超时毫秒): Promise<Record<string, unknown> | null> {
   let 文本: string;
   try {
-    文本 = await res.text();
+    文本 = await 读完(res, 谁, 超时毫秒);
   } catch (e) {
+    if (e instanceof 接口出错) throw e;
     throw new 接口出错(`读${谁}返回的内容时断了：${连不上原因(e)}`);
   }
   try {
@@ -78,5 +81,31 @@ export async function 读JSON(res: Response, 谁 = "原系统"): Promise<Record<
     return j && typeof j === "object" ? (j as Record<string, unknown>) : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * 一段段读完返回内容，单独挂一个钟：真 fetch 的超时信号也管读内容，但换了 fetch（代理、测试替身）不一定管，
+ * 对方吐一半就停会一直挂着。到点取消读（连接放掉），抛 接口出错
+ */
+async function 读完(res: Response, 谁: string, 超时毫秒: number): Promise<string> {
+  if (!res.body) return "";
+  const 读者 = res.body.getReader();
+  let 超了 = false;
+  const 钟 = setTimeout(() => {
+    超了 = true;
+    读者.cancel().catch(() => {});
+  }, 超时毫秒);
+  try {
+    const 解 = new TextDecoder();
+    let 文本 = "";
+    for (;;) {
+      const { done, value } = await 读者.read();
+      if (超了) throw new 接口出错(`读${谁}返回的内容时断了：等了 ${超时毫秒 / 1000} 秒没读完`);
+      if (done) return 文本 + 解.decode();
+      文本 += 解.decode(value, { stream: true });
+    }
+  } finally {
+    clearTimeout(钟);
   }
 }

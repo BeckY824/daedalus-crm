@@ -22,6 +22,10 @@ import { resetDb } from "./reset";
 import { deactivateUser, 停用清点 } from "@/app/(app)/settings/actions";
 import { 领取 } from "@/app/(app)/customers/pool-actions";
 import { 停用进公海理由, 停用项目进公海理由 } from "@/lib/offboard-db";
+import { 公海超时收回 } from "@/lib/project/db";
+import { 默认组织规则 } from "@/lib/project/org-rules";
+import { setSetting, invalidateSettingsCache } from "@/lib/settings";
+import { dayjs } from "@/lib/utils";
 
 let 甲: string;
 let 乙: string;
@@ -193,6 +197,31 @@ describe("放进公海", () => {
     expect(await 客户of(去公海.id)).toMatchObject({ salesOwnerId: 丙, pool: null });
     expect((await prisma.task.findUniqueOrThrow({ where: { id: 公海上的待办.id } })).ownerId).toBe(丙);
     expect((await prisma.opportunity.findUniqueOrThrow({ where: { id: 公海上的商机.id } })).ownerId).toBe(丙);
+  });
+});
+
+describe("进公海客户上的项目跟着客户（第四节）", () => {
+  it("离职进公海：客户上的项目留在原负责人名下、超时不收；谁领客户谁带走项目", async () => {
+    await setSetting("orgRules", { ...默认组织规则, 超时回收: { 开: true, 节点天数: { 潜客培育: 1, 明确需求: 1 } } });
+    const 去公海 = await 客户("去公海", 乙);
+    const 跟客户的 = await 项目("跟客户的", 乙, 去公海.id);
+    const 同事的 = await 项目("同事负责的", 甲, 去公海.id, "商机", "明确需求");
+
+    expect(await deactivateUser(乙, 甲, "公海")).toEqual({ ok: true });
+    expect(await 客户of(去公海.id)).toMatchObject({ pool: { customerId: 去公海.id } });
+    expect(await 项目of(跟客户的.id)).toMatchObject({ ownerId: 乙, pooledAt: null });
+
+    // 过了时长也不收进项目公海：收了就和客户拆开，领客户的人拿不到
+    invalidateSettingsCache();
+    expect(await 公海超时收回({ id: 甲, name: "甲" }, dayjs().add(30, "day").toDate())).toBe(0);
+    expect(await 项目of(跟客户的.id)).toMatchObject({ pooledAt: null });
+
+    mocks.user = { ...mocks.user, id: 丙, role: "SALES" };
+    expect(await 领取([去公海.id])).toMatchObject({ ok: true, updated: 1 });
+    expect(await 项目of(跟客户的.id)).toMatchObject({ ownerId: 丙, pooledAt: null });
+    expect(await 项目of(同事的.id)).toMatchObject({ ownerId: 丙, pooledAt: null });
+    const 痕 = await prisma.projectNodeLog.findFirstOrThrow({ where: { projectId: 跟客户的.id, kind: "transfer" }, orderBy: { at: "desc" } });
+    expect(痕).toMatchObject({ fromOwnerId: 乙, toOwnerId: 丙 });
   });
 });
 
