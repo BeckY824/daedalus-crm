@@ -140,6 +140,45 @@ describe("商机汇总：库里按币种加和取行在 JS 里加对拍", () => 
     expect(新.单数).toBe(6);
   });
 
+  /** 依次建进行中的商机；币种 undefined = 不写 OpportunityMoney 那一行（老数据） */
+  async function 依次建(行: [币种: string | undefined, 金额: number, 赢单率: number][]) {
+    await db.$executeRawUnsafe('DELETE FROM "Opportunity"');
+    for (const [i, [c, amount, probability]] of 行.entries()) {
+      const o = await db.opportunity.create({ data: { name: `并${i}`, amount, probability, customerId: 客户, ownerId: 甲 } });
+      if (c !== undefined) await db.opportunityMoney.create({ data: { opportunityId: o.id, currency: c } });
+    }
+  }
+
+  it("金额不为零且相同：合计、预测都按第一次出现排，小写币种排在最前也一样", async () => {
+    // 合计四个币种都是 300；预测 EUR 300 最大，其余三个都是 150
+    await 依次建([
+      ["usd", 300, 50],
+      [undefined, 300, 50],
+      ["GBP", 100, 50],
+      ["EUR", 300, 100],
+      ["GBP", 200, 50],
+    ]);
+    for (const 筛 of [{}, { status: "OPEN" }]) {
+      const 新 = await 对拍(筛);
+      expect(新.合计).toEqual([{ 币种: "USD", 合计: 300 }, { 币种: "CNY", 合计: 300 }, { 币种: "GBP", 合计: 300 }, { 币种: "EUR", 合计: 300 }]);
+      expect(新.预测).toEqual([{ 币种: "EUR", 合计: 300 }, { 币种: "USD", 合计: 150 }, { 币种: "CNY", 合计: 150 }, { 币种: "GBP", 合计: 150 }]);
+    }
+  });
+
+  it("没有币种的老数据排在最前：和后面小写 cny 合成一组，排位按老数据那一行", async () => {
+    // 库里没币种的和 cny 是两组（rowid 1、3），合起来后按 1 排；合计、预测三个币种都并列
+    await 依次建([
+      [undefined, 100, 100],
+      ["USD", 300, 50],
+      ["cny", 200, 25],
+      ["EUR", 300, 50],
+    ]);
+    const 新 = await 对拍({});
+    expect(新.合计).toEqual([{ 币种: "CNY", 合计: 300 }, { 币种: "USD", 合计: 300 }, { 币种: "EUR", 合计: 300 }]);
+    expect(新.预测).toEqual([{ 币种: "CNY", 合计: 150 }, { 币种: "USD", 合计: 150 }, { 币种: "EUR", 合计: 150 }]);
+    expect(新.单数).toBe(4);
+  });
+
   it("按关键词、限定了、参数是数组都走原来那条路，不发裸 SQL", async () => {
     await 灌(3, 40);
     const 裸 = vi.spyOn(db, "$queryRawUnsafe");
