@@ -10,8 +10,8 @@
  * 先读各对象的字段描述，把 key 换成中文 label；关联到客户 / 商机的列从 extendValue 里取 instanceId，
  * 放进「客户ID」「商机ID」，正好是 clean.ts 按外部ID 认父记录的那两列。负责人 userId 换成名字。
  */
-import type { 适配器 } from "./adapter";
-import { 接口出错, 最多重试, 退避, 读JSON as 读, 真联网, type 联网 } from "./net";
+import type { 适配器, 现有列 } from "./adapter";
+import { 接口出错, 最多重试, 退避, 读JSON as 读, 请求, 真联网, type 联网 } from "./net";
 import type { 原始记录, 实体 } from "./types";
 
 export type 钉钉配置 = {
@@ -35,6 +35,8 @@ const 跟进每页 = 200;
 const 新限流 = new Set(["request.too.frequent", "Throttling", "Throttling.User", "Throttling.Api"]);
 const 新令牌失效 = new Set(["InvalidAuthentication", "invalidAuthentication", "Forbidden.AccessTokenExpired"]);
 const 老限流 = new Set([90018, 90002, 90006]);
+/** 新接口（含拿令牌）的限流：429、限流码；超 QPS 有时给 403 + Forbidden.AccessDenied.QpsLimitForApi / QpsLimitForAppkeyAndApi，也按限流等 */
+const 是限流 = (status: number, code: string) => status === 429 || 新限流.has(code) || code.startsWith("Forbidden.AccessDenied.QpsLimit");
 const 老令牌失效 = new Set([40014, 42001, 41001]);
 const 说人话: Record<string, string> = {
   "systemError.notPermittedAccess": "应用没有 CRM 读取权限：要在钉钉开发者后台给应用开「CRM 数据读权限」后再试",
@@ -52,6 +54,7 @@ export class 钉钉适配器 implements 适配器 {
   private 令牌: { 值: string; 到期: number } | null = null;
   private 上次调用 = 0;
   private 人名 = new Map<string, string>();
+  private 列们: 现有列 = {};
 
   constructor(
     private 配置: 钉钉配置,
@@ -75,12 +78,22 @@ export class 钉钉适配器 implements 适配器 {
 
   private async 取令牌(): Promise<string> {
     if (this.令牌 && this.令牌.到期 > this.网.现在()) return this.令牌.值;
-    const res = await this.网.fetch(`${this.基址}/v1.0/oauth2/accessToken`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ appKey: this.配置.appKey, appSecret: this.配置.appSecret }),
-    });
-    const j = await 读(res);
+    let res: Response;
+    let j: Record<string, unknown> | null;
+    // 拿令牌的接口也会限流，和别的接口一样退避重试
+    for (let 第几次 = 0; ; 第几次++) {
+      res = await 请求(this.网, "钉钉", `${this.基址}/v1.0/oauth2/accessToken`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appKey: this.配置.appKey, appSecret: this.配置.appSecret }),
+      });
+      j = await 读(res, "钉钉");
+      if (是限流(res.status, typeof j?.code === "string" ? j.code : "") && 第几次 < 最多重试) {
+        await this.网.等(退避(第几次));
+        continue;
+      }
+      break;
+    }
     if (!res.ok || typeof j?.accessToken !== "string") {
       throw new 接口出错(`钉钉拿不到访问令牌（HTTP ${res.status}${j?.code ? `，${j.code}` : ""}）：${报错(j)}`);
     }
@@ -96,15 +109,14 @@ export class 钉钉适配器 implements 适配器 {
       await this.节流();
       const url = new URL(this.基址 + 路径);
       for (const [k, v] of Object.entries(参数)) if (v !== undefined && v !== "") url.searchParams.set(k, v);
-      const res = await this.网.fetch(url.toString(), {
+      const res = await 请求(this.网, "钉钉", url.toString(), {
         method: 方法,
         headers: { "x-acs-dingtalk-access-token": await this.取令牌(), "Content-Type": "application/json" },
         body: 体 === undefined ? undefined : JSON.stringify(体),
       });
-      const j = await 读(res);
+      const j = await 读(res, "钉钉");
       const code = typeof j?.code === "string" ? j.code : "";
-      // 超 QPS 有时给 403 + Forbidden.AccessDenied.QpsLimitForApi / QpsLimitForAppkeyAndApi，也按限流等
-      if ((res.status === 429 || 新限流.has(code) || code.startsWith("Forbidden.AccessDenied.QpsLimit")) && 第几次 < 最多重试) {
+      if (是限流(res.status, code) && 第几次 < 最多重试) {
         await this.网.等(退避(第几次));
         continue;
       }
@@ -124,8 +136,8 @@ export class 钉钉适配器 implements 适配器 {
     for (let 第几次 = 0; ; 第几次++) {
       await this.节流();
       const url = `${this.老基址}${路径}?access_token=${encodeURIComponent(await this.取令牌())}`;
-      const res = await this.网.fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(体) });
-      const j = await 读(res);
+      const res = await 请求(this.网, "钉钉", url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(体) });
+      const j = await 读(res, "钉钉");
       const code = typeof j?.errcode === "number" ? j.errcode : undefined;
       if ((res.status === 429 || (code !== undefined && 老限流.has(code))) && 第几次 < 最多重试) {
         await this.网.等(退避(第几次));
@@ -258,16 +270,33 @@ export class 钉钉适配器 implements 适配器 {
     return this.拉变化(null);
   }
 
+  /** 这一类按列描述会出哪些列（和 成记录 出的列名一样；个人 / 企业客户两套字段合在一起） */
+  private 记列(实体: 实体, 字段们: Map<string, 字段描述>) {
+    const 列 = (this.列们[实体] ??= new Set(["记录ID", "负责人"]));
+    for (const f of 字段们.values()) {
+      列.add(f.名);
+      const 放 = 父列(实体, f.指向, this.配置.商机表单code);
+      if (放) 列.add(放);
+    }
+  }
+
+  现有列() {
+    return this.列们;
+  }
+
   async 拉变化(since: Date | null) {
     const dsl = since ? 改于之后(since.getTime(), this.网.现在()) : undefined;
     const 出: 原始记录[] = [];
+    this.列们 = {};
 
     for (const 类型 of this.配置.客户类型们 ?? ["crm_customer_personal", "crm_customer"]) {
       const 字段们 = await this.客户字段(类型);
+      this.记列("customer", 字段们);
       for (const d of await this.拉客户(类型, dsl)) 出.push(await this.成记录("customer", 字段们, d, `钉钉 · ${类型 === "crm_customer" ? "企业客户" : "个人客户"}`));
     }
 
     const 联系人字段 = await this.老字段("读联系人字段", "/topapi/crm/objectmeta/contact/describe");
+    this.记列("contact", 联系人字段);
     for (const d of await this.拉自定义("拉联系人", "/v1.0/crm/customObjects/contacts/datas/query", { objectType: "crm_contact" }, dsl)) {
       出.push(await this.成记录("contact", 联系人字段, d, "钉钉 · 联系人"));
     }
@@ -275,12 +304,14 @@ export class 钉钉适配器 implements 适配器 {
     if (this.配置.商机表单code) {
       const code = this.配置.商机表单code;
       const 商机字段 = await this.老字段("读商机字段", "/topapi/crm/objectmeta/describe", { name: code });
+      this.记列("opportunity", 商机字段);
       for (const d of await this.拉自定义("拉商机", "/v1.0/crm/customObjects/datas/query", { name: code }, dsl)) {
         出.push(await this.成记录("opportunity", 商机字段, d, "钉钉 · 商机"));
       }
     }
 
     const 跟进字段 = await this.老字段("读跟进记录字段", "/topapi/crm/objectmeta/followrecord/describe");
+    this.记列("followup", 跟进字段);
     for (const d of await this.拉跟进(dsl)) 出.push(await this.成记录("followup", 跟进字段, d, "钉钉 · 跟进记录"));
     return 出;
   }

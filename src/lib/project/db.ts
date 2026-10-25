@@ -17,6 +17,7 @@ import { getSetting, setSetting } from "../settings";
 import { recordAudit } from "../audit";
 import { 读团队 } from "../sync/client";
 import { dayjs } from "../utils";
+import { 看全部 } from "../team-scope";
 
 type 谁 = { id: string; role: string };
 type 结果 = { ok: true } | { ok: false; error: string };
@@ -422,6 +423,8 @@ export async function 放回公海(me: 谁, projectId: string): Promise<结果> 
   });
 }
 
+const 领走了 = { ok: false as const, error: "这个项目已经被人领走了，刷新看看" };
+
 /**
  * 从公海领取：谁都能领；放回去的那位企业版里能领回（10-24 定），别的版本照旧不能自己领回。领了就是新负责人，记一行 pool-claim。
  * 开了持有上限的，到上限了领不了
@@ -429,9 +432,13 @@ export async function 放回公海(me: 谁, projectId: string): Promise<结果> 
 export async function 领取公海项目(me: 谁, projectId: string): Promise<结果> {
   const 规则 = await 生效组织规则();
   return 查完再写(async (tx) => {
-    const p = await tx.project.findUnique({ where: { id: String(projectId ?? "") } });
-    if (!p) return { ok: false as const, error: "这个项目已经不在了，刷新看看" };
-    if (!p.pooledAt) return { ok: false as const, error: "这个项目已经被人领走了，刷新看看" };
+    const id = String(projectId ?? "");
+    const p = await tx.project.findUnique({ where: { id } });
+    // 两人同时领：先进来的领走了，项目就落到后进来那位的范围外（业务员只看自己的 + 公海），带限定查是空的；
+    // 不带限定再看一眼，还在就是被人领走了，不是删了（D-35）
+    if (!p) return (await 看全部(() => tx.project.findUnique({ where: { id }, select: { id: true } })))
+      ? 领走了 : { ok: false as const, error: "这个项目已经不在了，刷新看看" };
+    if (!p.pooledAt) return 领走了;
     if (!(await 在职(tx, me.id))) return { ok: false as const, error: "账号已停用" };
     if (!企业版() && me.id === p.ownerId) return { ok: false as const, error: "自己放回公海的项目不能自己领回" };
     const 超 = await 超上限(tx, 规则, me.id, p);

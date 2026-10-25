@@ -362,10 +362,7 @@ html.os-win .shell-desktop .main :is(.rec-rail, .set-nav, .legal-toc) { top: cal
 html.os-win[data-skin="now"] { --text-muted: color-mix(in srgb, var(--ink-soft) 80%, var(--panel)); --text-faint: color-mix(in srgb, var(--ink-soft) 62%, var(--panel)); }
 .shell-desktop :is(a, button, input, select, textarea, [role="button"], [role="tab"], [role="menuitem"], .ant-select, .ant-input, .ant-input-affix-wrapper, .ant-btn, .ant-dropdown-trigger, .ant-segmented) { -webkit-app-region: no-drag; }
 .rail-top { display: flex; align-items: center; height: 40px; width: 100%; margin-bottom: 14px; }
-.rail-mark { display: inline-flex; align-items: center; gap: 8px; line-height: 0; padding: 6px 8px; border-radius: var(--r-card); color: var(--ink); }
-.rail-mark:hover { background: var(--hover); }
-.rail-mark b { font-family: var(--font-display); font-size: var(--fs-body); font-weight: 600; letter-spacing: -0.3px; line-height: 1; white-space: nowrap; }
-/* 桌面端左栏顶上的搜索框（AppShell，点开就是 ⌘K 那张跳转单）。样子是个输入框，其实是个按钮 */
+/* 左栏顶上的搜索框（AppShell，点开就是 ⌘K 那张跳转单）。样子是个输入框，其实是个按钮 */
 .rail-search { display: flex; align-items: center; gap: var(--s2); width: 100%; height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-card); background: var(--panel); color: var(--text-faint); font: inherit; font-size: var(--fs-note); cursor: pointer; -webkit-app-region: no-drag;
   transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease); }
 .rail-search:hover { border-color: var(--line-strong); color: var(--text-muted); }
@@ -1790,6 +1787,8 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 /* 点完成之后留位 600ms 再消失：立刻抽走的话下面的行会跳上来顶替，眼睛得重新找位置 */
 .plan-row-done { opacity: 0.45; transition: opacity var(--t) var(--ease); }
 .plan-row-done .plan-row-t { text-decoration: line-through; }
+/* 分批时要摆、详情还在路上的那一行（2026-10-24）：占住位置，取到了就换成真的 */
+.plan-row-wait .plan-row-t { font-weight: 400; color: var(--text-muted); }
 .plan-row-m { flex: 1; min-width: 0; }
 .plan-row-t { display: block; font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-row-s { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: var(--fs-note); color: var(--text-muted); }
@@ -1844,6 +1843,8 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 /* 列宽固定以后底行放不下金额 + 负责人：金额一行写完，负责人挤不下就折到下一行、再长就省略（title 里有全名） */
 .pipe-card-a { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pipe-card-o { font-size: var(--fs-note); color: var(--text-muted); min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 每列先摆 50 张（2026-10-24），底下接着翻；列最窄 184，放不下就折行，不撑宽列 */
+.pipe-more.ant-btn { height: auto; min-height: 28px; white-space: normal; color: var(--brand); gap: 6px; }
 
 /* ---------- 「数据」页上的问数据 ----------
    框是和首页同一个（components/AskBox），这里只管它周围那点间距和答案区。 */
@@ -2015,7 +2016,7 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
    它们按下去只变底色。 */
 .press, .rail-item, .rail-fb, .pane-ib, .pane-chip, .rec-chip, .cli-tool, .cli-send, .cli-ic,
 .cli-q, .cli-sugg, .cli-cmd, .mp-btn, .prop-ok, .prop-no, .bill-plan, .set-nav-i, .cmdk-row,
-.setm-x, .list-sel-x, .plan-switch, .rail-user, .rail-mark {
+.setm-x, .list-sel-x, .plan-switch, .rail-user {
   transition:
     scale var(--t-fast) var(--ease),
     transform var(--t-fast) var(--ease),
@@ -2032,7 +2033,7 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
   transition-duration: var(--t-press);
 }
 /* 大块头缩得更少：整条导航项缩 4% 会显得在跳，0.985 刚好只有手感觉得到 */
-.rail-item:active, .rail-user:active, .rail-mark:active, .bill-plan:active,
+.rail-item:active, .rail-user:active, .bill-plan:active,
 .set-nav-i:active, .cmdk-row:active {
   /* 0.985 在一条 195px 宽的导航项上只缩 2.9px——量出来是有的，眼睛看不见。
      0.965 缩 6.8px，是"按下去了"和"什么也没发生"的分界 */
@@ -2065,7 +2066,7 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .cli-ic:focus-visible, .cli-q:focus-visible, .cli-sugg:focus-visible, .cli-cmd:focus-visible,
 .mp-btn:focus-visible, .prop-ok:focus-visible, .prop-no:focus-visible, .bill-plan:focus-visible,
 .set-nav-i:focus-visible, .cmdk-row:focus-visible, .list-sel-x:focus-visible,
-.plan-switch:focus-visible, .rail-mark:focus-visible {
+.plan-switch:focus-visible {
   outline: 1.5px solid var(--brand);
   outline-offset: 2px;
   border-radius: var(--r-ctl);
@@ -2539,4 +2540,11 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .org-field-perm thead th { font-weight: 600; }
 .org-field-perm tbody th { font-weight: 500; }
 .org-field-perm tbody th .muted { font-size: 12px; font-weight: 400; }
+/* 线索分配那一屏：长名字截断，悬停看全名；窄窗口靠外层横向滚动 */
+.org-lead-assign-name { display: inline-block; max-width: 160px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+/* 批量自动分配的结果：一条一行，线索名太长省略，别把弹窗撑开 */
+.lead-auto-assign-list { margin: 8px 0 0; padding: 0; list-style: none; max-height: 360px; overflow-y: auto; }
+.lead-auto-assign-list li { display: flex; gap: 8px; padding: 4px 0; min-width: 0; }
+.lead-auto-assign-name { flex: 0 0 auto; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.lead-auto-assign-list li > span:last-child { min-width: 0; overflow-wrap: anywhere; }
 .team-dept-role { min-width: 72px; }

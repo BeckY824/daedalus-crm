@@ -1,0 +1,15 @@
+# 企业版 HTTPS 入口。域名取 .env 的 DOMAIN。
+#
+# 证书两种来源，二选一：
+#   1. 默认：Caddy 自动向 Let's Encrypt 申请并续期。要求域名已解析到本机、80 和 443 对外可达
+#   2. 贵司自己的证书：把 cert.pem（含中间证书链）和 key.pem 放进 certs/，
+#      再执行 ./scripts/use-own-cert.sh ——它会生成 certs/tls.caddy，下面那行 import 就会用上
+#
+# 这个文件升级时会随部署包换新，不要在这里改；要加东西先跟我们说。
+{$DOMAIN} {
+	import /certs/tls*.caddy
+	encode zstd gzip
+	# 应用按 X-Forwarded-For 给登录限流分桶。Caddy 默认不信任客户端自带的这个头，
+	# 只填真实来源 IP，伪造不了——所以这里不用再配 header_up
+	reverse_proxy crm:3000
+}

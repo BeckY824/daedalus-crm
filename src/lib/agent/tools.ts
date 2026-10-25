@@ -103,11 +103,9 @@ export const TOOLS: Tool[] = [
   {
     name: "search_customers",
     description:
-      "按关键词找客户，返回总数和名单。关键词同时匹配姓名、学校、年级、专业、备注，外贸的 WhatsApp / 邮箱 / 微信 / 国家、联系人和订单号也搜（问「PI-2026 是哪位客户」就用 query=\"PI-2026\"；问「武汉大学的有几位、分别是谁」就用 query=\"武汉大学\"，问「大三的有哪些」就用 query=\"大三\"）；" +
-      "还能按渠道（channelName，问「小红这个渠道里有谁」用它，先用 list_channels 看渠道叫什么）、按负责人（ownerName，问「李四手上有哪些客户」用它）、" +
-      "按跟进状态、按决策状态、只看我负责的过滤。" +
-      "还能按建档时间（createdFrom/createdTo，问「这周新增了哪些客户」用它）、按预计签约时间（expectedSignFrom/expectedSignTo，问「这个月预计能签哪几个」用它，结果按预计签约日从近到远排）。" +
-      "找到具体某一位后再用 get_customer 读记录。",
+      "按关键词或条件找一批客户，返回总数和名单。query 同时匹配姓名、学校、年级、专业、备注，外贸的 WhatsApp / 邮箱 / 微信 / 国家、联系人和订单号（「PI-2026 是哪位客户」→ query=\"PI-2026\"；「武汉大学的有几位」→ query=\"武汉大学\"）。" +
+      "「小红这个渠道里有谁」用 channelName（先用 list_channels 看渠道叫什么），「李四手上有哪些客户」用 ownerName，「这周新增了哪些」用 createdFrom/To，" +
+      "「这个月预计能签哪几个」用 expectedSignFrom/To（按预计签约日从近到远）。找到某一位后用 get_customer 读记录。",
     args: '{"query": "姓名 / 学校 / 年级 / 专业 / 备注 / WhatsApp / 邮箱 / 订单号里的关键词，可为空", "channelName": "渠道名称，可选", "ownerName": "销售负责人姓名，可选", "followStatus": "跟进状态，可选", "decisionStatus": "决策状态，可选", "createdFrom": "建档起始 YYYY-MM-DD，可选", "createdTo": "建档截止，可选", "expectedSignFrom": "预计签约起始，可选", "expectedSignTo": "预计签约截止，可选", "mine": true|false 可选}',
     async run(args, ctx) {
       const q = str(args.query, 20);
@@ -184,11 +182,9 @@ export const TOOLS: Tool[] = [
   {
     name: "find_person",
     description:
-      "**按名字找一个人——不知道他是客户、渠道、联系人、线索还是同事时，用这个。**" +
-      "它把这五张表一起找，返回每一条的电话和身份。" +
-      "问「某某的电话是多少」「某某是谁」「某某的联系方式」一律先用它；" +
-      "确定是客户、而且要看他的跟进时间线时，再用它给的 id 调 get_customer。" +
-      "名字原样传，不要自己截短（「李老师」就传「李老师」，不要传「李」）。",
+      "**按名字找一个人**：客户、渠道、联系人、线索、同事五张表一起找，返回每一条的电话和身份。" +
+      "问「某某的电话」「某某是谁」「某某的联系方式」先用它；是客户、还要看跟进时间线时，再用它给的 id 调 get_customer。" +
+      "名字原样传（「李老师」就传「李老师」，不要传「李」）。",
     args: '{"name": "人名，原样传"}',
     async run(args, ctx) {
       const name = str(args.name, 20);
@@ -306,7 +302,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "query_metric",
-    description: `查业务数字。metric 只能是 ${Object.keys(METRICS).join(" / ")}；groupBy 只能是各指标允许的维度（${Object.entries(VALID_GROUPS).map(([m, g]) => `${m}: ${g.join("|") || "无"}`).join("; ")}）；from/to 为 YYYY-MM-DD 或 null。只查已发生的事，不做预测。`,
+    description: `查业务数字，只查已发生的事、不做预测。各 metric 能用的 groupBy：${Object.entries(VALID_GROUPS).map(([m, g]) => `${m}: ${g.join("|") || "无"}`).join("; ")}。`,
     args: '{"metric": "...", "groupBy": "..." 或 null, "from": null, "to": null}',
     async run(args, ctx) {
       let spec;
@@ -342,8 +338,8 @@ export const TOOLS: Tool[] = [
     name: "my_recap",
     description:
       "我这一段时间做了什么：跟了哪些人、记了几笔、签了几单、新建了几位客户。" +
-      "问「我这周做了什么」「这周跟了谁」「上个月我的情况」「最近怎么样」用它。" +
-      "period=this_month/last_month/this_week/last_week表示自然月/周；recent默认最近7天，days可以给1~90。新建按可核实建档人统计，旧记录缺失不推断。它只看**我自己**的；问全团队用query_metric或list_contracts。",
+      "问「我这周做了什么」「上个月我的情况」「最近怎么样」用它。新建按可核实建档人统计，旧记录缺失不推断。" +
+      "只看**我自己**的；问全团队用 query_metric 或 list_contracts。",
     args: '{"period": "recent/this_month/last_month/this_week/last_week", "days": "recent时最近多少天，默认7，1~90"}',
     async run(args, ctx) {
       const range = recapRange(args);
@@ -443,7 +439,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "get_watchlist",
-    description: "盯盘清单，默认只看我名下，scope=team查看当前权限内团队。返回完整总数和前12位；还有更多时提供完整分页入口。",
+    description: "盯盘清单，默认只看我名下，scope=team 看当前权限内团队。返回总数和前 12 位，更多时给分页入口。",
     args: '{"scope":"mine|team，可空，默认mine"}',
     async run(args, ctx) {
       if (args.scope !== undefined && args.scope !== "mine" && args.scope !== "team") return { summary: "范围不正确", data: { error: "scope只能是mine或team" } };
@@ -464,7 +460,7 @@ export const TOOLS: Tool[] = [
       Task 表除非逐个 get_customer 否则够不着——于是「我有哪些待办」答不全。
       合在一起给，各自标明是哪一类；工具名不改，改了直连表和前端文案都要跟着动。
     */
-    description: "我（当前销售）手上没做完的活：跟进计划 + 待办，都按时间从早到晚，逾期的会标出来。问「今天该做什么」「我有哪些待办」「还有哪些计划没做」都用它。",
+    description: "我手上没做完的活：跟进计划 + 待办，按时间从早到晚，逾期的会标出来。问「今天该做什么」「我有哪些待办」用它。",
     args: "{}",
     async run(_args, ctx) {
       const [pendingPlans, pendingTasks] = await Promise.all([
@@ -500,7 +496,7 @@ export const TOOLS: Tool[] = [
   */
   {
     name: "list_channels",
-    description: "列渠道（客户是从哪儿来的：合作方、中介、转介绍人）。返回每个渠道的负责人、直接带来多少客户、连转介绍一共多少、这条链上的签约额、停用与否。问「有哪些渠道」「哪个渠道带来的客户最多」就用它。",
+    description: "列渠道（客户从哪儿来：合作方、中介、转介绍人），每个渠道的负责人、直接带来多少客户、连转介绍一共多少、签约额、停用与否。问「有哪些渠道」「哪个渠道带来的客户最多」用它。",
     args: '{"keyword": "名字里的关键词，可空", "includeInactive": true|false 可空，默认不列停用的}',
     async run(args, ctx) {
       const 号 = 脱敏(ctx);
@@ -545,7 +541,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "list_leads",
-    description: "列线索（还没建档的潜在客户）。可按状态、来源、关键词过滤。问「有哪些线索」「哪些线索还没跟」用它；线索和客户是两张表，别用 search_customers 找线索。",
+    description: "列线索（还没建档的潜在客户）。问「有哪些线索」「哪些线索还没跟」用它；线索和客户是两张表，别用 search_customers 找线索。",
     args: `{"keyword": "名称/联系人/电话里的关键词，可空", "status": "${LEAD_STATUSES.join("/")}，可空", "source": "线索来源，可空"}`,
     async run(args, ctx) {
       const 号 = 脱敏(ctx);
@@ -581,8 +577,8 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "list_opportunities",
-    description: `列商机（在谈的单子）。可按阶段、状态、客户过滤，按金额从大到小。阶段只能是 ${OPP_STAGES.join(" / ")}；status: OPEN 进行中 / WON 赢单 / LOST 丢单。问「手上有哪些单子」「哪些单子快成了」用它；\
-问「超过 10 万的单子」用 minAmount，问「这个月要关的单子」用 dealFrom/dealTo。`,
+    description: `列商机（在谈的单子），按金额从大到小。阶段是 ${OPP_STAGES.join(" / ")}；status: OPEN 进行中 / WON 赢单 / LOST 丢单。问「手上有哪些单子」「哪些单子快成了」用它；\
+「超过 10 万的单子」用 minAmount，「这个月要关的单子」用 dealFrom/dealTo。`,
     args: '{"stage": "阶段，可空", "status": "OPEN/WON/LOST，可空，默认 OPEN", "customerName": "客户姓名，可空", "minAmount": 最小金额（按商机自己的币种比），可空, "dealFrom": "预计成交起始 YYYY-MM-DD，可空", "dealTo": "预计成交截止，可空"}',
     async run(args, ctx) {
       // 外贸模版下人说「询盘」「已报价」：认回存储值（显示名见 business-config 的 外贸阶段名）
@@ -645,8 +641,8 @@ export const TOOLS: Tool[] = [
     */
     name: "list_contracts",
     description:
-      "列签约记录（已经成交的单子：谁、多少钱、什么时候签的）。可按时间段、客户、销售负责人、渠道过滤，按签约日期从近到远。" +
-      "问「这个月签了哪几单」「分别是谁」「李四这个季度签了多少」「小红这个渠道签了哪些」用它。" +
+      "列签约记录（已经成交的单子：谁、多少钱、什么时候签的），按签约日期从近到远。" +
+      "问「这个月签了哪几单」「李四这个季度签了多少」「小红这个渠道签了哪些」用它。" +
       "只要总数不要名单时用 query_metric(contract_amount / contract_count)。",
     args: '{"from": "YYYY-MM-DD，可空", "to": "YYYY-MM-DD，可空（含当天）", "customerName": "客户姓名，可空", "ownerName": "销售负责人姓名，可空", "channelName": "渠道名称，可空"}',
     async run(args) {
@@ -730,11 +726,11 @@ export const TOOLS: Tool[] = [
     name: "list_orders",
     description: 订单节点
       ? "列外贸订单（赢单之后跟进交付的那张单：12 个节点——收定金、下单给工厂、生产、验货、订舱、装柜、开船、单据尾款）。" +
-        "每单给出当前节点、超期了哪几步、进度、未收金额。可按客户、业务员筛，onlyLate=true 只看有超期的。" +
+        "每单给出当前节点、超期了哪几步、进度、未收金额。" +
         "问「哪几单超期了」「某某那单走到哪了」「还有多少尾款没收」用它。"
       : // 节点关着（2026-10-05 外贸客户建议的轻量订单）：只有订单上那几项，执行进展在挂着的跟进里——别让模型去说节点、未收
         "列外贸订单（客户确认、下了单的那一笔）：订单号、客户、金额、付款方式、供应商、订单确认时间、业务员。" +
-        "可按客户、业务员筛。问「某某下过几单」「这个月确认了哪些订单」「那单的付款方式是什么」用它；订单执行到哪了看那位客户的跟进记录。",
+        "问「某某下过几单」「这个月确认了哪些订单」「那单的付款方式是什么」用它；订单执行到哪了看那位客户的跟进记录。",
     args: '{"customerName": "客户姓名，可空", "ownerName": "业务员姓名，可空", "onlyLate": "true/false，可空"}',
     async run(args) {
       const name = str(args.customerName, 30);
@@ -830,7 +826,7 @@ export const TOOLS: Tool[] = [
       刚入职、这个月还没开单的一个都不出现，和「有哪些渠道」当初那个坑一模一样。
     */
     name: "list_users",
-    description: "列这个工作区里的人：姓名、岗位、角色、手上多少客户、负责几个渠道。问「团队里有哪些人」「我们有几个销售」「谁是渠道负责人」用它。默认不列已停用的。",
+    description: "列这个工作区里的人：姓名、岗位、角色、手上多少客户、负责几个渠道。问「团队里有哪些人」「我们有几个销售」「谁是渠道负责人」用它。",
     args: '{"keyword": "姓名里的关键词，可空", "includeInactive": true|false 可空，默认不列停用的}',
     async run(args) {
       const kw = str(args.keyword, 20);
@@ -859,7 +855,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "search_followups",
-    description: "在**所有**跟进记录里按关键词搜（「谁提过预算」「哪几个人说过要对比方案」）。会自动连同义词一起搜（预算＝费用＝学费＝价格），不用你换词重试。要读某一位客户的完整跟进，用 get_customer——那条是按人取全，这条是按词跨人找。",
+    description: "在**所有**跟进记录里按关键词跨人搜（「谁提过预算」「哪几个人说过要对比方案」），自动连同义词一起搜（预算＝费用＝学费＝价格），不用换词重试。读某一位客户的完整跟进用 get_customer。",
     args: '{"keyword": "内容里的关键词", "days": 最近多少天，可空, "mine": true|false 可空}',
     async run(args, ctx) {
       const q = str(args.keyword, 30);
@@ -904,32 +900,31 @@ export const TOOLS: Tool[] = [
       };
     },
   },
-  proposeTool("propose_status_change", `建议改一位${"客户"}的状态。你改不了数据，这只是给人看的一张建议卡，人点确认才生效。`, '{"id": "客户 id", "to": "新状态", "reason": "一句话：为什么"}', "set_status"),
-  proposeTool("propose_followup", "建议记一条跟进记录（比如人刚跟你口述了一次沟通）。你写不进去，人点确认才保存。", '{"id": "客户 id", "type": "电话沟通/线上会议/上门拜访/邮件沟通/短信沟通/WhatsApp/微信沟通/跟进任务/跟进提醒/其他记录", "title": "可选，一句话标题", "content": "这次聊了什么", "occurredAt": "可选，这次沟通已经发生的时间，YYYY-MM-DD HH:mm，不给就算刚刚；不是下次约的时间", "reason": "一句话：为什么"}', "add_followup"),
-  proposeTool("propose_plan", "建议排一次下次跟进计划。你排不了，人点确认才生效。", '{"id": "客户 id", "subject": "下次谈什么", "plannedAt": "YYYY-MM-DD HH:mm", "method": "电话沟通/线上会议/上门拜访/邮件沟通/微信沟通", "reason": "一句话：为什么"}', "add_plan"),
+  proposeTool("propose_status_change", "建议改一位客户的状态。", '{"id": "客户 id", "to": "新状态", "reason": "一句话：为什么"}', "set_status"),
+  proposeTool("propose_followup", "建议记一条跟进记录（比如人刚跟你口述了一次沟通）。", '{"id": "客户 id", "type": "电话沟通/线上会议/上门拜访/邮件沟通/短信沟通/WhatsApp/微信沟通/跟进任务/跟进提醒/其他记录", "title": "可选，一句话标题", "content": "这次聊了什么", "occurredAt": "可选，这次沟通已经发生的时间，YYYY-MM-DD HH:mm，不给就算刚刚；不是下次约的时间", "reason": "一句话：为什么"}', "add_followup"),
+  proposeTool("propose_plan", "建议排一次下次跟进计划。", '{"id": "客户 id", "subject": "下次谈什么", "plannedAt": "YYYY-MM-DD HH:mm", "method": "电话沟通/线上会议/上门拜访/邮件沟通/微信沟通", "reason": "一句话：为什么"}', "add_plan"),
   proposeTool(
     "propose_lead",
-    "建议新建一条线索。只知道名字也要提——卡片上留空的字段人会自己补，不要在回答里让人照格式打字。",
+    "建议新建一条线索。只知道名字也要提，留空的字段人会在卡片上补。",
     '{"name": "线索名称/姓名", "contact": "联系人，可空", "phone": "电话，可空", "source": "来源，可空", "status": "状态，可空", "remark": "备注，可空", "reason": "一句话：为什么"}',
     "add_lead",
     { needsCustomer: false },
   ),
   proposeTool(
     "propose_customer_update",
-    "建议修改一位客户档案里的字段。changes 是个对象，只写要改的那几项，不改的别写。" +
-      "负责人 / 渠道 / 推荐人给**名字**就行（salesOwnerName / channelName / referrerName），不要给 id——重名时会拒绝，让人去手动指定。",
+    "建议修改一位客户档案里的字段。负责人 / 渠道 / 推荐人给**名字**（salesOwnerName / channelName / referrerName），不要给 id，重名时会拒绝。",
     '{"id": "客户 id", "changes": {"要改的字段名": "改成什么"}, "reason": "一句话：为什么"}',
     "update_customer",
   ),
   proposeTool(
     "propose_opportunity",
-    "建议给一位客户新建商机（在谈的单子：金额、阶段、预计成交时间）。你建不了，人点确认才生效。",
+    "建议给一位客户新建商机（在谈的单子：金额、阶段、预计成交时间）。",
     '{"id": "客户 id", "name": "商机名称", "amount": 金额数字, "currency": "币种代码如 USD/EUR，可空（空 = 本位币）", "stage": "初步沟通/需求确认/方案报价/谈判审核/赢单成交", "probability": "0~100，可空", "expectedDealAt": "可空，YYYY-MM-DD", "remark": "可空", "reason": "一句话：为什么"}',
     "add_opportunity",
   ),
   proposeTool(
     "propose_contract",
-    "建议记一笔签约（已经成交、要入账的那笔钱）。注意这不是商机——商机是在谈，签约是谈成了。",
+    "建议记一笔签约（已经成交、要入账的那笔钱）。商机是在谈，签约是谈成了。",
     '{"id": "客户 id", "amount": 金额数字, "currency": "币种代码如 USD/EUR，可空（空 = 本位币）", "signedAt": "YYYY-MM-DD", "remark": "可空", "reason": "一句话：为什么"}',
     "add_contract",
   ),
@@ -949,12 +944,9 @@ export const TOOLS: Tool[] = [
   {
     name: "query_records",
     description:
-      "通用查询：按任意条件找记录、排序、数个数、按某个字段分组统计。" +
-      "**别的工具能直接答的就别用它**（找客户用 search_customers、列渠道用 list_channels……）；" +
-      "它是给那些答不了的问题准备的：联系人（没有专门的工具）、要排序（「哪条线索最久没动」）、" +
-      "要跨一张表（「9 月签约的学员里哪几个是小红老师带来的」）、要按某字段分组数个数。\n" +
-      "能查的表：" + Object.keys(表们).join("、") + "。" +
-      "每张表有哪些字段、每个字段能用什么运算，填错了会告诉你正确的选项，照着改一次就行。",
+      "通用查询：按任意条件找记录、排序、计数、分组统计。**别的工具能直接答的别用它**；" +
+      "它接的是：联系人（没有专门工具）、要排序（「哪条线索最久没动」）、要跨一张表（「9 月签约的学员里哪几个是小红老师带来的」）。" +
+      "能查的表：" + Object.keys(表们).join("、") + "。字段或运算填错会返回能用的选项，照着改一次就行。",
     args:
       '{"表": "客户/线索/商机/签约/联系人/跟进记录/跟进计划/任务/渠道", ' +
       '"条件": [{"字段": "字段名", "运算": "包含/等于/不等于/属于/大于/小于/不早于/不晚于/最近天数/为空/非空", "值": "值，为空和非空不填"}], ' +
@@ -1060,9 +1052,8 @@ export const TOOLS: Tool[] = [
   },
   proposeTool(
     "propose_channel_update",
-    "建议修改一个**渠道**（不是客户）的负责人 / 电话 / 备注。" +
-      "只影响之后由该渠道新增的客户；已有客户的归属不变。" +
-      "要改某一位已有客户的渠道负责人，用 propose_customer_update 的 channelOwnerName。",
+    "建议修改一个**渠道**（不是客户）的负责人 / 电话 / 备注，只影响之后由它新增的客户。" +
+      "改某一位已有客户的渠道负责人用 propose_customer_update 的 channelOwnerName。",
     '{"channelName": "渠道名称", "ownerName": "新的渠道负责人姓名，可空", "phone": "可空", "remark": "可空", "reason": "一句话：为什么"}',
     "update_channel",
     { needsCustomer: false },
