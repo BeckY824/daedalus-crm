@@ -10,7 +10,7 @@ import { 客户筛选条件, 客户行字段, 成客户行, 客户金额分页, 
 import { 规整币种 } from "@/lib/currency";
 import { 自动掉公海 } from "@/lib/pool-db";
 import { getBusiness } from "@/lib/business";
-import { 读的我 } from "@/lib/team-scope";
+import { 读的我, 虚线只读的 } from "@/lib/team-scope";
 import { defaultClient } from "@/lib/prisma";
 import { 读团队 } from "@/lib/sync/client";
 import { 客户页签归属 } from "@/lib/pool";
@@ -162,6 +162,8 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
         dept: sp.dept ?? "",
       }}
       部门选项={部门选项}
+      // 企业版虚线下属的客户：只能看（10-25 实测 F4）。团队版、没开组织架构可见范围时一律空
+      只读ids={await 虚线只读的(defaultClient, rows.map((r) => r.id))}
       本月新增={sp.createdWithin === "本月"}
       直接推荐={sp.directOf ? ((await prisma.channel.findUnique({ where: { id: sp.directOf }, select: { name: true } }))?.name ?? "这个渠道") : null}
       本批={sp.batch ? { 几位: total } : null}

@@ -120,6 +120,29 @@ export async function 同事的客户(db: PrismaClient, id: string): Promise<boo
   return (x.互看 || !!x.读) && x.别人的.has(id);
 }
 
+/** 只读客户被挡时那一句：企业版虚线下属用 虚线只读话，团队版互看用 只读错误 的默认话 */
+export async function 只读话(db: PrismaClient): Promise<string> {
+  return (await 现在的限定(db)).话 ?? new 只读错误().message;
+}
+
+/**
+ * 企业版虚线下属的客户（只能看，全拦）里，这一批中了哪几位。批量改、删之前先问：
+ * 不问的话限定层把它们静静滤掉，界面上报「已不存在 / 已经在别处删掉了」，原因说错（10-25 实测 F4）。
+ * 团队版互看不走这里，照原样
+ */
+export async function 虚线只读的(db: PrismaClient, ids: string[]): Promise<string[]> {
+  const x = await 现在的限定(db);
+  return x.全拦 ? ids.filter((id) => x.别人的.has(id)) : [];
+}
+
+/** 选中的里有虚线下属的客户：挡下时给人看的那句；没有回 null */
+export async function 虚线只读挡(db: PrismaClient, ids: string[]): Promise<string | null> {
+  const 中 = await 虚线只读的(db, ids);
+  if (!中.length) return null;
+  const 话 = (await 现在的限定(db)).话 ?? "";
+  return ids.length === 1 ? 话 : `选中的有 ${中.length} 位是虚线下属的客户：只能看，不能改、不能转、不能删。去掉${中.length > 1 ? "这几位" : "这位"}再试`;
+}
+
 async function 现在的限定(db: PrismaClient): Promise<限定> {
   if (不限.getStore()) return 不限定;
   if (process.env.DESKTOP_LOCAL !== "1") {

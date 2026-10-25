@@ -749,7 +749,8 @@ export default function RecordView({
 
         {/* ================= 中栏：时间线 ================= */}
         <section className="rec-col rec-card">
-          <div className="rec-composer">
+          {/* 虚线下属的客户：跟进也记不了，速记框不摆，免得写完才被拦（10-25 实测 F4）。顶上那条黄条已说清只能看 */}
+          {!全只读 && <div className="rec-composer">
             <Input.TextArea
               value={memo}
               onChange={(e) => setMemo(e.target.value)}
@@ -771,7 +772,7 @@ export default function RecordView({
                 直接记
               </Button>
             </div>
-          </div>
+          </div>}
 
           {plan && (
             <div className="rec-plan" data-focus={`plan:${plan.id}`}>

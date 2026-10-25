@@ -3,6 +3,7 @@
  * 钉的是：规则关着 = 照旧看全部；开了以后销售只看自己的和公海，直属上级看、改整条下属链，
  * 虚线上级只能看（改、转、在下面加跟进都拦）；老板、总管理员看全部；没认出人只看公海；后台任务不限定。
  * 虚线上级批量改负责人：客户改不动，客户下面的项目、待办也不能被带走（一周模拟 D2 查出来的）。
+ * 虚线下属的客户被挡时说对原因：批量转 / 删 / 放公海 / 批量状态不报「已不存在」，编辑不用团队版的话（10-25 实测 F4 / F5）。
  * 用拷出来的一份库、显式单连接，不碰共用的测试库。
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
@@ -31,9 +32,11 @@ vi.mock("@/lib/prisma", async () => {
 import { prisma as db, defaultClient as raw } from "@/lib/prisma";
 import { 以谁的身份, 忘掉企业版范围, 组织范围of } from "@/lib/enterprise/visibility";
 import { 建组织 } from "@/lib/enterprise/org-core";
-import { 只读客户, 读的我, 限定条件, 看得到 } from "@/lib/team-scope";
+import { 只读客户, 读的我, 限定条件, 看得到, 只读话, 虚线只读的, 只读错误 } from "@/lib/team-scope";
 import { 规则 } from "@/lib/enterprise/rules";
-import { assignSalesOwner } from "@/app/(app)/customers/actions";
+import { 虚线只读话 } from "@/lib/enterprise/visibility";
+import { assignSalesOwner, deleteCustomers, 客户删除预检, bulkFollowStatus, patchCustomer, saveCustomer } from "@/app/(app)/customers/actions";
+import { 放进公海 } from "@/app/(app)/customers/pool-actions";
 
 const 老板 = "e_boss";
 const 总管 = "e_dir";
@@ -208,6 +211,65 @@ describe("规则开着", () => {
   });
 });
 
+describe("虚线下属的客户被挡时说对原因（F4 / F5）", () => {
+  beforeAll(() => 开规则(true));
+  beforeEach(() => { 登录.user = { ...登录.user, id: 经理, name: "经理", role: "SALES" }; });
+  const 不说已删 = (r: unknown) => expect(JSON.stringify(r)).not.toMatch(/不存在|删掉|删除了|不在了/);
+
+  it("虚线只读的：经理那一批里挑出虚线下属链上的；实线下属、自己的不算", async () => {
+    const ids = await Promise.all(["A经理的", "B小王的", "C小张的", "D小赵的"].map(客户id));
+    expect(await 作为(经理, () => 虚线只读的(raw, ids))).toEqual([ids[2], ids[3]]);
+    expect(await 作为(小王, () => 虚线只读的(raw, ids))).toEqual([]);
+  });
+
+  it("批量转、删、删前预检、批量状态、放公海：单选一位虚线客户 → 虚线那句，不说已删；客户原样", async () => {
+    const id = await 客户id("C小张的");
+    for (const r of [
+      await 作为(经理, () => assignSalesOwner([id], 经理)),
+      await 作为(经理, () => 客户删除预检([id])),
+      await 作为(经理, () => deleteCustomers([id])),
+      await 作为(经理, () => bulkFollowStatus([id], "跟进中")),
+      await 作为(经理, () => 放进公海([id])),
+    ]) {
+      expect(r).toEqual({ ok: false, error: 虚线只读话 });
+      不说已删(r);
+    }
+    const c = await raw.customer.findUniqueOrThrow({ where: { id }, include: { pool: true } });
+    expect([c.salesOwnerId, c.followStatus === "跟进中", !!c.pool]).toEqual([小张, false, false]);
+  });
+
+  it("多选里混了两位虚线客户：说几位、叫人去掉再试", async () => {
+    const ids = await Promise.all(["B小王的", "C小张的", "D小赵的"].map(客户id));
+    const r = await 作为(经理, () => deleteCustomers(ids));
+    expect(r).toEqual({ ok: false, error: "选中的有 2 位是虚线下属的客户：只能看，不能改、不能转、不能删。去掉这几位再试" });
+    expect(await raw.customer.count({ where: { id: { in: ids } } })).toBe(3);
+  });
+
+  it("实线下属的照常走（预检不被虚线挡）", async () => {
+    const id = await 客户id("B小王的");
+    expect(await 作为(经理, () => 客户删除预检([id]))).toEqual({ ok: true });
+  });
+
+  it("编辑（整表保存 / 单格改）被挡用虚线那句，不用团队版「同事的客户」", async () => {
+    const c = await raw.customer.findUniqueOrThrow({ where: { id: await 客户id("C小张的") } });
+    const 值 = { name: c.name, phone: c.phone, school: c.school, grade: c.grade, major: c.major, followStatus: c.followStatus, decisionStatus: c.decisionStatus, expectedSignAt: c.expectedSignAt, remark: c.remark, salesOwnerId: c.salesOwnerId, channelId: c.channelId, referrerCustomerId: c.referrerCustomerId, channelOwnerId: c.channelOwnerId };
+    const 存 = await 作为(经理, () => saveCustomer({ id: c.id, updatedAt: c.updatedAt.toISOString(), base: 值, ...值, major: "改" } as Parameters<typeof saveCustomer>[0]));
+    expect(存).toEqual({ ok: false, error: 虚线只读话 });
+    expect(await 作为(经理, () => patchCustomer(c.id, "major", "改"))).toEqual({ ok: false, error: 虚线只读话 });
+  });
+
+  it("规则关着：没有虚线只读的，只读话回团队版那句（团队版互看照旧）", async () => {
+    await 开规则(false);
+    try {
+      const id = await 客户id("C小张的");
+      expect(await 作为(经理, () => 虚线只读的(raw, [id]))).toEqual([]);
+      expect(await 作为(经理, () => 只读话(raw))).toBe(new 只读错误().message);
+    } finally {
+      await 开规则(true);
+    }
+  });
+});
+
 describe("虚线上级批量改负责人", () => {
   beforeAll(() => 开规则(true));
 
@@ -221,7 +283,10 @@ describe("虚线上级批量改负责人", () => {
     const 虚 = await 建("H小张的", 小张);
     const 实 = await 建("I小王的", 小王);
     登录.user = { ...登录.user, id: 经理, name: "经理", role: "SALES" };
-    const r = await 作为(经理, () => assignSalesOwner([虚.c, 实.c], 外人));
+    // 混着选：整批先挡下、说清是哪几位（F4），一条不动
+    const 混 = await 作为(经理, () => assignSalesOwner([虚.c, 实.c], 外人));
+    expect(混).toEqual({ ok: false, error: expect.stringMatching(/有 1 位是虚线下属的客户/) });
+    const r = await 作为(经理, () => assignSalesOwner([实.c], 外人));
     expect(r).toMatchObject({ ok: true, updated: 1 });
     const 归谁 = async (x: { c: string; p: string; t: string }) => [
       (await raw.customer.findUniqueOrThrow({ where: { id: x.c } })).salesOwnerId,

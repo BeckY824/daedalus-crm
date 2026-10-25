@@ -6,8 +6,8 @@
  */
 import { 转交商机 } from "@/lib/opportunity-activity";
 import { revalidatePath } from "next/cache";
-import { prisma } from "@/lib/prisma";
-import { 看全部 } from "@/lib/team-scope";
+import { prisma, defaultClient } from "@/lib/prisma";
+import { 看全部, 虚线只读挡 } from "@/lib/team-scope";
 import { 管全队客户 } from "@/lib/constants";
 import { requireUser } from "@/lib/auth";
 import { getBusiness } from "@/lib/business";
@@ -51,6 +51,8 @@ export async function 放进公海(ids: string[]): Promise<公海结果> {
   const me = await requireUser();
   const b = await getBusiness();
   if (!ids.length) return { ok: true, updated: 0, unchanged: 0, 没权限: 0 };
+  const 虚线 = await 虚线只读挡(defaultClient, ids);
+  if (虚线) return { ok: false, error: 虚线 };
   const 这些 = await prisma.customer.findMany({ where: { id: { in: ids } }, select: { id: true, salesOwnerId: true, pool: { select: { customerId: true } } } });
   const 已在 = 这些.filter((c) => c.pool);
   const 能放 = 这些.filter((c) => !c.pool && (管全队客户(me.role) || c.salesOwnerId === me.id));
