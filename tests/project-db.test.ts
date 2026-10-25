@@ -130,6 +130,31 @@ describe("改节点", () => {
     expect(现在).toMatchObject({ balanceSettled: true, balanceSettledById: 乙.id, acceptancePassed: false, acceptancePassedById: null, acceptancePassedAt: null });
   });
 
+  it("企业版线索流失、丢单：没写原因拦下不记；写了原因记进节点变更，项目上的异常备注不沾（F8）", async () => {
+    vi.stubEnv("CRM_ENTERPRISE", "1");
+    const p = await 项目(乙.id, 客户甲, { phase: "线索", node: "线索推进" });
+    const 流失 = { phase: "线索", node: "线索推进", result: "线索流失" };
+    expect(await 改节点(乙, p.id, 流失)).toMatchObject({ ok: false, error: "点「线索流失」要写一句原因" });
+    expect(await 改节点(乙, p.id, 流失, { 备注: "  " })).toMatchObject({ ok: false, error: "点「线索流失」要写一句原因" });
+    expect(await prisma.projectNodeLog.count({ where: { projectId: p.id } })).toBe(0);
+    expect(await 改节点(乙, p.id, 流失, { 备注: " 预算砍了 " })).toEqual({ ok: true, 变了: true });
+    const 现在 = await prisma.project.findUniqueOrThrow({ where: { id: p.id } });
+    expect(现在).toMatchObject({ result: "线索流失", exceptionCategoryId: null, exceptionReason: null });
+    expect(现在.closedAt).not.toBeNull();
+    const q = await 项目(乙.id, 客户甲, { phase: "商机", node: "签约审批" });
+    expect(await 改节点(乙, q.id, { phase: "商机", node: "签约审批", result: "丢单" }, { 备注: "被对手压价" })).toEqual({ ok: true, 变了: true });
+    const logs = await prisma.projectNodeLog.findMany({ where: { projectId: { in: [p.id, q.id] } } });
+    expect(logs).toHaveLength(2);
+    expect(logs.map((l) => [l.toResult, l.reason, l.categoryId])).toEqual(expect.arrayContaining([["线索流失", "预算砍了", null], ["丢单", "被对手压价", null]]));
+    vi.unstubAllEnvs();
+  });
+
+  it("不是企业版：线索流失不写原因照旧能点，节点变更 reason 留空（F8 开关关和 main 一样）", async () => {
+    const p = await 项目(乙.id, 客户甲, { phase: "线索", node: "线索推进" });
+    expect(await 改节点(乙, p.id, { phase: "线索", node: "线索推进", result: "线索流失" })).toEqual({ ok: true, 变了: true });
+    expect((await prisma.projectNodeLog.findFirstOrThrow({ where: { projectId: p.id } })).reason).toBeNull();
+  });
+
   it("项目不在了、同事来勾：说人话，不抛", async () => {
     const p = await 项目(乙.id);
     expect(await 改节点(乙, "没有这个", { phase: "线索", node: "线索验证" })).toMatchObject({ ok: false, error: expect.stringContaining("不在了") });

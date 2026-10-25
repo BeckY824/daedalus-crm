@@ -80,7 +80,7 @@ describe("企业版推节点只给直属上级", () => {
   it("往后退、点结局照旧：本人也能", async () => {
     const p = await 项目(销售.id, { node: "线索推进" });
     expect(await 改节点(销售, p.id, 往前)).toMatchObject({ ok: true });
-    expect(await 改节点(销售, p.id, { ...往前, result: "线索流失" })).toMatchObject({ ok: true });
+    expect(await 改节点(销售, p.id, { ...往前, result: "线索流失" }, { 备注: "联系不上" })).toMatchObject({ ok: true });
   });
 
   it("既是直属又是虚线：按直属算", async () => {

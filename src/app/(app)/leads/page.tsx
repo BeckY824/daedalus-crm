@@ -9,6 +9,7 @@ import { 负责人候选 } from "@/lib/owners";
 import { 规则开着 } from "@/lib/enterprise/rules";
 import { 读组织 } from "@/lib/enterprise/org";
 import { 能分配 } from "@/lib/enterprise/lead-assign";
+import { 企业版 } from "@/lib/enterprise/switch";
 
 export const dynamic = "force-dynamic";
 
@@ -67,6 +68,7 @@ export default async function LeadsPage({
       filters={{ keyword: sp.keyword ?? "", status: sp.status ?? "", ownerId: sp.ownerId ?? "", source: sp.source ?? "" }}
       来源们={来源们}
       能自动分配={能自动分配}
+      企业版项目={企业版() && b.projectMode === true}
       线索分配开着={线索分配开着}
       rows={rows.map((l) => ({
         id: l.id,

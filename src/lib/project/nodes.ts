@@ -8,6 +8,7 @@
  *   - 签约审批就是一个普通节点，手动推
  *   - 「已转商机」「赢单」不是结局，是进下一阶段的第一个节点；真正的结局只有四个：线索流失、丢单、成功交付、异常状态
  *   - 成功交付：尾款结清、验收通过两项都勾上才让点
+ *   - 线索流失、丢单：企业版要写一句原因（要原因 = 企业版()），记在节点变更里（10-25 F8）
  *   - 异常状态：从异常类别字典里选一个（默认纠纷取消、项目停滞，老板能加能停用），备注可写可不写；
  *     恢复 = 再改到某个节点（结局清掉），同样守上面的前后规矩
  */
@@ -48,8 +49,13 @@ export function 结局所在阶段(r: 结局): 阶段 {
   return r === "线索流失" ? "线索" : r === "丢单" ? "商机" : "订单";
 }
 
-/** 异常备注最长多少字 */
+/** 异常备注、没成原因最长多少字 */
 export const 原因上限 = 500;
+
+/** 点「线索流失 / 丢单」要写一句原因（10-25 企业版实测 F8：节点变更里原因不能空） */
+export function 要写原因(r: unknown): r is "线索流失" | "丢单" {
+  return r === "线索流失" || r === "丢单";
+}
 
 /** 成功交付还差哪几项；空 = 能点 */
 export function 交付还差(p: { balanceSettled: boolean; acceptancePassed: boolean }): string[] {
@@ -65,6 +71,7 @@ export function 改节点问题(
   到: 位置,
   项目: 位置 & { balanceSettled: boolean; acceptancePassed: boolean },
   异常?: { categoryId?: string | null; 备注?: string | null },
+  要原因 = false,
 ): string | null {
   if (!是阶段(到.phase)) return `没有「${到.phase}」这个阶段`;
   if (!节点们[到.phase].includes(到.node)) return `「${到.phase}」阶段没有「${到.node}」这个节点`;
@@ -76,6 +83,11 @@ export function 改节点问题(
   if (r == null) return null;
   if (!是结局(r)) return `没有「${r}」这个结局`;
   if (结局所在阶段(r) !== 到.phase) return `「${r}」只能在${结局所在阶段(r)}阶段点`;
+  if (要原因 && 要写原因(r)) {
+    const 原因 = (异常?.备注 ?? "").trim();
+    if (!原因) return `点「${r}」要写一句原因`;
+    if (原因.length > 原因上限) return `原因请控制在 ${原因上限} 字以内`;
+  }
   if (r === "成功交付") {
     const 差 = 交付还差(项目);
     if (差.length) return `还差${差.join("、")}，勾上才能点成功交付`;

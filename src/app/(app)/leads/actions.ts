@@ -21,9 +21,14 @@ function 线索认人邮箱(lead: { phone: string | null; email: string | null }
 import { 版本冲突, 版本条件 } from "@/lib/edit-version";
 import { requireUser } from "@/lib/auth";
 import { LEAD_STATUSES } from "@/lib/constants";
-import { recordAudit } from "@/lib/audit";
+import { recordAudit, type Actor } from "@/lib/audit";
 import { getBusiness } from "@/lib/business";
 import { 线索转档案 } from "@/lib/lead-convert";
+import { 企业版 } from "@/lib/enterprise/switch";
+import { 线索建项目 } from "@/lib/project/from-lead";
+import { 超上限 } from "@/lib/project/db";
+import { 生效组织规则 } from "@/lib/project/org-rules-store";
+import { 客户存了推项目 } from "@/lib/project/auto-advance";
 import { 规则开着 } from "@/lib/enterprise/rules";
 import { 读组织 } from "@/lib/enterprise/org";
 import { 能分配 } from "@/lib/enterprise/lead-assign";
@@ -139,6 +144,30 @@ export async function deleteLeads(ids: string[]) {
 }
 
 /**
+ * 企业版开了项目模式：转化时顺手建项目（10-25 F6，lib/project/from-lead.ts）。负责人是别人时先按持有上限查一遍，
+ * 规则要在事务外读（事务里读设置会卡住）。返回 null = 不建；{ error } = 超上限，转化整个不做
+ */
+async function 转项目前查(b: { projectMode?: boolean }, me: { id: string }, ownerId: string): Promise<null | { 建: true } | { error: string }> {
+  if (!企业版() || b.projectMode !== true) return null;
+  if (ownerId !== me.id) {
+    const 超 = await 超上限(prisma, await 生效组织规则(), ownerId, { phase: "线索", result: null });
+    if (超) return { error: 超 };
+  }
+  return { 建: true };
+}
+
+async function 转项目之后(user: Actor, lead: { name: string }, customerId: string, projectId: string | undefined) {
+  if (!projectId) return;
+  await recordAudit({
+    user, action: "create", entity: "Project", entityId: projectId,
+    summary: `线索「${lead.name}」转化时新建项目`,
+    detail: { 项目: lead.name, customerId },
+  });
+  await 客户存了推项目(user, customerId);
+  revalidatePath("/projects");
+}
+
+/**
  * 线索转客户：建客户 + 建联系人 + 标记线索已转化。
  *
  * 三步必须在同一个事务里，且要有并发闸门。原本是「先查 customerId 是否为空，
@@ -156,7 +185,7 @@ export async function deleteLeads(ids: string[]) {
 export type 线索撞号 = { 客户名: string | null; 负责人: string; customerId: string | null; 能并: boolean };
 
 export async function convertLead(id: string): Promise<
-  { ok: true; customerId: string } | { ok: false; error: string; 撞号?: 线索撞号 }
+  { ok: true; customerId: string; projectId?: string } | { ok: false; error: string; 撞号?: 线索撞号 }
 > {
   const user = await requireUser();
   const b = await getBusiness();
@@ -183,6 +212,8 @@ export async function convertLead(id: string): Promise<
   const 我 = await 限定的我(defaultClient);
   // 团队开了互看：同事的客户看得到、但并不过去（并 = 改那位客户）
   const 读我 = await 读的我(defaultClient);
+  const 项目 = await 转项目前查(b, user, lead.ownerId ?? user.id);
+  if (项目 && "error" in 项目) return { ok: false as const, error: 项目.error };
   const outcome = await prisma.$transaction(async (tx) => {
     // 看全部：同事的客户也算已经有了（团队版业务员，lib/team-scope.ts）
     const dup = await 看全部(async () =>
@@ -253,7 +284,8 @@ export async function convertLead(id: string): Promise<
       await 写外贸档案(tx, customer.id, 规.ok ? 规.data : { source: 规整外贸档案({ source: 档案.档案.source }).ok ? 档案.档案.source : null }, false);
     }
     await tx.lead.update({ where: { id }, data: { customerId: customer.id } });
-    return { ok: true as const, customerId: customer.id };
+    const projectId = 项目 ? await 线索建项目(tx, { 线索名: lead.name, customerId: customer.id, ownerId: lead.ownerId ?? user.id, creatorId: user.id }) : undefined;
+    return { ok: true as const, customerId: customer.id, projectId };
   });
 
   if (!outcome.ok) return outcome;
@@ -263,6 +295,7 @@ export async function convertLead(id: string): Promise<
     summary: `线索「${lead.name}」转为${b.customer}`,
     detail: { leadId: id, customerId: outcome.customerId, phone },
   });
+  await 转项目之后(user, lead, outcome.customerId, outcome.projectId);
 
   revalidatePath("/leads");
   revalidatePath("/customers");
@@ -279,7 +312,7 @@ export async function convertLead(id: string): Promise<
  * Lead.customerId 是唯一的：那位客户已经关联着另一条线索（同一个人从两个渠道来过）时，
  * 原来那条的关联不动，这一条只标已转化、备注里写明并到了谁。
  */
-export async function mergeLeadInto(leadId: string, customerId: string): Promise<{ ok: true; customerId: string } | { ok: false; error: string }> {
+export async function mergeLeadInto(leadId: string, customerId: string): Promise<{ ok: true; customerId: string; projectId?: string } | { ok: false; error: string }> {
   const user = await requireUser();
   const b = await getBusiness();
   const lead = await prisma.lead.findUnique({ where: { id: leadId } });
@@ -292,6 +325,8 @@ export async function mergeLeadInto(leadId: string, customerId: string): Promise
   const 条件 = 邮箱 ? await 同邮箱条件(prisma, 邮箱) : 电话.ok ? await 同号条件(prisma, 电话.phone, await 分机留存起()) : null;
   const 对得上 = 条件 !== null && (await prisma.customer.count({ where: { AND: [{ id: customerId }, 条件] } })) > 0;
   if (!对得上) return { ok: false, error: `线索${邮箱 ? "邮箱" : "电话"}和${b.customer}「${customer.name}」对不上，不能并` };
+  const 项目 = await 转项目前查(b, user, lead.ownerId ?? user.id);
+  if (项目 && "error" in 项目) return { ok: false, error: 项目.error };
 
   const 结果 = await prisma.$transaction(async (tx) => {
     // 唯一约束不分人：要看全部（关联着那位的线索可能是同事的）
@@ -302,7 +337,8 @@ export async function mergeLeadInto(leadId: string, customerId: string): Promise
       where: { id: leadId, customerId: null, status: { not: "已转化" } },
       data: { status: "已转化", convertedAt: new Date(), ...(已关联 ? { remark: 备注 } : { customerId }) },
     });
-    return gate.count;
+    if (!gate.count) return null;
+    return { projectId: 项目 ? await 线索建项目(tx, { 线索名: lead.name, customerId, ownerId: lead.ownerId ?? user.id, creatorId: user.id }) : undefined };
   });
   if (!结果) return { ok: false, error: "这条线索刚刚已经转化过了，刷新看看" };
 
@@ -311,8 +347,9 @@ export async function mergeLeadInto(leadId: string, customerId: string): Promise
     summary: `线索「${lead.name}」并入${b.customer}「${customer.name}」`,
     detail: { leadId, customerId, 并入: true },
   });
+  await 转项目之后(user, lead, customerId, 结果.projectId);
   revalidatePath("/leads");
   revalidatePath("/customers");
   revalidatePath(`/customers/${customerId}`);
-  return { ok: true, customerId };
+  return { ok: true, customerId, projectId: 结果.projectId };
 }
