@@ -61,7 +61,7 @@ export function AssignLeadModal({ lead, 关 }: { lead: { id: string; name: strin
       onOk={() => void 分()}
       onCancel={关}
       afterOpenChange={打开了}
-      forceRender
+      destroyOnHidden
     >
       <p className="muted" style={{ marginTop: 0 }}>只能分给销售或销售管理；配额分满了会拦下，分完记进分配记录。</p>
       <Form form={form} layout="vertical" initialValues={{ line: "", kind: "营销" }}>

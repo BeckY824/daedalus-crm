@@ -562,3 +562,14 @@ describe("规则开着时编辑 / 新建不能随手换负责人（F2，10-25 �
     expect(await 负责人(L)).toBe(两边);
   });
 });
+
+describe("分配弹框不让线索页首帧对不上（10-25 #191 E2E：#418、modal-focus、线索转客户）", () => {
+  it("分配弹框不预渲染、只在能分配时挂上：关着的 Modal 不许 forceRender，否则客户端首帧多一个隐藏的 .ant-modal-root，服务端没有，水合报 #418", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const 弹框 = await readFile("src/app/(app)/leads/AssignLead.tsx", "utf8");
+    const 列表 = await readFile("src/app/(app)/leads/LeadsView.tsx", "utf8");
+    expect(弹框).not.toMatch(/\bforceRender\b/);
+    expect(列表).toMatch(/\{能自动分配 && <AssignLeadModal\b/);
+    expect(列表.match(/<AssignLeadModal\b/g)).toHaveLength(1);
+  });
+});

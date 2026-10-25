@@ -437,7 +437,7 @@ export default function LeadsView({
           </Row>
         </Form>
       </Modal>
-      <AssignLeadModal lead={分配中} 关={() => set分配中(null)} />
+      {能自动分配 && <AssignLeadModal lead={分配中} 关={() => set分配中(null)} />}
     </>
   );
 }
