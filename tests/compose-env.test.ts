@@ -37,6 +37,7 @@ const 不用进容器: Record<string, string> = {
   ENT_IMPORT_SEGMENT_MS: "企业版导入每段写多久，只给测试调短用，不配走默认 20 秒",
   ENT_IMPORT_AI: "企业版导入问 AI 的开关：mock 给测试 / 演示走模拟、off 关；不配 = 有 Key 就问。要关由企业版部署包显式写",
   NEXT_RUNTIME: "Next 自己设的（nodejs / edge），不是我们配的",
+  CRM_READ_POOL: "企业版只读通道的关闭开关，只在企业版生效：企业版部署包（deploy/enterprise/docker-compose.yml）里映射着，根目录各 compose 不开企业版、读了也不起作用",
   CRM_SCOPED_SYNC: "范围同步灰度开关，默认关；须老板迁移流程验收、服务器备份及回退方案就绪后由运维显式加入 compose",
   CRM_SCOPED_SYNC_LEGACY_TEAMS: "范围同步开着时仍走旧协议的团队（回滚逃生口），默认空；需要时由运维和 CRM_SCOPED_SYNC 一起加入 compose",
   SYNC_DIR: "默认在 WORKSPACE_DIR 下的 sync/，跟着数据卷走",

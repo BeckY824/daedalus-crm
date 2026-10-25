@@ -1,0 +1,208 @@
+name: Enterprise deploy verify
+
+# 企业版私有部署包（deploy/enterprise）在干净的 Linux 上真起一遍（2026-10-24）。
+# 本机不开 Docker，compose 的验证都放这里。三个裁判，红了就是没做完：
+#   build          用这次检出的代码就地打镜像（版本号带 -ci 后缀），tools/pack.sh 打成和给客户一样的
+#                  部署包 + 离线镜像包，传给下面两组
+#   upgrade-drill  ×3：先装 GHCR 上最新发布的版本（客户现在跑的）→ tools/verify-upgrade.sh 用离线包
+#                  升级 → 回滚 → 再升级，每步经 HTTPS 核版本、核数据表一张没少 → 升到一个起不来的版本号，
+#                  核 upgrade.sh 自动退回
+#   restore-drill  ×3：解开部署包，计时跑 install.sh（一条命令装好，超过 30 分钟算失败）→
+#                  tools/restore-drill.sh --fill：灌数据 → 备份 → 5 种坏备份必须被拒 → 清空 →
+#                  只拿异地备份恢复 → 逐表逐文件比对指纹 → 启动、HTTPS 检查
+# 升级、恢复各跑三遍，三遍都绿才算过（matrix 不 fail-fast，哪一遍红了都看得到）。
+# DOMAIN=localhost 时 Caddy 用自带 CA 发证书，不去 Let's Encrypt，所以 curl 带 -k。
+# 只读：只从 GHCR 拉公开镜像，不推镜像、不碰任何服务器。正式机上的实跑在测试机（tools/UPGRADE-RUNBOOK.md）。
+
+on:
+  pull_request:
+    paths:
+      - "deploy/enterprise/**"
+      - "Dockerfile"
+      - "docker-entrypoint.sh"
+      - "prisma/**"
+      - ".github/workflows/enterprise-deploy-verify.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  build:
+    name: 打镜像、打交付包
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      civ: ${{ steps.ver.outputs.civ }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: 定版本号
+        id: ver
+        run: |
+          # 不带 run 号：package.json 每次都一样，依赖层的缓存才命中
+          CIV="$(jq -r .version package.json)-ci"
+          echo "CIV=$CIV" >> "$GITHUB_ENV"
+          echo "civ=$CIV" >> "$GITHUB_OUTPUT"
+      - name: 这次的代码打成 ${{ env.CIV }}
+        run: npm pkg set version="$CIV"
+      - name: 就地打镜像
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ghcr.io/becky824/daedalus-crm:${{ env.CIV }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: tools/pack.sh 打交付包（和给客户的一样：部署包 + 离线镜像包 + .sha256）
+        run: LOCAL_APP_IMAGE=1 deploy/enterprise/tools/pack.sh "$CIV" "$RUNNER_TEMP/pkg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: enterprise-pkg
+          path: ${{ runner.temp }}/pkg
+          retention-days: 1
+          compression-level: 0
+
+  upgrade-drill:
+    name: 升级演练 第 ${{ matrix.round }} 遍
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        round: [1, 2, 3]
+    env:
+      CIV: ${{ needs.build.outputs.civ }}
+      IMAGE: ghcr.io/becky824/daedalus-crm
+    defaults:
+      run:
+        shell: bash
+        working-directory: deploy/enterprise
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: enterprise-pkg
+          path: ${{ runner.temp }}/pkg
+      - name: 拉 GHCR 上最新发布的版本
+        run: |
+          docker pull "$IMAGE:latest"
+          REL="$(docker inspect -f '{{ index .Config.Labels "org.opencontainers.image.version" }}' "$IMAGE:latest")"
+          echo "最新发布：${REL}"
+          [ -n "$REL" ] && [ "$REL" != "$CIV" ] || { echo "::error::读不到最新发布的版本号"; exit 1; }
+          docker tag "$IMAGE:latest" "$IMAGE:$REL"
+          echo "REL=$REL" >> "$GITHUB_ENV"
+
+      - name: 写 .env（和 install.sh 生成的一样），先装已发布的版本
+        run: |
+          cp .env.example .env
+          sed -i \
+            -e "s|^CRM_VERSION=.*|CRM_VERSION=$REL|" \
+            -e "s|^DOMAIN=.*|DOMAIN=localhost|" \
+            -e "s|^INIT_PASSWORD=.*|INIT_PASSWORD=$(openssl rand -hex 16)|" \
+            .env
+          mkdir -p certs
+          docker compose config --quiet
+          ./scripts/backup-password.sh >/dev/null
+
+      - name: docker compose up -d（已发布的版本）
+        run: docker compose up -d
+
+      - name: 等 crm 容器健康（最多 5 分钟）
+        run: |
+          for i in $(seq 1 60); do
+            s="$(docker inspect -f '{{.State.Health.Status}}' crm 2>/dev/null || echo 没起来)"
+            echo "第 ${i} 次：${s}"
+            [ "$s" = healthy ] && exit 0
+            [ "$s" = unhealthy ] && break
+            sleep 5
+          done
+          echo "::error::crm 容器没有变健康"
+          exit 1
+
+      - name: 升级 → 回滚 → 再升级（tools/verify-upgrade.sh，和测试机上跑的同一个）
+        run: CRM_DIR="$PWD" FILL=1 ./tools/verify-upgrade.sh --load "$RUNNER_TEMP/pkg/crm-images-$CIV.tar.gz"
+
+      - name: 新版本起不来时 upgrade.sh 自动退回
+        run: |
+          # 同一个镜像换个版本号：健康检查报的还是 $CIV，对不上，upgrade.sh 应当判失败并退回
+          docker tag "$IMAGE:$CIV" "$IMAGE:0.0.0-bad"
+          if SKIP_BACKUP=1 UPGRADE_TIMEOUT=30 ./scripts/upgrade.sh 0.0.0-bad; then
+            echo "::error::升到起不来的版本，upgrade.sh 却报成功"; exit 1
+          fi
+          grep -qx "CRM_VERSION=$CIV" .env || { echo "::error::.env 没退回 $CIV"; grep CRM_VERSION .env; exit 1; }
+          test "$(cat .previous-version)" = "$REL" || { echo "::error::.previous-version 应当还是 $REL"; exit 1; }
+          curl -kfsS --resolve localhost:443:127.0.0.1 https://localhost/api/health | grep -q "\"version\":\"$CIV\""
+
+      - name: 容器里企业版开着
+        run: test "$(docker compose exec -T crm printenv CRM_ENTERPRISE)" = 1
+
+      - name: 状态脚本
+        run: ./scripts/status.sh
+
+      - name: 失败时的日志
+        if: failure()
+        run: |
+          docker compose ps -a || true
+          docker compose logs --no-color --tail 300 || true
+
+      - name: docker compose down -v
+        if: always()
+        run: docker compose down -v --remove-orphans || true
+
+  restore-drill:
+    name: 安装 + 恢复演练 第 ${{ matrix.round }} 遍
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        round: [1, 2, 3]
+    env:
+      CIV: ${{ needs.build.outputs.civ }}
+      CRM_DIR: /opt/crm-enterprise
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: enterprise-pkg
+          path: ${{ runner.temp }}/pkg
+      - name: 解开部署包（客户拿到的就是这两个文件）
+        run: |
+          ls -lh "$RUNNER_TEMP/pkg"
+          sudo tar -xzf "$RUNNER_TEMP/pkg/crm-enterprise-$CIV.tar.gz" -C /opt
+          test -x "$CRM_DIR/scripts/install.sh"
+
+      - name: 一条命令装好（计时，超过 30 分钟算失败）
+        working-directory: /opt/crm-enterprise
+        run: |
+          T0=$(date +%s)
+          sudo ./scripts/install.sh --domain localhost --load "$RUNNER_TEMP/pkg/crm-images-$CIV.tar.gz" < /dev/null
+          S=$(( $(date +%s) - T0 ))
+          echo "安装用时 ${S} 秒"
+          echo "### 安装用时 ${S} 秒（第 ${{ matrix.round }} 遍）" >> "$GITHUB_STEP_SUMMARY"
+          [ "$S" -lt 1800 ] || { echo "::error::安装用了 ${S} 秒，超过 30 分钟"; exit 1; }
+          curl -kfsS --resolve localhost:443:127.0.0.1 https://localhost/api/health | grep -q "\"version\":\"$CIV\""
+
+      - name: 恢复演练（tools/restore-drill.sh，和测试机上跑的同一个）
+        run: sudo CRM_DIR="$CRM_DIR" deploy/enterprise/tools/restore-drill.sh --fill
+
+      - name: 演练记录
+        if: always()
+        run: |
+          sudo cat "$CRM_DIR/restore-drill.log" 2>/dev/null | tee -a "$GITHUB_STEP_SUMMARY" || true
+
+      - name: 失败时的日志
+        if: failure()
+        working-directory: /opt/crm-enterprise
+        run: |
+          sudo docker compose ps -a || true
+          sudo docker compose logs --no-color --tail 300 || true
+
+      - name: docker compose down -v
+        if: always()
+        working-directory: /opt/crm-enterprise
+        run: sudo docker compose down -v --remove-orphans || true
