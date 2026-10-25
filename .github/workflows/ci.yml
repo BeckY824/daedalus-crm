@@ -348,3 +348,13 @@ jobs:
           name: parity-report-${{ matrix.width }}
           path: test-results/parity/
           retention-days: 7
+      # 红了或被取消时把 Playwright 的 trace、失败截图也传上去（报告在上面那份里，这里不重复）
+      - uses: actions/upload-artifact@v4
+        if: failure() || cancelled()
+        with:
+          name: parity-test-results-${{ matrix.width }}
+          path: |
+            test-results/
+            !test-results/parity/
+          if-no-files-found: ignore
+          retention-days: 7
