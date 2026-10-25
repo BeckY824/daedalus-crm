@@ -1,5 +1,5 @@
 import { dayjs } from "@/lib/utils";
-import { 是逾期 } from "@/lib/overdue";
+import { 逾期判定 } from "@/lib/overdue";
 
 /**
  * 跟进计划页的「每组摆几条」（页面和服务端都用，不碰库；取数在 lib/plans-page.ts）。
@@ -30,19 +30,24 @@ export function 写每组(每组: readonly number[]): string {
  * 两边分出来会差几条，差的那几条页面再去取（plan-rows.ts）。tests/plans-page.test.ts 拿两边对拍。
  */
 export function 分组<T extends { 时间: string | null }>(行: readonly T[], now = dayjs()): Record<组, T[]> {
-  const 今天结束 = now.endOf("day");
-  const 本周结束 = now.endOf("week");
-  const out: Record<组, T[]> = { 逾期: [], 今天: [], 本周: [], 以后: [] };
+  // 几千条时每条只解析一次时间（2026-10-25 企业版压测：原来排序时每比一次就新建两个 dayjs，占了服务端 CPU 一成多）。
+  // isBefore 不带单位就是比毫秒，和原来一样；排序仍是稳定排序、同一时刻按传进来的先后
+  const 今天结束 = now.endOf("day").valueOf();
+  const 本周结束 = now.endOf("week").valueOf();
+  const 逾期 = 逾期判定(now.toDate());
+  const 分: Record<组, { x: T; ms: number }[]> = { 逾期: [], 今天: [], 本周: [], 以后: [] };
   for (const x of 行) {
-    if (!x.时间) out.以后.push(x);
+    if (!x.时间) 分.以后.push({ x, ms: Infinity });
     else {
-      const t = dayjs(x.时间);
-      if (是逾期(x.时间, now.toDate())) out.逾期.push(x);
-      else if (t.isBefore(今天结束)) out.今天.push(x);
-      else if (t.isBefore(本周结束)) out.本周.push(x);
-      else out.以后.push(x);
+      const ms = dayjs(x.时间).valueOf();
+      const e = { x, ms };
+      if (逾期(x.时间)) 分.逾期.push(e);
+      else if (ms < 今天结束) 分.今天.push(e);
+      else if (ms < 本周结束) 分.本周.push(e);
+      else 分.以后.push(e);
     }
   }
-  for (const k of 组名) out[k].sort((a, c) => (a.时间 ? dayjs(a.时间).valueOf() : Infinity) - (c.时间 ? dayjs(c.时间).valueOf() : Infinity));
+  const out = {} as Record<组, T[]>;
+  for (const k of 组名) out[k] = 分[k].sort((a, c) => a.ms - c.ms).map((e) => e.x);
   return out;
 }
