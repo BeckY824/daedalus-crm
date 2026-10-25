@@ -58,7 +58,8 @@ for (const 宽 of [1024, 1280, 1366, 1512]) {
       await 卡.scrollIntoViewIfNeeded();
       await page.waitForTimeout(500);
       if (出处) { mkdirSync(出处, { recursive: true }); await page.screenshot({ path: path.join(出处, `${宽}-AI${ai ? "开" : "关"}.png`) }); }
-      const 问题 = await 查排版(page, { 忽略: [".ant-message", ".ant-notification", "nextjs-portal"] });
+      // .rec-field-k：左栏长字段名压到值上，是排版普查 #3（客户业务在修，排版闸门的现存问题清单里有）；这里只管时间线，修好后去掉
+      const 问题 = await 查排版(page, { 忽略: [".ant-message", ".ant-notification", "nextjs-portal", ".rec-field-k"] });
       expect(说问题(问题), `${宽} 宽 · AI 栏${ai ? "开" : "关"}`).toBe("");
       expect(await 量日期(page)).toEqual([]);
     });

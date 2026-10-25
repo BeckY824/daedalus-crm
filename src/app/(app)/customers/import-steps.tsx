@@ -322,7 +322,7 @@ export function 对列({
             description={<details><summary>展开未覆盖的原文（也可能是标题或说明）</summary>
               {原文复核.未覆盖.map((p) => <div key={p.行号}>原文第 {p.行号} 行：{p.文本}</div>)}
             </details>} />}
-          <Table size="small" rowKey="行号" pagination={{ pageSize: 10, showSizeChanger: false }}
+          <Table size="small" className="tbl-wrap" rowKey="行号" pagination={{ pageSize: 10, showSizeChanger: false }}
             dataSource={原文复核.关联} style={{ margin: "12px 0" }} columns={[
               { title: "整理结果", render: (_, r) => <div>第 {r.行号 - 1} 条：{数据[r.行号 - 2]?.filter(Boolean).join(" · ")}</div> },
               { title: "原文定位", render: (_, r) => <div>{r.待核对 && <Tag color="warning">关联待核对</Tag>}
@@ -370,6 +370,7 @@ export function 对列({
       )}
       <Table
         size="small"
+        className="tbl-wrap"
         pagination={false}
         rowKey="i"
         dataSource={表头.map((h, i) => ({ h, i }))}
@@ -449,6 +450,7 @@ export function 复核({
       {看.待复核.length > 0 && (
         <Table
           size="small"
+          className="tbl-wrap"
           pagination={{ pageSize: 8, size: "small" }}
           rowKey={(r) => `${r.列}|${r.原值}`}
           dataSource={看.待复核}
