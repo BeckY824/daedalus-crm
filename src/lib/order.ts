@@ -8,7 +8,7 @@
  *   3. 「当前节点」= 第一个既没完成也不是不适用的，算出来、不让人手填
  */
 
-import { businessDayjs } from "./business-clock";
+import { businessDay, businessDayjs } from "./business-clock";
 import { calendarDay, calendarDaysBetween } from "./schedule-date";
 
 export const 节点名们 = [
@@ -79,19 +79,26 @@ export type 灯 = "红" | "黄" | "绿" | "灰" | "无";
  *   其余 → 无（没排日子，或者还早）
  */
 export function 节点灯(n: Pick<节点, "status" | "dueAt">, 现在: Date = new Date()): 灯 {
+  return 按今天的灯(n, () => calendarDay(现在));
+}
+
+/** 今天要用到才算，算一次：已完成、不适用、卡住、没排日子的不用算 */
+function 按今天的灯(n: Pick<节点, "status" | "dueAt">, 今天: () => string): 灯 {
   if (n.status === "已完成") return "绿";
   if (n.status === "不适用") return "灰";
   if (n.status === "卡住") return "红";
   if (!n.dueAt) return "无";
-  const 差天 = calendarDaysBetween(calendarDay(现在), businessDayjs(n.dueAt).format("YYYY-MM-DD"));
+  const 差天 = calendarDaysBetween(今天(), businessDay(n.dueAt));
   if (差天 < 0) return "红";
   if (差天 <= 3) return "黄";
   return "无";
 }
 
-/** 超期了几个节点（卡住也算：都是「这一步出问题了」） */
+/** 超期了几个节点（卡住也算：都是「这一步出问题了」）。今天只算一次，不必每个节点都重算 */
 export function 超期数(nodes: Pick<节点, "status" | "dueAt">[], 现在: Date = new Date()): number {
-  return nodes.filter((n) => 节点灯(n, 现在) === "红").length;
+  let 今天: string | undefined;
+  const 取今天 = () => (今天 ??= calendarDay(现在));
+  return nodes.filter((n) => 按今天的灯(n, 取今天) === "红").length;
 }
 
 /** 进度 %：完成的 ÷ 适用的（不适用的不进分母）。一个都不适用就当 100 */

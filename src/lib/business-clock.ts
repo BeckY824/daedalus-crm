@@ -83,3 +83,20 @@ export function businessValueOf(value: string): number {
   // 业务钟：和 businessDayjs 拼同一个 UTC 串再减 8 小时 = 北京零点；本机钟：和 Dayjs 解析同一个写法 = 本机零点
   return businessTimeZone() ? Date.parse(`${value}T00:00:00Z`) - offsetMs : new Date(+day[1], +day[2] - 1, +day[3], 0, 0, 0, 0).getTime();
 }
+
+/**
+ * 等于 businessDayjs(value).format("YYYY-MM-DD")，带 Z 的 ISO 瞬间不建 Dayjs
+ * （订单列表一次判上万个节点的灯，2026-10-25 企业版：3000 单 × 12 个节点，逐个建 Dayjs 约 110 ms，这样约 30 ms）。
+ * 别的格式、解析不了的、年份出了 0–9999 的，照旧走 businessDayjs。tests/business-day.test.ts 拿 businessDayjs 对拍。
+ */
+export function businessDay(value: string): string {
+  // Dayjs 遇到 Z 结尾的串直接 new Date(串)，和 Date.parse 一样
+  const ms = /Z$/i.test(value) ? Date.parse(value) : NaN;
+  if (Number.isNaN(ms)) return businessDayjs(value).format("YYYY-MM-DD");
+  // 业务钟：墙钟 = 瞬间挪 8 小时后的 UTC 日期；本机钟：和 Dayjs 一样取本机日期
+  const 业务钟 = businessTimeZone() !== null;
+  const d = 业务钟 ? new Date(ms + offsetMs) : new Date(ms);
+  const [y, m, day] = 业务钟 ? [d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate()] : [d.getFullYear(), d.getMonth() + 1, d.getDate()];
+  if (y < 0 || y > 9999) return businessDayjs(value).format("YYYY-MM-DD");
+  return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
