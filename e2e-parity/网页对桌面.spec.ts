@@ -240,9 +240,12 @@ async function 等布局稳(page: Page) {
  * 记录页标题整条被判红）。拍的时候只把它藏起来，不动排版。
  * 顶上那条拖窗口的透明把手（`.shell-desktop .drag-strip`）同理也是窗口边框：它不画任何东西，但桌面端因此多出一个
  * 固定定位的合成层，网页版没有（10-24 用 CDP LayerTree 对过，两边其余图层一模一样）。Windows 上记录页那块网页是彩边字、
- * 桌面是灰度字，差的就是这一层，所以一起藏。两样藏掉都不占位（带子净高 0，把手是 fixed），排版不动
+ * 桌面是灰度字，差的就是这一层，所以一起藏。两样藏掉都不占位（带子净高 0，把手是 fixed），排版不动。
+ * 带子也要 display: none，只 visibility: hidden 不够（10-25 第二轮，同一块 0.64%）：藏起来的 sticky 照样是一个合成层，
+ * 记录页几颗按钮、标签、时间那几块小图层的字跟着成了灰度。display: none 之后 CDP LayerTree 两边一模一样，
+ * 每个元素的位置和带子在时一样（净高 0），排版不动
  */
-const 拍时藏 = ".main::before, .drag-strip { visibility: hidden !important; } .drag-strip { display: none !important; }";
+const 拍时藏 = ".main::before, .drag-strip { display: none !important; }";
 const 拍法 = { animations: "disabled", caret: "hide", style: 拍时藏 } as const;
 
 /** 一个身份这一页的所有块：键 → 截图 */
