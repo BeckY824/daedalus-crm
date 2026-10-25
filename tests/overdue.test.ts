@@ -98,8 +98,11 @@ describe("三处都从 lib/overdue.ts 取，不许再各写一份", () => {
     expect(s).not.toMatch(/dueAt:\s*\{\s*lt:/);
   });
 
-  it("计划页的「逾期」一组：用 是逾期() 分", () => {
+  it("计划页的「逾期」一组：用 逾期判定() 分（PlansView 走 lib/plans-groups 的 分组，和服务端同一个）", () => {
     const s = 读("app/(app)/follow-ups/plans/PlansView.tsx");
-    expect(s).toMatch(/if \(是逾期\(x\.时间\)\) out\.逾期\.push\(x\)/);
+    expect(s).toMatch(/const 组 = useMemo\(\(\) => 分组\(我的\), \[我的\]\)/);
+    const g = 读("lib/plans-groups.ts");
+    expect(g).toMatch(/const 逾期 = 逾期判定\(now\.toDate\(\)\)/);
+    expect(g).toMatch(/if \(逾期\(x\.时间\)\) 分\.逾期\.push\(e\)/);
   });
 });

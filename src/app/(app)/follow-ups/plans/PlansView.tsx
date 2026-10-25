@@ -7,9 +7,8 @@ import { Segmented, Space, Button, App, Tag } from "antd";
 import { PlusOutlined, UnorderedListOutlined, CheckCircleOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import { PageHead, UserCell } from "@/components/ui";
 import EmptyState from "@/components/EmptyState";
-import { dayjs, fmtDateTime } from "@/lib/utils";
-import { 是逾期 } from "@/lib/overdue";
-import { 每批, 组名, 写每组 } from "@/lib/plans-groups";
+import { fmtDateTime } from "@/lib/utils";
+import { 每批, 组名, 写每组, 分组 } from "@/lib/plans-groups";
 import type { 轻行 as 轻列表行 } from "@/lib/plans-page";
 import { 解轻, type 紧轻 } from "@/lib/plans-light";
 import { toggleTask, completePlan, deletePlan, deleteTask } from "../../customers/[id]/actions";
@@ -228,27 +227,11 @@ export default function PlansView({
   /**
    * 分组。没定时间的算「以后」而不是塞进本周——它不是这周要做的，
    * 只是还没排期；混进来会让「本周」这个数变得不可信。
+   * 「逾期」和首页信号、数据页那张卡同一个判断（lib/overdue.ts），数才对得上。
+   * 和服务端挑前 N 条用的是同一个 分组（2026-10-25 企业版压测：原来这里排序时每比一次新建两个 dayjs、
+   * 每条重算一遍今天零点，几千条时服务端渲染这一页要多花上百毫秒）
    */
-  const 组 = useMemo(() => {
-    const 今天结束 = dayjs().endOf("day");
-    const 本周结束 = dayjs().endOf("week");
-    const out = { 逾期: [] as 轻事项[], 今天: [] as 轻事项[], 本周: [] as 轻事项[], 以后: [] as 轻事项[] };
-    for (const x of 我的) {
-      if (!x.时间) out.以后.push(x);
-      else {
-        const t = dayjs(x.时间);
-        // 「逾期」和首页信号、数据页那张卡同一个判断（lib/overdue.ts），数才对得上
-        if (是逾期(x.时间)) out.逾期.push(x);
-        else if (t.isBefore(今天结束)) out.今天.push(x);
-        else if (t.isBefore(本周结束)) out.本周.push(x);
-        else out.以后.push(x);
-      }
-    }
-    for (const k of Object.keys(out) as (keyof typeof out)[]) {
-      out[k].sort((a, c) => (a.时间 ? dayjs(a.时间).valueOf() : Infinity) - (c.时间 ? dayjs(c.时间).valueOf() : Infinity));
-    }
-    return out;
-  }, [我的]);
+  const 组 = useMemo(() => 分组(我的), [我的]);
 
   /** 每组摆出来的：前 N 条（分批时），加上这一页新建过的；没详情的先占一行「正在取」 */
   const 摆 = useMemo(() => {
