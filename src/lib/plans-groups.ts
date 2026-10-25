@@ -25,9 +25,9 @@ export function 写每组(每组: readonly number[]): string {
 }
 
 /**
- * 服务端预先挑「每组前 N 条」用的分组。和 PlansView 里那一段同一个算法、同一个排序（稳定排序，
- * 同一时刻按传进来的先后）；页面上仍以 PlansView 自己分的为准——浏览器和服务器时区不同时
- * 两边分出来会差几条，差的那几条页面再去取（plan-rows.ts）。tests/plans-page.test.ts 拿两边对拍。
+ * 计划页的分组：服务端拿它预先挑「每组前 N 条」，PlansView 也直接用它分（稳定排序，同一时刻按传进来的先后）。
+ * 浏览器和服务器时区不同时两边分出来会差几条，差的那几条页面再去取（plan-rows.ts）。
+ * tests/plans-view-group.test.ts 拿 PlansView 原来自己分的那一段对拍。
  */
 export function 分组<T extends { 时间: string | null }>(行: readonly T[], now = dayjs()): Record<组, T[]> {
   // 几千条时每条只解析一次时间（2026-10-25 企业版压测：原来排序时每比一次就新建两个 dayjs，占了服务端 CPU 一成多）。
