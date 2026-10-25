@@ -11,7 +11,7 @@ import { 数逾期跟进 } from "@/lib/overdue";
 import { 带币种, 商机币种, 签约合计 } from "@/lib/money-db";
 import { 按币种合计, 取币种, 同币环比 } from "@/lib/currency";
 import { getBusiness } from "@/lib/business";
-import { 最近8周 } from "@/lib/dashboard-trend";
+import { 最近8周, 每周进行中金额, 每周赢单率 } from "@/lib/dashboard-trend";
 import { 客户数 } from "@/lib/dashboard-sql";
 import { 近期待办 } from "@/lib/dashboard-todo";
 
@@ -182,21 +182,9 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
 
   const newCustomerSeries = 数客户.每周新增;
   // 进行中商机的金额是「截至那一周末的存量」，不是当周新增。一条线只能画一个币种：画本位币那一份
-  const oppAmountSeries = 周.map((w) =>
-    Math.round(
-      oppsForSeries
-        .filter((o) => o.status === "OPEN" && dayjs(o.createdAt).isBefore(w.止) && 商机币种(o) === 本位币)
-        .reduce((sum, o) => sum + o.amount, 0) / 1000,
-    ),
-  );
+  const oppAmountSeries = 每周进行中金额(周, oppsForSeries, (o) => 商机币种(o) === 本位币);
   // 赢单率同样取截至那一周末的累计口径，和卡片上的总赢单率一致
-  const winRateSeries = 周.map((w) => {
-    const 已关闭 = oppsForSeries.filter(
-      (o) => (o.status === "WON" || o.status === "LOST") && dayjs(o.createdAt).isBefore(w.止),
-    );
-    const 赢 = 已关闭.filter((o) => o.status === "WON").length;
-    return 已关闭.length ? Math.round((赢 / 已关闭.length) * 100) : 0;
-  });
+  const winRateSeries = 每周赢单率(周, oppsForSeries);
 
   return (
     <DashboardView
