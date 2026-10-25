@@ -3,6 +3,7 @@
  * 2026-09-29 用户：Dock 上挂着 1，打开应用不知道去哪儿看、去哪儿处理——那时应用里没有任何地方写着这个 1，
  * 手机顶栏的铃铛倒有个数，数的却是「全部没做完的待办」，又是另一个意思。
  * 这里钉住：三处都走 lib/reminders-db.ts 的 取提醒项 + lib/reminders.ts 的 算提醒，谁换了口径就红。
+ * 左栏只要两个数，改在库里数（数提醒，和 算提醒 共用 今天界线）；两边数出来一样由 tests/reminder-count.test.ts 对拍。
  */
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
@@ -11,13 +12,15 @@ import path from "node:path";
 const 读 = (rel: string) => fs.readFileSync(path.resolve(__dirname, "..", rel), "utf8");
 
 describe("要跟的数：一个口径、处处一样", () => {
-  it("Dock 的接口和页面布局取的是同一份（取提醒项 → 算提醒），不再各数各的", () => {
+  it("Dock 的接口和页面布局取的是同一份（取提醒项 → 算提醒 / 数提醒，同一条今天界线），不再各数各的", () => {
     const 接口 = 读("src/app/api/desktop/reminders/route.ts");
     const 布局 = 读("src/app/(app)/layout.tsx");
-    for (const 源 of [接口, 布局]) {
-      expect(源).toContain("取提醒项(");
-      expect(源).toContain("算提醒(");
-    }
+    expect(接口).toContain("取提醒项(");
+    expect(接口).toContain("算提醒(");
+    expect(布局).toContain("数提醒(user.id)");
+    const 库 = 读("src/lib/reminders-db.ts");
+    expect(库).toMatch(/export async function 数提醒[\s\S]*今天界线\(now\)/);
+    expect(读("src/lib/reminders.ts")).toMatch(/export function 算提醒[^]*?今天界线\(now\)/);
     // 原来铃铛数的是「全部没做完的待办」
     expect(布局).not.toMatch(/task\.count\(/);
   });

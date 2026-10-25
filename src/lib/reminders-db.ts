@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import type { 提醒项, 订单提醒项 } from "@/lib/reminders";
+import { 今天界线, type 提醒项, type 订单提醒项 } from "@/lib/reminders";
 
 /**
  * 某人名下还没做的跟进计划和待办，摊成 算提醒() 要的样子。
@@ -23,6 +23,23 @@ export async function 取提醒项(ownerId: string): Promise<提醒项[]> {
     ...plans.map((p) => ({ id: p.id, kind: "plan" as const, 标题: p.subject, 时间: p.plannedAt, 日历日: p.plannedOn, 明确钟点: p.plannedHasTime, customerId: p.customer.id, 客户: p.customer.name, 方式: p.method })),
     ...tasks.map((t) => ({ id: t.id, kind: "task" as const, 标题: t.title, 时间: t.dueAt, 日历日: t.dueOn, 明确钟点: t.dueHasTime, customerId: t.customer.id, 客户: t.customer.name })),
   ];
+}
+
+/**
+ * 只要 逾期 / 今天 两个数时（左栏「跟进」上的红数字）：在库里数，不把这个人没做的计划和待办全拉回来。
+ * layout 每个页面都走一遍，企业版业务员名下动辄几千条，整份拉回来光解析就几十毫秒。
+ * 口径和 算提醒(取提醒项()) 一样（tests/reminder-count.test.ts 对拍）：有原日历日的按日历日比，没有的按时间比，没排时间的不算
+ */
+export async function 数提醒(ownerId: string, now = new Date()): Promise<{ 逾期: number; 今天: number }> {
+  const { 今天开始, 明天开始, 今天串 } = 今天界线(now);
+  // 算提醒() 里空串的日历日当没有：按时间算
+  const [a, b, c, d] = await Promise.all([
+    prisma.followPlan.count({ where: { done: false, ownerId, OR: [{ plannedOn: { gt: "", lt: 今天串 } }, { OR: [{ plannedOn: null }, { plannedOn: "" }], plannedAt: { lt: 今天开始 } }] } }),
+    prisma.task.count({ where: { done: false, ownerId, dueAt: { not: null }, OR: [{ dueOn: { gt: "", lt: 今天串 } }, { OR: [{ dueOn: null }, { dueOn: "" }], dueAt: { lt: 今天开始 } }] } }),
+    prisma.followPlan.count({ where: { done: false, ownerId, OR: [{ plannedOn: 今天串 }, { OR: [{ plannedOn: null }, { plannedOn: "" }], plannedAt: { gte: 今天开始, lt: 明天开始 } }] } }),
+    prisma.task.count({ where: { done: false, ownerId, dueAt: { not: null }, OR: [{ dueOn: 今天串 }, { OR: [{ dueOn: null }, { dueOn: "" }], dueAt: { gte: 今天开始, lt: 明天开始 } }] } }),
+  ]);
+  return { 逾期: a + b, 今天: c + d };
 }
 
 /**

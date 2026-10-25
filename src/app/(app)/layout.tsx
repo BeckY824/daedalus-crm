@@ -6,7 +6,7 @@ import { headers } from "next/headers";
 import { getCurrentUser } from "@/lib/auth";
 import AppShell from "@/components/AppShell";
 import { 算提醒 } from "@/lib/reminders";
-import { 取提醒项, 取订单提醒项 } from "@/lib/reminders-db";
+import { 数提醒, 取订单提醒项 } from "@/lib/reminders-db";
 import { getBusiness } from "@/lib/business";
 import { BusinessProvider } from "@/lib/business-client";
 import { 本地模式, 归属对不上, 读 as 读云端凭据 } from "@/lib/desktop/cloud";
@@ -59,8 +59,9 @@ export default async function AppLayout({
     桌面端 Dock 上的数都是这一个（lib/reminders-db.ts）。layout 在客户端导航时不重算，
     但完成、改期、新建之后各处都会 router.refresh()——那时它跟着变。中栏要的数据在 @pane 槽位里各自查
   */
-  const [提醒项, 订单提醒项, business, ua, 有AI, models, 收藏, 客户数, 在谈商机数] = await Promise.all([
-    取提醒项(user.id),
+  const [要跟, 订单提醒项, business, ua, 有AI, models, 收藏, 客户数, 在谈商机数] = await Promise.all([
+    // 只要两个数：在库里数（lib/reminders-db.ts 数提醒，口径同 算提醒），不把名下没做的全拉回来
+    数提醒(user.id),
     // 订单节点这一版不上（lib/features.ts）：不取，左栏和 Dock 上也就没有订单的数
     订单节点 ? 取订单提醒项(user.id) : Promise.resolve([]),
     // 业务术语（学员/客户、院校/年级/专业…）：全站客户端组件从这里拿
@@ -102,7 +103,7 @@ export default async function AppLayout({
       <AppShell
         user={user}
         workspace={workspace ? { name: workspace.name, multiple: workspaces.length > 1, billing: multiTenant() && workspace.role === "OWNER" && !是共享工作区(workspace.slug) } : undefined}
-        要跟={(({ 逾期, 今天 }) => ({ 逾期, 今天 }))(算提醒(提醒项))}
+        要跟={要跟}
         订单要看={(({ 超期, 今天 }) => ({ 超期, 今天 }))(算提醒([], new Date(), 订单提醒项).订单)}
         desktop={desktop}
         反馈去向={企业版() ? "none" : 本地模式() || multiTenant() ? "cloud" : "github"}
