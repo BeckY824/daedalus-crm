@@ -23,6 +23,7 @@ import { 分配线索, 设配额, 我分出去的线索, 本月分配情况, 自
 import { getSetting } from "@/lib/settings";
 import { 企划线索计数key, 月份, 计不计数, 满了, 有配额, 挑接手人, 挑的理由, 自动分配不参与key } from "@/lib/enterprise/lead-assign";
 import { 规则 } from "@/lib/enterprise/rules";
+import { saveLead } from "@/app/(app)/leads/actions";
 
 let 老板: string, 总管: string, 市场: string, 销售经理: string, 内贸: string, 外贸: string, 两边: string, 虚线经理: string, 渠道: string;
 
@@ -509,5 +510,55 @@ describe("分出去以后原负责人仍能看到转化情况", () => {
     expect(A).not.toHaveProperty("phone");
     await prisma.lead.delete({ where: { id: b } });
     expect((await 我分出去的线索())!.map((x) => x.name)).toEqual(["A"]);
+  });
+});
+
+describe("规则开着时编辑 / 新建不能随手换负责人（F2，10-25 实测 D1 1.5 / 1.7 / 1.8）", () => {
+  beforeEach(() => 开());
+  const 存 = (o: { id?: string; ownerId?: string | null; name?: string }) =>
+    saveLead({ name: o.name ?? "L", source: "其他", status: "待跟进", ...o });
+
+  it("能分配的人编辑时改负责人：拒，指去「分配」；负责人、分配记录都不动", async () => {
+    当(市场);
+    const L = await 建线索("L3");
+    expect(await 存({ id: L, name: "L3", ownerId: 内贸 })).toMatchObject({ ok: false, error: expect.stringMatching(/分配/) });
+    expect(await 负责人(L)).toBe(市场);
+    expect(await prisma.entLeadAssign.count()).toBe(0);
+  });
+  it("分给不是销售的人、分满的人也一样拒（不会绕过角色和配额）", async () => {
+    当(市场);
+    await 配(内贸, 0);
+    const L = await 建线索("L5");
+    expect((await 存({ id: L, ownerId: 渠道 })).ok).toBe(false);
+    expect((await 存({ id: L, ownerId: 内贸 })).ok).toBe(false);
+    expect(await 负责人(L)).toBe(市场);
+  });
+  it("不能分配的人新建给别人：拒，说只有老板、总管理员、市场管理能分配；建给自己照常", async () => {
+    当(渠道);
+    expect(await 存({ name: "L6", ownerId: 外贸 })).toMatchObject({ ok: false, error: expect.stringMatching(/只有老板、总管理员、市场管理/) });
+    expect(await prisma.lead.count({ where: { name: "L6" } })).toBe(0);
+    expect((await 存({ name: "L6", ownerId: 渠道 })).ok).toBe(true);
+    expect((await 存({ name: "L7" })).ok).toBe(true);
+  });
+  it("负责人没变照常能改别的；没人管的线索自己认领照常", async () => {
+    当(市场);
+    const L = await 建线索("L");
+    expect((await 存({ id: L, name: "改个名", ownerId: 市场 })).ok).toBe(true);
+    const 空 = await 建线索("空", null);
+    expect((await 存({ id: 空, name: "空" })).ok).toBe(true);
+    expect(await 负责人(空)).toBe(市场);
+  });
+  it("规则关着、共享试用区、不是企业版：照旧能改负责人", async () => {
+    当(市场);
+    const L = await 建线索("L");
+    await 开(false);
+    expect((await 存({ id: L, ownerId: 内贸 })).ok).toBe(true);
+    await 开(true);
+    mocks.共享区 = true;
+    expect((await 存({ id: L, ownerId: 外贸 })).ok).toBe(true);
+    mocks.共享区 = false;
+    mocks.企业版 = false;
+    expect((await 存({ id: L, ownerId: 两边 })).ok).toBe(true);
+    expect(await 负责人(L)).toBe(两边);
   });
 });

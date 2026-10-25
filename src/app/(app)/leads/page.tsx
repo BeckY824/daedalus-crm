@@ -56,8 +56,9 @@ export default async function LeadsPage({
   const 候选 = users.some((u) => u.id === me.id) ? users : [...users, { id: me.id, name: me.name, email: me.email }];
 
   const 号 = await 号码脱敏器();
-  // 企业版「线索分配和配额」开着、我能分配（老板、总管理员、市场管理）才摆「自动分配」按钮；服务端还会再查一遍
-  const 能自动分配 = (await 规则开着("线索分配")) && !(await 当前是共享区()) && 能分配(await 读组织(), me);
+  // 企业版「线索分配和配额」开着、我能分配（老板、总管理员、市场管理）才摆「分配」「自动分配」；服务端还会再查一遍
+  const 线索分配开着 = (await 规则开着("线索分配")) && !(await 当前是共享区());
+  const 能自动分配 = 线索分配开着 && 能分配(await 读组织(), me);
   return (
     <LeadsView
       总数={总数}
@@ -66,6 +67,7 @@ export default async function LeadsPage({
       filters={{ keyword: sp.keyword ?? "", status: sp.status ?? "", ownerId: sp.ownerId ?? "", source: sp.source ?? "" }}
       来源们={来源们}
       能自动分配={能自动分配}
+      线索分配开着={线索分配开着}
       rows={rows.map((l) => ({
         id: l.id,
         name: l.name,
