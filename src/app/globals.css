@@ -362,10 +362,7 @@ html.os-win .shell-desktop .main :is(.rec-rail, .set-nav, .legal-toc) { top: cal
 html.os-win[data-skin="now"] { --text-muted: color-mix(in srgb, var(--ink-soft) 80%, var(--panel)); --text-faint: color-mix(in srgb, var(--ink-soft) 62%, var(--panel)); }
 .shell-desktop :is(a, button, input, select, textarea, [role="button"], [role="tab"], [role="menuitem"], .ant-select, .ant-input, .ant-input-affix-wrapper, .ant-btn, .ant-dropdown-trigger, .ant-segmented) { -webkit-app-region: no-drag; }
 .rail-top { display: flex; align-items: center; height: 40px; width: 100%; margin-bottom: 14px; }
-.rail-mark { display: inline-flex; align-items: center; gap: 8px; line-height: 0; padding: 6px 8px; border-radius: var(--r-card); color: var(--ink); }
-.rail-mark:hover { background: var(--hover); }
-.rail-mark b { font-family: var(--font-display); font-size: var(--fs-body); font-weight: 600; letter-spacing: -0.3px; line-height: 1; white-space: nowrap; }
-/* 桌面端左栏顶上的搜索框（AppShell，点开就是 ⌘K 那张跳转单）。样子是个输入框，其实是个按钮 */
+/* 左栏顶上的搜索框（AppShell，点开就是 ⌘K 那张跳转单）。样子是个输入框，其实是个按钮 */
 .rail-search { display: flex; align-items: center; gap: var(--s2); width: 100%; height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-card); background: var(--panel); color: var(--text-faint); font: inherit; font-size: var(--fs-note); cursor: pointer; -webkit-app-region: no-drag;
   transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease); }
 .rail-search:hover { border-color: var(--line-strong); color: var(--text-muted); }
@@ -2019,7 +2016,7 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
    它们按下去只变底色。 */
 .press, .rail-item, .rail-fb, .pane-ib, .pane-chip, .rec-chip, .cli-tool, .cli-send, .cli-ic,
 .cli-q, .cli-sugg, .cli-cmd, .mp-btn, .prop-ok, .prop-no, .bill-plan, .set-nav-i, .cmdk-row,
-.setm-x, .list-sel-x, .plan-switch, .rail-user, .rail-mark {
+.setm-x, .list-sel-x, .plan-switch, .rail-user {
   transition:
     scale var(--t-fast) var(--ease),
     transform var(--t-fast) var(--ease),
@@ -2036,7 +2033,7 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
   transition-duration: var(--t-press);
 }
 /* 大块头缩得更少：整条导航项缩 4% 会显得在跳，0.985 刚好只有手感觉得到 */
-.rail-item:active, .rail-user:active, .rail-mark:active, .bill-plan:active,
+.rail-item:active, .rail-user:active, .bill-plan:active,
 .set-nav-i:active, .cmdk-row:active {
   /* 0.985 在一条 195px 宽的导航项上只缩 2.9px——量出来是有的，眼睛看不见。
      0.965 缩 6.8px，是"按下去了"和"什么也没发生"的分界 */
@@ -2069,7 +2066,7 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .cli-ic:focus-visible, .cli-q:focus-visible, .cli-sugg:focus-visible, .cli-cmd:focus-visible,
 .mp-btn:focus-visible, .prop-ok:focus-visible, .prop-no:focus-visible, .bill-plan:focus-visible,
 .set-nav-i:focus-visible, .cmdk-row:focus-visible, .list-sel-x:focus-visible,
-.plan-switch:focus-visible, .rail-mark:focus-visible {
+.plan-switch:focus-visible {
   outline: 1.5px solid var(--brand);
   outline-offset: 2px;
   border-radius: var(--r-ctl);

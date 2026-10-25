@@ -5,7 +5,8 @@
 import type { Prisma } from "@/generated/prisma";
 import { prisma } from "../prisma";
 import { 查完再写 } from "../check-then-write";
-import { 改节点问题, 原因上限, type 位置 } from "./nodes";
+import { 改节点问题, 原因上限, 下一步, 节点序号, type 位置 } from "./nodes";
+import { 还差, 节点推进生效, 按必填走, 节点必填, type 必填数据 } from "./required";
 import { 规整项目, 规整沟通, type 向导项目, type 向导跟进 } from "./wizard";
 import { 持有上限of, type 组织规则 } from "./org-rules";
 import { 企业版 } from "@/lib/enterprise/switch";
@@ -15,6 +16,7 @@ import { getSetting, setSetting } from "../settings";
 import { recordAudit } from "../audit";
 import { 读团队 } from "../sync/client";
 import { dayjs } from "../utils";
+import { 看全部 } from "../team-scope";
 
 type 谁 = { id: string; role: string };
 type 结果 = { ok: true } | { ok: false; error: string };
@@ -169,6 +171,9 @@ export async function 改异常类别(me: 谁, id: string, patch: { name?: unkno
   });
 }
 
+/** 自动推进了才带上 自动推到（没推的返回和原来一模一样） */
+const 带推进 = (到: string[]) => (到.length ? { 自动推到: 到 } : {});
+
 /**
  * 改节点：往前只能一步一步走，往后随便退（nodes.ts 改节点问题），点结局也走这里。每改一次记一行 ProjectNodeLog。
  * 有结局记下 closedAt，回到进行中（= 从异常状态恢复、从丢单捡回来）清掉。
@@ -176,7 +181,8 @@ export async function 改异常类别(me: 谁, id: string, patch: { name?: unkno
  */
 export async function 改节点(
   me: 谁, projectId: string, 到: 位置, 异常?: { categoryId?: string | null; 备注?: string | null },
-): Promise<结果 & { 变了?: boolean }> {
+): Promise<结果 & { 变了?: boolean; 自动推到?: string[] }> {
+  const 规则 = await 生效组织规则();
   return 查完再写(async (tx) => {
     const p = await tx.project.findUnique({ where: { id: String(projectId ?? "") } });
     if (!p) return { ok: false as const, error: "这个项目已经不在了，刷新看看" };
@@ -184,6 +190,17 @@ export async function 改节点(
     const result = 到.result || null;
     const 问题 = 改节点问题({ ...到, result }, p, 异常);
     if (问题) return { ok: false as const, error: 问题 };
+    // 企业版节点必填（D-37）：配了必填的节点，往前推只给老板、主管；销售本人填齐了自动推
+    const 往前 = !result && !p.result && 节点序号(到) > 节点序号(p);
+    if (往前 && 按必填走(规则, p.node) && me.role !== "ADMIN" && me.role !== "MANAGER") {
+      const 差 = 还差(规则, await 读必填数据(tx, p));
+      return {
+        ok: false as const,
+        error: 差.length
+          ? `「${p.node}」填齐必填后自动往前推，还差：${差.join("、")}；要先推请找老板或主管`
+          : `「${p.node}」的必填已经齐了，保存一下就会自动往前推`,
+      };
+    }
     let 类别: string | null = null;
     let 备注: string | null = null;
     if (result === "异常状态") {
@@ -213,7 +230,8 @@ export async function 改节点(
         toPhase: 到.phase, toNode: 到.node, toResult: result, categoryId: 类别, reason: 备注,
       },
     });
-    return { ok: true as const, 变了: true };
+    // 老板、主管往前推到的节点也配了、也齐了：接着推
+    return { ok: true as const, 变了: true, ...带推进(往前 ? await 按必填推进(tx, 规则, me, p.id, true) : []) };
   });
 }
 
@@ -221,8 +239,9 @@ export const 交付项们 = { balanceSettled: "尾款结清", acceptancePassed: 
 export type 交付项 = keyof typeof 交付项们;
 
 /** 勾 / 取消尾款结清、验收通过，记谁、何时。已经成功交付的不让取消（先把节点改回去） */
-export async function 勾交付(me: 谁, projectId: string, 项: 交付项, 勾: boolean): Promise<结果 & { 变了?: boolean }> {
+export async function 勾交付(me: 谁, projectId: string, 项: 交付项, 勾: boolean): Promise<结果 & { 变了?: boolean; 自动推到?: string[] }> {
   if (!(项 in 交付项们)) return { ok: false, error: "没有这一项" };
+  const 规则 = await 生效组织规则();
   return 查完再写(async (tx) => {
     const p = await tx.project.findUnique({ where: { id: String(projectId ?? "") } });
     if (!p) return { ok: false as const, error: "这个项目已经不在了，刷新看看" };
@@ -231,7 +250,7 @@ export async function 勾交付(me: 谁, projectId: string, 项: 交付项, 勾:
     if (!勾 && p.result === "成功交付") return { ok: false as const, error: `已经成功交付了；要取消「${交付项们[项]}」，先把节点改回去` };
     const 谁勾 = 项 === "balanceSettled" ? { balanceSettledById: 勾 ? me.id : null, balanceSettledAt: 勾 ? new Date() : null } : { acceptancePassedById: 勾 ? me.id : null, acceptancePassedAt: 勾 ? new Date() : null };
     await tx.project.update({ where: { id: p.id }, data: { [项]: 勾, ...谁勾 } });
-    return { ok: true as const, 变了: true };
+    return { ok: true as const, 变了: true, ...带推进(await 按必填推进(tx, 规则, me, p.id)) };
   });
 }
 
@@ -295,7 +314,7 @@ async function 在职(tx: Prisma.TransactionClient, userId: string) {
  * 换负责人 = 转让：能管项目的人（负责人本人、老板、主管）能转，只改这一个项目，记谁、何时、从谁到谁。
  * 公海里的项目老板 / 主管指了新负责人 = 出公海。建档人（creatorId）不在这里、哪里都不给改
  */
-export async function 改项目(me: 谁, projectId: string, patch: 向导项目 & { contactId?: string | null }): Promise<结果 & { 变了?: string[] }> {
+export async function 改项目(me: 谁, projectId: string, patch: 向导项目 & { contactId?: string | null }): Promise<结果 & { 变了?: string[]; 自动推到?: string[] }> {
   if (!patch || typeof patch !== "object") return { ok: false, error: "要改什么？" };
   const 规则 = await 生效组织规则();
   return 查完再写(async (tx) => {
@@ -322,7 +341,7 @@ export async function 改项目(me: 谁, projectId: string, patch: 向导项目 
     // 换了人，上一位填的下一步时间不替新负责人算（超时回收从接手那天重新算）
     await tx.project.update({ where: { id: p.id }, data: { ...新, ...(换人 ? { nextStepAt: null } : {}), ...(换人 && p.pooledAt ? { pooledAt: null } : {}) } });
     if (换人) await 记转让(tx, p, me.id, p.ownerId, 新.ownerId);
-    return { ok: true as const, 变了 };
+    return { ok: true as const, 变了, ...带推进(await 按必填推进(tx, 规则, me, p.id)) };
   });
 }
 
@@ -375,6 +394,8 @@ export async function 放回公海(me: 谁, projectId: string): Promise<结果> 
   });
 }
 
+const 领走了 = { ok: false as const, error: "这个项目已经被人领走了，刷新看看" };
+
 /**
  * 从公海领取：谁都能领；放回去的那位企业版里能领回（10-24 定），别的版本照旧不能自己领回。领了就是新负责人，记一行 pool-claim。
  * 开了持有上限的，到上限了领不了
@@ -382,9 +403,13 @@ export async function 放回公海(me: 谁, projectId: string): Promise<结果> 
 export async function 领取公海项目(me: 谁, projectId: string): Promise<结果> {
   const 规则 = await 生效组织规则();
   return 查完再写(async (tx) => {
-    const p = await tx.project.findUnique({ where: { id: String(projectId ?? "") } });
-    if (!p) return { ok: false as const, error: "这个项目已经不在了，刷新看看" };
-    if (!p.pooledAt) return { ok: false as const, error: "这个项目已经被人领走了，刷新看看" };
+    const id = String(projectId ?? "");
+    const p = await tx.project.findUnique({ where: { id } });
+    // 两人同时领：先进来的领走了，项目就落到后进来那位的范围外（业务员只看自己的 + 公海），带限定查是空的；
+    // 不带限定再看一眼，还在就是被人领走了，不是删了（D-35）
+    if (!p) return (await 看全部(() => tx.project.findUnique({ where: { id }, select: { id: true } })))
+      ? 领走了 : { ok: false as const, error: "这个项目已经不在了，刷新看看" };
+    if (!p.pooledAt) return 领走了;
     if (!(await 在职(tx, me.id))) return { ok: false as const, error: "账号已停用" };
     if (!企业版() && me.id === p.ownerId) return { ok: false as const, error: "自己放回公海的项目不能自己领回" };
     const 超 = await 超上限(tx, 规则, me.id, p);
@@ -474,7 +499,7 @@ export async function 公海超时收回(me: { id: string; name: string }, 今: 
  * 开了超时回收、项目在线索 / 商机阶段（还没结局）时必须填下一步时间。
  * 跟进挂在客户上（客户页也看得到）+ 挂上项目当时的节点；客户的最近跟进往后推；填了下一步时间写到项目上
  */
-export async function 记项目沟通(me: 谁, projectId: string, input: 向导跟进, now: Date = new Date()): Promise<结果 & { followUpId?: string }> {
+export async function 记项目沟通(me: 谁, projectId: string, input: 向导跟进, now: Date = new Date()): Promise<结果 & { followUpId?: string; 自动推到?: string[] }> {
   if (!input || typeof input !== "object") return { ok: false, error: "要记什么？" };
   const 规则 = await 生效组织规则();
   return 查完再写(async (tx) => {
@@ -495,7 +520,7 @@ export async function 记项目沟通(me: 谁, projectId: string, input: 向导�
     const c = await tx.customer.findUnique({ where: { id: p.customerId }, select: { lastFollowAt: true } });
     if (!c?.lastFollowAt || c.lastFollowAt < 好.occurredAt) await tx.customer.update({ where: { id: p.customerId }, data: { lastFollowAt: 好.occurredAt } });
     if (好.nextStepAt) await tx.project.update({ where: { id: p.id }, data: { nextStepAt: 好.nextStepAt } });
-    return { ok: true as const, followUpId: 跟进.id };
+    return { ok: true as const, followUpId: 跟进.id, ...带推进(await 按必填推进(tx, 规则, me, p.id)) };
   });
 }
 
@@ -552,4 +577,92 @@ export async function 移出组员(me: 谁, memberId: string): Promise<结果> {
     await tx.projectMember.delete({ where: { id: m.id } });
     return { ok: true as const };
   });
+}
+
+/**
+ * 算「还差」要的数据（企业版节点必填，D-37）：客户（含外贸字段）、客户下的联系人、项目上的沟通各在哪个节点记的。
+ * 只用 tx：保存的那笔事务里调，刚写的也读得到
+ */
+export async function 读必填数据(
+  tx: Prisma.TransactionClient,
+  p: { id: string; customerId: string; node: string; contactId: string | null; nextStepAt: Date | null; amount: number; remark: string | null; acceptancePassed: boolean },
+): Promise<必填数据> {
+  const [c, 联系人们, 沟通] = await Promise.all([
+    tx.customer.findUnique({
+      where: { id: p.customerId },
+      select: { phone: true, expectedSignAt: true, extra: { select: { country: true, whatsapp: true, wechat: true, email: true, source: true, level: true, alibabaId: true } } },
+    }),
+    tx.contact.findMany({ where: { customerId: p.customerId }, select: { phone: true, email: true, wechat: true } }),
+    tx.followUpProject.findMany({ where: { projectId: p.id }, select: { node: true }, distinct: ["node"] }),
+  ]);
+  return {
+    项目: { node: p.node, contactId: p.contactId, nextStepAt: p.nextStepAt, amount: p.amount, remark: p.remark, acceptancePassed: p.acceptancePassed },
+    客户: { phone: c?.phone ?? null, expectedSignAt: c?.expectedSignAt ?? null, extra: c?.extra ?? null },
+    联系人们,
+    沟通节点们: 沟通.map((x) => x.node),
+  };
+}
+
+export const 自动推进理由 = "必填齐了，自动推进";
+
+/**
+ * 是不是往前走进现在这个节点的：最后一行进这个节点的节点变更是往前（或建项目那一行）。
+ * 退回来的不自动推（退回一般是要重做，等上级手动推）
+ */
+async function 往前进来的(tx: Prisma.TransactionClient, p: { id: string; phase: string; node: string }): Promise<boolean> {
+  const 们 = await tx.projectNodeLog.findMany({
+    where: { projectId: p.id, kind: "node", toPhase: p.phase, toNode: p.node, toResult: null },
+    orderBy: [{ at: "desc" }, { id: "desc" }], take: 1,
+    select: { fromPhase: true, fromNode: true },
+  });
+  const 上次 = 们[0];
+  if (!上次?.fromPhase || !上次.fromNode) return true;
+  return 节点序号(p) > 节点序号({ phase: 上次.fromPhase, node: 上次.fromNode });
+}
+
+/**
+ * 企业版节点必填（D-37）：现在的节点配了必填、全齐了、是往前走进来的，就往前推一步，记一行节点变更（理由写明自动推进，操作人 = 这次保存的人）；
+ * 推到的节点也配了、也齐了，接着推。返回推到的节点（没推 = 空）。
+ * 没生效时一行都不查。在保存的那笔事务里调，规则在事务外读好传进来。
+ * 刚往前推进来（老板、主管手动推）的传 刚往前 = true，省一次查
+ */
+export async function 按必填推进(tx: Prisma.TransactionClient, 规则: 组织规则, me: { id: string }, projectId: string, 刚往前 = false): Promise<string[]> {
+  if (!节点推进生效(规则)) return [];
+  const 到了: string[] = [];
+  let 往前 = 刚往前;
+  for (;;) {
+    const p = await tx.project.findUnique({ where: { id: projectId } });
+    if (!p || p.pooledAt || p.result || !按必填走(规则, p.node)) break;
+    const 下 = 下一步(p);
+    if (!下) break;
+    if (!往前 && !(await 往前进来的(tx, p))) break;
+    if (还差(规则, await 读必填数据(tx, p)).length) break;
+    await tx.project.update({ where: { id: p.id }, data: { phase: 下.phase, node: 下.node } });
+    await tx.projectNodeLog.create({
+      data: {
+        projectId: p.id, userId: me.id, reason: 自动推进理由,
+        fromPhase: p.phase, fromNode: p.node, fromResult: null, toPhase: 下.phase, toNode: 下.node, toResult: null,
+      },
+    });
+    到了.push(下.node);
+    往前 = true;
+  }
+  return 到了;
+}
+
+/**
+ * 客户这边存了东西（客户资料、联系人、客户上的跟进）：这位客户名下停在配了必填节点上的项目，齐了的往前推。
+ * 每个项目一笔事务；没生效时不查库。返回推了的项目和推到的节点（操作日志用）
+ */
+export async function 客户项目按必填推进(me: { id: string }, customerId: string): Promise<{ id: string; name: string; 到: string[] }[]> {
+  const 规则 = await 生效组织规则();
+  if (!节点推进生效(规则) || !customerId) return [];
+  const 配了的 = Object.keys(规则.节点推进.必填).filter((n) => 节点必填(规则, n).length);
+  const 们 = await prisma.project.findMany({ where: { customerId, pooledAt: null, result: null, node: { in: 配了的 } }, select: { id: true, name: true } });
+  const 推了: { id: string; name: string; 到: string[] }[] = [];
+  for (const p of 们) {
+    const 到 = await 查完再写((tx) => 按必填推进(tx, 规则, me, p.id));
+    if (到.length) 推了.push({ ...p, 到 });
+  }
+  return 推了;
 }

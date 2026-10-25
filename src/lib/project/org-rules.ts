@@ -1,10 +1,11 @@
 /**
- * 企业版的组织规则（2026-10-24）：项目公海持有上限、超时回收等。每条规则都是开关，默认全关——
+ * 企业版的组织规则（2026-10-24）：项目公海持有上限、超时回收、节点必填等。每条规则都是开关，默认全关——
  * 通用的 20–30 人 B2B 团队不开也照旧用；要的团队老板在「设置 → 项目模式」里自己打开。
  * 存在 Setting 的 orgRules 一个 key 里（业务配置 getBusiness 会丢掉不认识的 key，不混进去）。
  * 这里只管规整，界面也引（不能碰 prisma）；读写库在 org-rules-store.ts，规矩在 lib/project/db.ts 里用
  */
 import { 节点们 } from "./nodes";
+import { 必填项名们, 能配必填的节点 } from "./required";
 
 /** 持有上限最多填多少：防手滑多打几个 0 */
 export const 上限最大 = 999;
@@ -28,11 +29,18 @@ export type 组织规则 = {
     /** 节点名 → 最长处理天数；没设的节点不回收 */
     节点天数: Record<string, number>;
   };
+  节点推进: {
+    /** 开了、节点配了必填才按必填自动推进（lib/project/required.ts）；关着时配的清单存着不用 */
+    开: boolean;
+    /** 节点名 → 必填哪几样（required.ts 的 必填项们）；没配的节点照原来手动推 */
+    必填: Record<string, string[]>;
+  };
 };
 
 export const 默认组织规则: 组织规则 = {
   公海: { 持有上限开: false, 默认上限: 30, 每人上限: {} },
   超时回收: { 开: false, 节点天数: {} },
+  节点推进: { 开: false, 必填: {} },
 };
 
 function 整数(v: unknown, 最小: number, 最大: number): number | null {
@@ -63,6 +71,15 @@ export function 规整组织规则(raw: unknown): 组织规则 {
       if (能设时长的节点.includes(node) && n !== null) 天数[node] = n;
     }
   }
+  const 推进 = (r.节点推进 && typeof r.节点推进 === "object" ? r.节点推进 : {}) as Record<string, unknown>;
+  const 必填: Record<string, string[]> = {};
+  if (推进.必填 && typeof 推进.必填 === "object") {
+    for (const [node, v] of Object.entries(推进.必填 as Record<string, unknown>)) {
+      if (!能配必填的节点.includes(node) || !Array.isArray(v)) continue;
+      const 项 = [...new Set(v.filter((x): x is string => typeof x === "string" && 必填项名们.includes(x)))];
+      if (项.length) 必填[node] = 项;
+    }
+  }
   return {
     公海: {
       持有上限开: 公海.持有上限开 === true,
@@ -70,6 +87,7 @@ export function 规整组织规则(raw: unknown): 组织规则 {
       每人上限: 每人,
     },
     超时回收: { 开: 超时.开 === true, 节点天数: 天数 },
+    节点推进: { 开: 推进.开 === true, 必填 },
   };
 }
 
@@ -78,6 +96,8 @@ export type 规则改动 = {
   公海?: Partial<Omit<组织规则["公海"], "每人上限">> & { 每人上限?: Record<string, number | null> };
   /** 节点天数整份替换（界面每次带全），传 null / 空的节点 = 不设、不回收 */
   超时回收?: { 开?: boolean; 节点天数?: Record<string, number | string | null> };
+  /** 必填整份替换（界面每次带全），传 null / 空的节点 = 不配、照原来手动推 */
+  节点推进?: { 开?: boolean; 必填?: Record<string, string[] | null> };
 };
 
 /**
@@ -132,7 +152,32 @@ export function 合上改动(现在: 组织规则, 改: 规则改动): 组织规
       超时回收.节点天数 = 天数;
     }
   }
-  return { ...现在, 公海, 超时回收 };
+  const 节点推进 = { ...现在.节点推进 };
+  if (改.节点推进 !== undefined) {
+    const t = 改.节点推进;
+    if (!t || typeof t !== "object") return { error: "要改什么？" };
+    if (t.开 !== undefined) {
+      if (typeof t.开 !== "boolean") return { error: "节点推进开关只能开或关" };
+      节点推进.开 = t.开;
+    }
+    if (t.必填 !== undefined) {
+      if (!t.必填 || typeof t.必填 !== "object") return { error: "必填清单格式不对，刷新再试" };
+      const 必填: Record<string, string[]> = {};
+      for (const [node, v] of Object.entries(t.必填 as Record<string, unknown>)) {
+        if (!能配必填的节点.includes(node)) {
+          return { error: [...节点们.线索, ...节点们.商机, ...节点们.订单].includes(node) ? `「${node}」不能配必填（最后一个节点由人点成功交付）` : `「${node}」不是项目节点，刷新再试` };
+        }
+        if (v === null || v === undefined) continue;
+        if (!Array.isArray(v)) return { error: "必填清单格式不对，刷新再试" };
+        const 坏 = v.find((x) => typeof x !== "string" || !必填项名们.includes(x));
+        if (坏 !== undefined) return { error: `「${String(坏)}」不是能选的必填项，刷新再试` };
+        const 项 = [...new Set(v as string[])];
+        if (项.length) 必填[node] = 项;
+      }
+      节点推进.必填 = 必填;
+    }
+  }
+  return { ...现在, 公海, 超时回收, 节点推进 };
 }
 
 /** 这个人的持有上限；没开上限 = null（不限） */

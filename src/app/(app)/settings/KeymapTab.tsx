@@ -32,7 +32,8 @@ const 组: { 名: string; 项: { 键: string[]; 说明: string; 仅桌面端?: b
   },
 ];
 
-export default function KeymapTab({ 桌面端 }: { 桌面端: boolean }) {
+/** 企业版只有网页版，没有桌面端可去，「仅桌面端可用」那半句不说 */
+export default function KeymapTab({ 桌面端, 企业版 = false }: { 桌面端: boolean; 企业版?: boolean }) {
   const modifier = useModifierKey();
   return (
     <div className="set-body">
@@ -58,7 +59,7 @@ export default function KeymapTab({ 桌面端 }: { 桌面端: boolean }) {
         );
       })}
       <p className="muted" style={{ fontSize: 13, margin: 0 }}>
-        {modifier === "⌘" ? "⌘ 是 Command 键。" : "Ctrl 是 Control 键。"} 模块切换和设置快捷键仅桌面端可用。
+        {modifier === "⌘" ? "⌘ 是 Command 键。" : "Ctrl 是 Control 键。"}{企业版 ? "" : " 模块切换和设置快捷键仅桌面端可用。"}
       </p>
     </div>
   );

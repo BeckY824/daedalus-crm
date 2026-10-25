@@ -119,6 +119,17 @@ describe("改组织规则（企业版持有上限）", () => {
     expect(await 预览超时回收(改)).toMatchObject({ ok: false, error: expect.stringContaining("只有老板") });
   });
 
+  it("节点推进：老板配必填、开关，存下并留记录；配不能配的节点拦", async () => {
+    expect(await 改组织规则({ 节点推进: { 开: true, 必填: { 潜客培育: ["联系方式", "来源"], 线索验证: [] } } })).toEqual({ ok: true, 收回: 0 });
+    expect((await 读组织规则()).节点推进).toEqual({ 开: true, 必填: { 潜客培育: ["联系方式", "来源"] } });
+    expect(await 改组织规则({ 节点推进: { 开: false } })).toEqual({ ok: true, 收回: 0 });
+    expect(await 改组织规则({ 节点推进: { 必填: { 尾款结算: ["金额"] } } })).toMatchObject({ ok: false, error: expect.stringContaining("不能配必填") });
+    expect((await 记录()).map((r) => r.summary)).toEqual([
+      "组织规则：节点推进开，1 个节点配了必填",
+      "组织规则：节点推进关",
+    ]);
+  });
+
   it("业务员改不了；开关关着拦；填错拦，都不写", async () => {
     mocks.user = { ...mocks.user, id: 乙, role: "SALES" };
     expect(await 改组织规则({ 公海: { 持有上限开: true } })).toMatchObject({ ok: false, error: expect.stringContaining("只有老板") });
