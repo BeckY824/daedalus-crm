@@ -250,6 +250,22 @@ export default function EnterpriseImportReport({
         <Alert type="info" showIcon title={`导入后会有 ${报告.公海.会掉} 个客户放进公海`} description={`业务设置里开了「${报告.公海.天数} 天没跟进放进公海」，按原系统的跟进时间算，这些客户已经超过期限。不想这样，导入前先去业务配置里调天数。`} />
       )}
 
+      {(() => {
+        // 落到默认负责人的：原系统没写负责人 / 写了对不上。分类里是全量的数，问题表只列前一部分
+        const 数 = (类别: 问题["类别"]) => 报告.问题分类.filter((c) => c.类别 === 类别).reduce((a, c) => a + c.数, 0);
+        const 空 = 数("负责人空着"), 错 = 数("负责人对不上");
+        if (!空 && !错) return null;
+        const 谁 = 成员选项.find((o) => o.value === (改.默认负责人Id ?? 报告.映射.默认负责人.id))?.label ?? 报告.映射.默认负责人.名;
+        return (
+          <Alert
+            type="warning"
+            showIcon
+            title={`${[空 && `${空} 条没写负责人`, 错 && `${错} 条负责人对不上`].filter(Boolean).join("、")}，会落到「${谁}」名下`}
+            description="导进来全挂在一个人名下，这个人的客户列表、待办会一下子多很多。不对就在下面「负责人对谁」里换默认负责人，或把原系统的写法对到具体的人，再试跑一遍。"
+          />
+        );
+      })()}
+
       {报告.问题总数 > 0 && (
         <div>
           <Space wrap size={[6, 6]} style={{ marginBottom: 8 }}>
@@ -331,7 +347,7 @@ export default function EnterpriseImportReport({
             children: (
               <Space orientation="vertical" size={10} style={{ display: "flex" }}>
                 <Space size={8}>
-                  对不上的落到
+                  空着、对不上的落到
                   <Select
                     size="small"
                     style={{ width: 180 }}
