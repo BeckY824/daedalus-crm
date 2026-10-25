@@ -1,0 +1,78 @@
+# 企业版私有部署：一台服务器、一家公司、一份数据。
+#
+#   第一次装：sudo ./scripts/install.sh            （会问域名、生成 .env、装每日备份）
+#   日常：    docker compose ps / docker compose logs -f crm
+#   升级：    sudo ./scripts/upgrade.sh <版本号>     （或 --load 离线镜像包）
+#
+# 不要直接改这个文件里的值：可调的都在 .env（样例 .env.example）。
+# 升级时这个文件会随部署包一起换新，.env 不动。
+name: crm-enterprise
+
+services:
+  crm:
+    # 版本钉死在 .env 的 CRM_VERSION，不用 latest：
+    # 升级 / 回滚都是改这一行再重启，哪台机器跑的什么版本一眼可查
+    image: "${CRM_IMAGE:-ghcr.io/becky824/daedalus-crm}:${CRM_VERSION:?请在 .env 里设置 CRM_VERSION}"
+    container_name: crm
+    restart: unless-stopped
+    # 只给 Caddy 转发，不直接对外开端口
+    expose:
+      - "3000"
+    environment:
+      TZ: "${TZ:-Asia/Shanghai}"
+      # 企业版功能（组织规则、线索分配等）。私有部署默认开
+      CRM_ENTERPRISE: "1"
+      # 只读通道：查询另开 4 个连接，写入照旧 1 个（多人同时用时页面快很多）。出问题填 0 一键关回单连接
+      CRM_READ_POOL: "${CRM_READ_POOL:-1}"
+      # 只经 HTTPS 访问
+      COOKIE_SECURE: "true"
+      # 会话密钥：不填就首启生成并存进数据卷（/data/.auth-secret），备份会一起带上
+      AUTH_SECRET: "${AUTH_SECRET:-}"
+      # 首次启动管理员 admin 的密码。install.sh 会随机生成；库已存在时忽略
+      INIT_PASSWORD: "${INIT_PASSWORD:-}"
+      # AI 接入：贵司自己的 Key。也可以之后在「设置 → AI 接入」里填，界面里填的优先
+      LLM_API_KEY: "${LLM_API_KEY:-}"
+      LLM_BASE_URL: "${LLM_BASE_URL:-}"
+      LLM_MODEL: "${LLM_MODEL:-}"
+      LLM_MODELS: "${LLM_MODELS:-}"
+    volumes:
+      - crm-data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  caddy:
+    image: "${CADDY_IMAGE:-caddy:2-alpine}"
+    container_name: crm-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: "${DOMAIN:?请在 .env 里设置 DOMAIN}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # 用贵司自己的证书时放这里：certs/cert.pem + certs/key.pem（见部署手册）
+      - ./certs:/certs:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - crm
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  crm-data:
+  caddy-data:
+  caddy-config:

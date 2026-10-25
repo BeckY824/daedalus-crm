@@ -31,7 +31,16 @@ describe("单连接", () => {
       });
     const 建客户端的 = 源码(path.resolve(__dirname, "../src")).filter((f) => /new PrismaClient\(/.test(fs.readFileSync(f, "utf8")));
     expect(建客户端的.map((f) => path.relative(path.resolve(__dirname, ".."), f).replaceAll("\\", "/")).sort()).toEqual(
-      ["src/lib/prisma.ts", "src/lib/tenant/clients.ts", "src/lib/tenant/control.ts"],
+      ["src/lib/prisma.ts", "src/lib/read-pool.ts", "src/lib/tenant/clients.ts", "src/lib/tenant/control.ts"],
     );
+  });
+
+  it("唯一的例外是企业版只读通道：多开的连接只做查询，套着守门，且只在 读通道开着() 时才建", () => {
+    // 2026-10-24 总控批：只读通道开 4 个连接。写入、事务仍只走上面那个单连接的客户端（tests/read-pool.test.ts 钉着）
+    const src = fs.readFileSync(path.resolve(__dirname, "../src/lib/read-pool.ts"), "utf8");
+    expect(src.match(/new PrismaClient\(/g)).toHaveLength(1);
+    expect(src).toMatch(/datasourceUrl:\s*读连接串\(process\.env\.DATABASE_URL!\)/);
+    expect(src).toMatch(/门:\s*守门\(加上限定\(原\)\)/);
+    expect(src).toMatch(/if \(!读通道开着\(\)\) return null;\s*\n\s*if \(!g\.__读通道\) \{\s*\n\s*const 原 = new PrismaClient\(/);
   });
 });
