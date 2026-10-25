@@ -6,15 +6,41 @@ import { describe, it, expect } from "vitest";
 import vm from "node:vm";
 import fs from "node:fs";
 import path from "node:path";
-import { 读外观, 外观预设脚本, 外观键, 默认外观 } from "@/lib/appearance";
+import { 读外观, 外观预设脚本, 外观键, 默认外观, 网页玻璃键 } from "@/lib/appearance";
 
-function 跑脚本(存的: string | null) {
+const MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
+const WIN = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
+
+function 跑(存的: string | null, ua = MAC) {
   const dataset: Record<string, string> = {};
+  const 类 = new Set<string>();
   vm.runInNewContext(外观预设脚本, {
     localStorage: { getItem: (k: string) => (k === 外观键 ? 存的 : null) },
-    document: { documentElement: { dataset } },
+    navigator: { userAgent: ua },
+    document: { documentElement: { dataset, classList: { add: (c: string) => 类.add(c) } } },
   });
+  return { dataset, 类 };
+}
+
+function 跑脚本(存的: string | null) {
+  const { dataset } = 跑(存的);
   return { paper: dataset.paper, skin: dataset.skin };
+}
+
+const 网页 = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
+const 桌面端 = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Electron/38.0.0 Safari/537.36";
+
+/** 跑一遍首次绘制前的脚本，看 <html> 上挂了哪些类 */
+function 跑玻璃(存的: string | null, ua: string, 少透明 = false) {
+  const 类 = new Set<string>();
+  const dataset: Record<string, string> = {};
+  vm.runInNewContext(外观预设脚本, {
+    localStorage: { getItem: (k: string) => (k === 网页玻璃键 ? 存的 : null) },
+    navigator: { userAgent: ua },
+    matchMedia: (q: string) => ({ matches: 少透明 && q.includes("reduced-transparency") }),
+    document: { documentElement: { dataset, classList: { add: (c: string) => 类.add(c) } } },
+  });
+  return [...类].sort();
 }
 
 describe("外观", () => {
@@ -47,6 +73,49 @@ describe("外观", () => {
     const 块 = /:root\[data-paper="white"\]\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
     expect(块).toContain("--page-bg");
     expect(块).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+  });
+
+  it("网页版毛玻璃：默认关，存了 true 才在首次绘制前挂上 glass + web-glass", () => {
+    for (const raw of [null, "", "false", "1", '"true"', "{"]) expect(跑玻璃(raw, 网页)).toEqual([]);
+    expect(跑玻璃("true", 网页)).toEqual(["glass", "web-glass"]);
+  });
+
+  it("网页版毛玻璃：系统开了「减少透明度」不挂；桌面端由壳挂，脚本不碰", () => {
+    expect(跑玻璃("true", 网页, true)).toEqual([]);
+    expect(跑玻璃("true", 桌面端)).toEqual([]);
+  });
+
+  it("网页版那层底图只挂在 web-glass 上，颜色只用 token", () => {
+    const css = fs.readFileSync(path.resolve(__dirname, "../src/app/globals.css"), "utf8");
+    const 块 = /html\.glass\.web-glass\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(块).toContain("var(--workbench)");
+    expect(块).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+  });
+
+  it("Windows 上（网页也算）首次绘制前挂 os-win，默认主题的浅灰字和桌面端一样压深；Mac 不挂", () => {
+    expect(跑(null, WIN).类.has("os-win")).toBe(true);
+    expect(跑(null, `${WIN.replace(" Safari/", " daedalus-crm/0.46.27 Electron/38.2.0 Safari/")}`).类.has("os-win")).toBe(true);
+    expect(跑(null, MAC).类.has("os-win")).toBe(false);
+    // 挂 os-win 不影响认外观
+    const raw = JSON.stringify({ paper: "white", skin: "luxe" });
+    expect(跑(raw, WIN).dataset).toMatchObject({ paper: "white", skin: "luxe" });
+  });
+
+  it("os-win 在网页上只改字色：其余 os-win 规则都得限在 .shell-desktop 里", () => {
+    const 全部 = (fs.readdirSync(path.resolve(__dirname, "../src"), { recursive: true }) as string[])
+      .filter((f) => f.endsWith(".css"))
+      .map((f) => fs.readFileSync(path.resolve(__dirname, "../src", f), "utf8").replace(/\/\*[\s\S]*?\*\//g, ""))
+      .join("\n");
+    // 运营台的 opx-os-win 是另一回事，不算
+    const 是它 = (x: string) => /(?<![\w-])os-win\b/.test(x);
+    const 选择器 = [...全部.matchAll(/([^{}]*)\{([^{}]*)\}/g)].filter(([, sel]) => 是它(sel));
+    expect(选择器.length).toBeGreaterThan(1);
+    for (const [, sel, body] of 选择器)
+      for (const 一个 of sel.split(",").map((x) => x.trim()).filter(是它))
+        if (!一个.includes(".shell-desktop")) {
+          expect(一个).toBe('html.os-win[data-skin="now"]');
+          expect(body.replace(/--text-(muted|faint)\s*:[^;]*;?/g, "").trim()).toBe("");
+        }
   });
 
   it("根布局把脚本放在 <head> 里（放进 body 就晚了一帧，会闪）", () => {

@@ -35,7 +35,7 @@ export const STALE_DAYS = 14;
  * 沉睡学员的状态权重：越接近成交、被遗忘的代价越大。
  * 已签约/已流失是终态；暂缓跟进是销售有意搁置的，唤醒它反而是打脸。
  */
-const STATUS_WEIGHT: Record<string, number> = {
+export const STATUS_WEIGHT: Record<string, number> = {
   意向较高: 5,
   已试听: 4,
   已加微信: 3,
@@ -62,13 +62,15 @@ export function buildWatchlist(
   limit = 8,
 ): WatchItem[] {
   const n = dayjs(now);
+  // 循环里每行都要「今天零点」：算一次（企业版几万条沉睡客户时每行重算一遍要上百毫秒）
+  const 今天 = n.startOf("day");
   const items: WatchItem[] = [];
 
   // 逾期计划最优先：这是销售自己写下的承诺，过期没做比"忘了跟"严重
   for (const p of input.overduePlans) {
     // 按日历天数（和记录页、计划页的「逾期 N 天」同一个口径，见 lib/deadline.ts，审查 D1）：
     // 按 24 小时算的话，同一条计划这边写「逾期 4 天」、记录页写「逾期 5 天」
-    const days = n.startOf("day").diff(dayjs(p.plannedAt).startOf("day"), "day");
+    const days = 今天.diff(dayjs(p.plannedAt).startOf("day"), "day");
     if (days < 0) continue;
     items.push({
       kind: "overdue_plan",
@@ -86,7 +88,7 @@ export function buildWatchlist(
     订舱拖一天可能就赶不上这条船、尾款跟着晚一个月。卡住的不论有没有截止日都算
   */
   for (const x of input.lateOrderNodes ?? []) {
-    const days = x.dueAt ? n.startOf("day").diff(dayjs(x.dueAt).startOf("day"), "day") : 0;
+    const days = x.dueAt ? 今天.diff(dayjs(x.dueAt).startOf("day"), "day") : 0;
     if (!x.卡住 && days < 1) continue;
     items.push({
       kind: "order_late",
@@ -103,7 +105,7 @@ export function buildWatchlist(
     const weight = STATUS_WEIGHT[c.followStatus];
     if (weight === undefined) continue;
     const 未来日期 = c.lastFollowAt && dayjs(c.lastFollowAt).isAfter(n);
-    const days = n.startOf("day").diff(dayjs(未来日期 ? c.createdAt : c.lastFollowAt ?? c.createdAt).startOf("day"), "day");
+    const days = 今天.diff(dayjs(未来日期 ? c.createdAt : c.lastFollowAt ?? c.createdAt).startOf("day"), "day");
     if (days < STALE_DAYS) continue;
     items.push({
       kind: "sleeping",
@@ -118,7 +120,7 @@ export function buildWatchlist(
   }
 
   for (const o of input.opportunities) {
-    const days = n.startOf("day").diff(dayjs(o.updatedAt).startOf("day"), "day");
+    const days = 今天.diff(dayjs(o.updatedAt).startOf("day"), "day");
     if (days < STALE_DAYS) continue;
     items.push({
       kind: "stalled_opp",
