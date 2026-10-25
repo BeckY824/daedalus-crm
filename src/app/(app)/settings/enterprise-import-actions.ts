@@ -8,7 +8,7 @@ import { 重新试跑, type 试跑报告, type 映射改动 } from "@/lib/enterp
 import { 写一批, type 写入结果 } from "@/lib/enterprise-import/apply";
 import { 撤回一批, 恢复一批, 留下说法, type 撤回结果, type 留下明细 } from "@/lib/enterprise-import/revert";
 import { 列冲突, 定冲突, type 冲突选择, type 定冲突结果, type 冲突条目 } from "@/lib/enterprise-import/resolve";
-import { 读同步设置, 改同步设置, 同步一次, 拉全量试跑, 能同步的来源, type 同步设置, type 同步频率, type 同步一次结果 } from "@/lib/enterprise-import/sync";
+import { 读同步设置, 改同步设置, 同步一次, 拉全量试跑, 能同步的来源, 正在同步, type 同步设置, type 同步频率, type 同步一次结果 } from "@/lib/enterprise-import/sync";
 import { 切换, 列快照, 导出快照, type 切换结果 } from "@/lib/enterprise-import/cutover";
 import { 合法值, 值说法, 值对照 } from "@/lib/enterprise-import/mapping";
 import { 来源们, 来源名, type 来源, type 值对照名 } from "@/lib/enterprise-import/types";
@@ -67,7 +67,8 @@ export type 批次行 = {
 export type 企业版概况 = {
   批次们: 批次行[];
   /** 三个来源都列：Excel 没有自动同步（能同步 false），但也能切换、留快照 */
-  同步: { 来源: 来源; 名: string; 能同步: boolean; 设置: 同步设置 }[];
+  /** 在同步：这一刻正在拉的那次（定时或别人点的也算），界面显示「正在同步」 */
+  同步: { 来源: 来源; 名: string; 能同步: boolean; 设置: 同步设置; 在同步: { 开始: string; 谁: string } | null }[];
   待定冲突: number;
   快照们: { id: string; 来源: 来源; 名: string; 条数: number; 人名: string; 时间: string }[];
   成员们: { id: string; name: string }[];
@@ -93,7 +94,7 @@ export async function 企业版导入概况(): Promise<企业版概况> {
     prisma.entConflict.count({ where: { status: "待定" } }),
     列快照(),
     prisma.user.findMany({ orderBy: { createdAt: "asc" }, select: { id: true, name: true, active: true } }),
-    Promise.all(来源们.map(async (源) => ({ 来源: 源, 名: 来源名[源], 能同步: 能同步的来源.includes(源), 设置: await 读同步设置(源) }))),
+    Promise.all(来源们.map(async (源) => ({ 来源: 源, 名: 来源名[源], 能同步: 能同步的来源.includes(源), 设置: await 读同步设置(源), 在同步: 正在同步(源) }))),
   ]);
   const 名 = new Map(成员们.map((u) => [u.id, u.name]));
   return {
