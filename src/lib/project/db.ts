@@ -11,6 +11,7 @@ import { 规整项目, 规整沟通, type 向导项目, type 向导跟进 } from
 import { 持有上限of, type 组织规则 } from "./org-rules";
 import { 企业版 } from "@/lib/enterprise/switch";
 import { 读组织, 直属上级of, 管理员类别of, type 组织 } from "@/lib/enterprise/org";
+import { 规则开着 } from "@/lib/enterprise/rules";
 import { 生效组织规则 } from "./org-rules-store";
 import { 超时回收日, 已超时, 超时理由, 超时起点 } from "./timeout";
 import { getSetting, setSetting } from "../settings";
@@ -56,6 +57,14 @@ export function 代管节点(me: 谁, ownerId: string, org: 组织 | null): bool
  * 负责人没设直属上级（组织还没配）照旧，免得谁都推不动。org = null（不是企业版）→ 不拦。
  * 返回拦下的话，null = 能推
  */
+/**
+ * 「直属才能推」跟「按组织架构看客户」开关走（F10，10-25 实测）：开关关着就是团队版，谁的项目谁推，
+ * 往前推不给 拿到 null。直属上级能改节点、能代管必填（能改节点 / 代管节点）不跟这个开关，照旧给
+ */
+export async function 直属才推(org: 组织 | null): Promise<组织 | null> {
+  return org && (await 规则开着("按组织看客户")) ? org : null;
+}
+
 export function 往前推不给(me: 谁, ownerId: string, org: 组织 | null): string | null {
   if (!org) return null;
   const 上级 = 直属上级of(org, ownerId);
@@ -211,6 +220,7 @@ export async function 改节点(
 ): Promise<结果 & { 变了?: boolean; 自动推到?: string[] }> {
   const 规则 = await 生效组织规则();
   const org = 企业版() ? await 读组织() : null;
+  const 推的组织 = await 直属才推(org);
   return 查完再写(async (tx) => {
     const p = await tx.project.findUnique({ where: { id: String(projectId ?? "") } });
     if (!p) return { ok: false as const, error: "这个项目已经不在了，刷新看看" };
@@ -219,7 +229,7 @@ export async function 改节点(
     const 问题 = 改节点问题({ ...到, result }, p, 异常, 企业版());
     if (问题) return { ok: false as const, error: 问题 };
     const 往前 = !result && !p.result && 节点序号(到) > 节点序号(p);
-    const 不给 = 往前 ? 往前推不给(me, p.ownerId, org) : null;
+    const 不给 = 往前 ? 往前推不给(me, p.ownerId, 推的组织) : null;
     if (不给) return { ok: false as const, error: 不给 };
     // 企业版节点必填（D-37）：配了必填的节点，往前推只给老板、主管、负责人的直属上级、总管理员；销售本人填齐了自动推
     if (往前 && 按必填走(规则, p.node) && me.role !== "ADMIN" && me.role !== "MANAGER" && !代管节点(me, p.ownerId, org)) {

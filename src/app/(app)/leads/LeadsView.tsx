@@ -13,6 +13,7 @@ import {
   DeleteOutlined,
   EditOutlined,
   ThunderboltOutlined,
+  UserSwitchOutlined,
 } from "@ant-design/icons";
 import ResetFilters from "@/components/ResetFilters";
 import { 列表不问归属ID } from "@/lib/solo";
@@ -28,6 +29,7 @@ import { 聚焦首项 } from "@/lib/modal-focus";
 import { useFormGuard } from "@/lib/form-guard";
 import { 转化会带上 } from "@/lib/lead-convert";
 import { 自动分配线索, 批量自动分配, type 自动分配结果 } from "./assign-actions";
+import { AssignLeadModal, AssignedOutButton } from "./AssignLead";
 
 type Row = {
   id: string;
@@ -56,6 +58,7 @@ export default function LeadsView({
   me,
   能自动分配 = false,
   企业版项目 = false,
+  线索分配开着 = false,
 }: {
   rows: Row[];
   /** 库里一共多少条。行只取了前 300，分页条不能拿行数冒充总数 */
@@ -69,6 +72,8 @@ export default function LeadsView({
   能自动分配?: boolean;
   /** 企业版且开了项目模式（10-25 F1、F6）：新建线索照常弹表单，市场、渠道能只建一条线索；转化顺手建项目 */
   企业版项目?: boolean;
+  /** 企业版「线索分配」规则开着：负责人只能经「分配」换，编辑框里负责人只读；页头摆「我分出去的」 */
+  线索分配开着?: boolean;
 }) {
   const router = useRouter();
   const { message, modal } = App.useApp();
@@ -84,6 +89,7 @@ export default function LeadsView({
   const 空库 = rows.length === 0 && !Object.values(filters).some((v) => v);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
+  const [分配中, set分配中] = useState<Row | null>(null);
   const [form] = Form.useForm();
 
   useEffect(() => {
@@ -213,7 +219,7 @@ export default function LeadsView({
     { title: "所属行业", key: "industry", dataIndex: "industry", width: 130, 默认: false, render: (v) => <span className="muted">{v ?? "—"}</span> },
     { title: "邮箱", key: "email", dataIndex: "email", width: 200, 默认: false, render: (v) => v ?? <span className="muted">—</span> },
     {
-      title: "", key: "act", width: 能自动分配 ? 180 : 150, 常驻: true, fixed: "right",
+      title: "", key: "act", width: 能自动分配 ? 210 : 150, 常驻: true, fixed: "right",
       render: (_, r) =>
         r.customerId ? (
           <RowLink href={`/customers/${r.customerId}`}>查看{b.customer} ›</RowLink>
@@ -249,6 +255,16 @@ export default function LeadsView({
             >
               {企业版项目 ? "转项目" : `转${b.customer}`}
             </Button>
+            {能自动分配 && (
+              <Button
+                aria-label={`分配 ${r.name}`}
+                title="分配给…"
+                type="text"
+                size="small"
+                icon={<UserSwitchOutlined />}
+                onClick={() => set分配中(r)}
+              />
+            )}
             {能自动分配 && (
               <Button
                 aria-label={`自动分配 ${r.name}`}
@@ -304,13 +320,16 @@ export default function LeadsView({
         title="线索"
         subtitle="还没建档的线索"
         extra={
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={新建}
-          >
-            新建线索
-          </Button>
+          <Space>
+            {线索分配开着 && <AssignedOutButton />}
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={新建}
+            >
+              新建线索
+            </Button>
+          </Space>
         }
       />
 
@@ -404,8 +423,12 @@ export default function LeadsView({
             {/* 只有一个人时不问归属，见 lib/utils.ts 的 独自一人 */}
             {!独自一人(users, editing?.ownerId) && (
               <Col span={8}>
-                <Form.Item name="ownerId" label="负责人">
-                  <Select options={成员选项(users)} />
+                <Form.Item
+                  name="ownerId"
+                  label="负责人"
+                  extra={线索分配开着 ? (能自动分配 ? "换负责人请用列表里的「分配」" : "换负责人要由老板、总管理员或市场管理来分配") : undefined}
+                >
+                  <Select options={成员选项(users)} disabled={线索分配开着} />
                 </Form.Item>
               </Col>
             )}
@@ -417,6 +440,7 @@ export default function LeadsView({
           </Row>
         </Form>
       </Modal>
+      {能自动分配 && <AssignLeadModal lead={分配中} 关={() => set分配中(null)} />}
     </>
   );
 }

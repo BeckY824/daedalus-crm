@@ -99,6 +99,8 @@ type Props<T> = {
   亮?: string[];
   /** 这一行额外挂的类名。渠道页用它把停用的那几行压淡（审查 D12） */
   行类?: (r: T) => string | undefined;
+  /** 这一行不让勾（批量操作一律做不了的行）。企业版虚线下属的客户：只能看，勾上去批量什么都会被拦（10-25 实测 F4） */
+  不可勾?: (r: T) => boolean;
 };
 
 const 列键 = <T,>(c: 列<T>) => String(c.key ?? c.dataIndex);
@@ -114,7 +116,7 @@ function 行名(r: object): string | null {
 }
 
 export default function DataList<T extends { id: string }>({
-  页, 列: 全部列, 行, 空库, 空态, 没对上, 筛选, 汇总, 批量, 加载中, 行链接, 行点击, 横向, 分页, 截断, 亮, 行类, 排序,
+  页, 列: 全部列, 行, 空库, 空态, 没对上, 筛选, 汇总, 批量, 加载中, 行链接, 行点击, 横向, 分页, 截断, 亮, 行类, 不可勾, 排序,
 }: Props<T>) {
   const router = useRouter();
   /** 真的只取了一部分：库里的总数比取回来的多（本地筛掉的不算，见 截断.取回） */
@@ -319,7 +321,7 @@ export default function DataList<T extends { id: string }>({
           emptyText: 空库 ? <EmptyState {...空态} /> : (没对上 ?? <div className="list-none">没有符合条件的，换个条件或点「重置」看全部</div>),
         }}
         scroll={{ x }}
-        rowSelection={批量 ? { selectedRowKeys: 选中, onChange: (k) => set选中(k as string[]), fixed: true } : undefined}
+        rowSelection={批量 ? { selectedRowKeys: 选中, onChange: (k) => set选中(k as string[]), fixed: true, getCheckboxProps: 不可勾 ? (r) => ({ disabled: 不可勾(r) }) : undefined } : undefined}
         rowClassName={(r) => [新来的.includes(r.id) || 亮?.includes(r.id) ? "row-fresh" : "", 行类?.(r) ?? ""].filter(Boolean).join(" ")}
         onRow={
           行链接 || 行点击

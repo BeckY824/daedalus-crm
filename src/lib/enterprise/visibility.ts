@@ -125,15 +125,18 @@ function 认一次(db: PrismaClient, 钥: string, id: string | null): Promise<�
   return p;
 }
 
-async function 算(db: PrismaClient, id: string | null): Promise<限定 | null> {
-  const 开关 = await db.setting.findUnique({ where: { key: 规则.按组织看客户.key }, select: { value: true } });
-  let 开着 = false;
+/** 规则开关的 Setting 值：只有存的是 true 才算开（同 rules.ts 规则开着，这里在钩子里，直接读 db） */
+async function 开着(db: PrismaClient, key: string): Promise<boolean> {
+  const v = await db.setting.findUnique({ where: { key }, select: { value: true } });
   try {
-    开着 = !!开关 && JSON.parse(开关.value) === true;
+    return !!v && JSON.parse(v.value) === true;
   } catch {
-    开着 = false;
+    return false;
   }
-  if (!开着) return null;
+}
+
+async function 算(db: PrismaClient, id: string | null): Promise<限定 | null> {
+  if (!(await 开着(db, 规则.按组织看客户.key))) return null;
   if (!id) return 只看公海;
 
   const [users, members, depts] = await Promise.all([
@@ -143,9 +146,13 @@ async function 算(db: PrismaClient, id: string | null): Promise<限定 | null> 
   ]);
   const 我 = users.find((u) => u.id === id);
   if (!我 || !我.active) return 只看公海;
-  const 范围 = 组织范围of(建组织(users, members, depts), 我.role, id);
+  const org = 建组织(users, members, depts);
+  const 范围 = 组织范围of(org, 我.role, id);
   if (!范围) return null;
-  if (!范围.读) return { 我: 范围.写, 互看: false, 别人的: new Set() };
+  // 市场管理分线索（同 lead-assign 能分配；老板、总管理员上面已经不限定）：线索开着分配时全看全改，
+  // 不然分出去就看不到、也分不了（F9 10-25）。客户那条线还是按组织架构
+  const 线索 = 管理员类别of(org, id) === "市场管理" && (await 开着(db, 规则.线索分配.key)) ? { 线索全看: true } : {};
+  if (!范围.读) return { 我: 范围.写, 互看: false, 别人的: new Set(), ...线索 };
 
   // 只能看的那些客户的编号：新建前、改客户前按这份判（钩子里不能现查）
   const 读 = 范围.读;
@@ -154,5 +161,5 @@ async function 算(db: PrismaClient, id: string | null): Promise<限定 | null> 
     select: { id: true, salesOwnerId: true, channelOwnerId: true, pool: { select: { customerId: true } } },
   });
   const 别人的 = new Set(那些.filter((c) => !看得到(c, 范围.写)).map((c) => c.id));
-  return { 我: 范围.写, 互看: false, 别人的, 读, 全拦: true, 话: 虚线只读话 };
+  return { 我: 范围.写, 互看: false, 别人的, 读, 全拦: true, 话: 虚线只读话, ...线索 };
 }

@@ -9,6 +9,7 @@ import { 算提醒 } from "@/lib/reminders";
 import { 取提醒项, 取订单提醒项 } from "@/lib/reminders-db";
 import { getBusiness } from "@/lib/business";
 import { BusinessProvider } from "@/lib/business-client";
+import { businessTimeZone } from "@/lib/business-clock";
 import { 本地模式, 归属对不上, 读 as 读云端凭据 } from "@/lib/desktop/cloud";
 import { multiTenant } from "@/lib/tenant/context";
 import { 企业版 } from "@/lib/enterprise/switch";
@@ -98,7 +99,7 @@ export default async function AppLayout({
 
   return (
     <ShortcutProvider mac={/Macintosh|Mac OS|iPhone|iPad/.test(ua)}>
-    <BusinessProvider value={business} timeZone={multiTenant() ? "Asia/Shanghai" : null}>
+    <BusinessProvider value={business} timeZone={businessTimeZone()}>
       {/* 反馈：托管版和桌面端有我们这个云可发，自部署的开源版没有，按钮改去 GitHub issues；企业版不放反馈键 */}
       <AiMeterProvider 初值={AI计次}>
       <ResearchEntryProvider value={背调有入口()}>

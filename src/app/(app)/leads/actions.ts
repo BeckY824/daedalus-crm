@@ -29,6 +29,22 @@ import { 线索建项目 } from "@/lib/project/from-lead";
 import { 超上限 } from "@/lib/project/db";
 import { 生效组织规则 } from "@/lib/project/org-rules-store";
 import { 客户存了推项目 } from "@/lib/project/auto-advance";
+import { 规则开着 } from "@/lib/enterprise/rules";
+import { 读组织 } from "@/lib/enterprise/org";
+import { 能分配 } from "@/lib/enterprise/lead-assign";
+import { 当前是共享区 } from "@/lib/shared-ws/current";
+
+/**
+ * 企业版「线索分配和配额」开着时，负责人只能经「分配」换（F2，10-25 实测）：编辑、新建里随手改负责人
+ * 不查接手人角色、不查配额、不查谁能分，也不记分配。返回挡下的话；null = 照常存
+ */
+async function 改负责人不给(user: { id: string; role: string }, 原负责人: string | null | undefined, 新负责人: string): Promise<string | null> {
+  if (新负责人 === 原负责人) return null;
+  if (!(await 规则开着("线索分配")) || (await 当前是共享区())) return null;
+  return 能分配(await 读组织(), user)
+    ? "改负责人请用线索列表里的「分配」：会查接手人的角色、配额，并记进分配记录"
+    : "只有老板、总管理员、市场管理能分配线索";
+}
 
 export async function saveLead(input: {
   id?: string;
@@ -56,7 +72,7 @@ export async function saveLead(input: {
     没改过的旧来源照样放行（排查 D5）：设置里换了预设、删了某个来源以后，
     带着旧来源的线索连改个备注都存不了，报「不是合法取值」。新选的来源才必须在当前列表里。
   */
-  const 原 = input.id ? await prisma.lead.findUnique({ where: { id: input.id }, select: { source: true, phone: true } }) : null;
+  const 原 = input.id ? await prisma.lead.findUnique({ where: { id: input.id }, select: { source: true, phone: true, ownerId: true } }) : null;
   const 原来源 = input.id ? 原?.source : null;
   /*
     共享试用区的线索页给的是打码号码（2026-10-02 排查 A6）：交回来的正是原号打码的样子就认回原号；
@@ -87,6 +103,9 @@ export async function saveLead(input: {
     remark: input.remark || null,
     ownerId: input.ownerId || user.id,
   };
+  // 新建、没人管的线索，原负责人都当作「我」：建给自己、认领照常，给别人要走分配
+  const 不给 = input.id && !原 ? null : await 改负责人不给(user, 原?.ownerId ?? user.id, data.ownerId);
+  if (不给) return { ok: false as const, error: 不给 };
   if (input.id) {
     const 写了 = await prisma.lead.updateMany({ where: { id: input.id, ...版本条件(input.版本) }, data });
     if (写了.count === 0) return { ok: false as const, error: 原来源 === undefined ? "这条线索已经不在了（可能已删除）" : 版本冲突 };
@@ -125,21 +144,6 @@ export async function deleteLeads(ids: string[]) {
 }
 
 /**
- * 线索转客户：建客户 + 建联系人 + 标记线索已转化。
- *
- * 三步必须在同一个事务里，且要有并发闸门。原本是「先查 customerId 是否为空，
- * 再建客户，再回写线索」——两个人同时点转化，双方都会看到 customerId 为空、
- * 双方都建档成功，于是同一个人在学员库里出现两条，回写又只留下后一条的关联，
- * 另一条变成没人知道来历的孤儿记录。
- *
- * 闸门是那句 updateMany：只有把线索从「未关联」翻过来的那一次会影响到行，
- * 另一次影响 0 行、直接退出。SQLite 的写锁保证两句 updateMany 不会同时生效。
- */
-/**
- * 转客户时撞了号，撞的是谁（J-024）。业务员撞到同事的客户：**只给负责人**，不给名字、不给 id、不能并
- * （10-04 用户拍板，和客户表单查重一个口径）；看得到那位客户的人（老板、负责人自己、公海里的）可以「并到这位客户」。
- */
-/**
  * 企业版开了项目模式：转化时顺手建项目（10-25 F6，lib/project/from-lead.ts）。负责人是别人时先按持有上限查一遍，
  * 规则要在事务外读（事务里读设置会卡住）。返回 null = 不建；{ error } = 超上限，转化整个不做
  */
@@ -163,6 +167,21 @@ async function 转项目之后(user: Actor, lead: { name: string }, customerId: 
   revalidatePath("/projects");
 }
 
+/**
+ * 线索转客户：建客户 + 建联系人 + 标记线索已转化。
+ *
+ * 三步必须在同一个事务里，且要有并发闸门。原本是「先查 customerId 是否为空，
+ * 再建客户，再回写线索」——两个人同时点转化，双方都会看到 customerId 为空、
+ * 双方都建档成功，于是同一个人在学员库里出现两条，回写又只留下后一条的关联，
+ * 另一条变成没人知道来历的孤儿记录。
+ *
+ * 闸门是那句 updateMany：只有把线索从「未关联」翻过来的那一次会影响到行，
+ * 另一次影响 0 行、直接退出。SQLite 的写锁保证两句 updateMany 不会同时生效。
+ */
+/**
+ * 转客户时撞了号，撞的是谁（J-024）。业务员撞到同事的客户：**只给负责人**，不给名字、不给 id、不能并
+ * （10-04 用户拍板，和客户表单查重一个口径）；看得到那位客户的人（老板、负责人自己、公海里的）可以「并到这位客户」。
+ */
 export type 线索撞号 = { 客户名: string | null; 负责人: string; customerId: string | null; 能并: boolean };
 
 export async function convertLead(id: string): Promise<

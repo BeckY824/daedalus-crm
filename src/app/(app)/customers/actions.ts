@@ -11,7 +11,7 @@ import { 查完再写 } from "@/lib/check-then-write";
 import { 钉住老签约 } from "@/lib/contract-owner";
 import { revalidatePath } from "next/cache";
 import { prisma, defaultClient } from "@/lib/prisma";
-import { 看全部, 看得到, 读的我, 同事的客户, 只读错误, type 谁 } from "@/lib/team-scope";
+import { 看全部, 看得到, 读的我, 同事的客户, 只读话, 虚线只读挡, type 谁 } from "@/lib/team-scope";
 import { 同事撞号说法, type 查重种类 } from "@/lib/sync/dedupe";
 import { 问同事 } from "@/lib/sync/dedupe-client";
 import { requireUser } from "@/lib/auth";
@@ -181,7 +181,7 @@ export async function saveCustomer(input: CustomerInput, 接着?: unknown): Prom
   const 改前 = input.id ? await prisma.customer.findUnique({ where: { id: input.id } }) : null;
   if (input.id && !改前) return { ok: false, error: `这条${b.customer}已经不在了（可能已删除），无法保存` };
   // 团队互看：同事的客户读得到、改不了（lib/team-scope.ts），先说人话
-  if (input.id && await 同事的客户(defaultClient, input.id)) return { ok: false, error: new 只读错误().message };
+  if (input.id && await 同事的客户(defaultClient, input.id)) return { ok: false, error: await 只读话(defaultClient) };
   /*
     编辑之前先把老签约的「签约那一刻是谁的」钉住（排查 X1）。不只换负责人：改来源渠道 / 推荐人也会重算渠道负责人（复查 R）。
     没有缺的时候它只是一次很轻的查询，所以编辑一律先调，不去猜这次会不会动到归属
@@ -605,6 +605,9 @@ async function 删除依赖错误(db: Prisma.TransactionClient, ids: string[], �
 export async function 客户删除预检(ids: string[]): Promise<{ ok: true } | { ok: false; error: string }> {
   await requireUser();
   const b = await getBusiness();
+  // 虚线下属的客户：在「确认删除…不能恢复」之前就说清楚，不等删完报「已经在别处删掉了」
+  const 虚线 = await 虚线只读挡(defaultClient, ids);
+  if (虚线) return { ok: false, error: 虚线 };
   const error = await 删除依赖错误(prisma, ids, b.customer);
   return error ? { ok: false, error } : { ok: true };
 }
@@ -617,6 +620,8 @@ export async function deleteCustomers(
   const me = await requireUser();
   const b = await getBusiness();
   if (!ids.length) return { ok: true, deleted: 0, 留下联系人: 0 };
+  const 虚线 = await 虚线只读挡(defaultClient, ids);
+  if (虚线) return { ok: false, error: 虚线 };
 
   /**
    * 被别人当作推荐人或渠道归属对象的学员不能删。
@@ -786,6 +791,9 @@ export async function assignSalesOwner(ids: string[], salesOwnerId: string): Pro
   if (!ids.length) return { ok: true, updated: 0, unchanged: 0, missing: 0 };
 
   if (!(await 在职(salesOwnerId))) return { ok: false, error: "该成员不存在或已停用，请选择一位在职成员" };
+  // 虚线下属的客户限定层会静静滤掉，结果报成「已不存在」：先说真原因
+  const 虚线 = await 虚线只读挡(defaultClient, ids);
+  if (虚线) return { ok: false, error: 虚线 };
   const 挡 = await 挡字段(me.id, ["销售负责人"]);
   if (挡) return { ok: false, error: 挡 };
 
@@ -877,6 +885,8 @@ export async function bulkFollowStatus(ids: string[], followStatus: string): Pro
   if (!ids.length) return { ok: true, updated: 0, unchanged: 0, missing: 0 };
   const 状态错 = 跟进不对(followStatus);
   if (状态错) return { ok: false, error: 状态错 };
+  const 虚线 = await 虚线只读挡(defaultClient, ids);
+  if (虚线) return { ok: false, error: 虚线 };
   const 挡 = await 挡字段(me.id, ["跟进状态"]);
   if (挡) return { ok: false, error: 挡 };
 
@@ -1261,7 +1271,7 @@ export async function patchCustomer(id: string, key: PatchableKey, value: string
   const b = await getBusiness();
   if (!PATCHABLE.includes(key)) return { ok: false, error: "这个字段不能在这里改" };
   // 团队互看：同事的客户读得到、改不了（lib/team-scope.ts），外贸档案那几格也一样
-  if (await 同事的客户(defaultClient, id)) return { ok: false, error: new 只读错误().message };
+  if (await 同事的客户(defaultClient, id)) return { ok: false, error: await 只读话(defaultClient) };
   const 挡 = 客户列字段[key] ? await 挡字段(me.id, [客户列字段[key]]) : null;
   if (挡) return { ok: false, error: 挡 };
   // 动到归属的几格（负责人、渠道负责人、来源、推荐人）之前先钉住老签约（排查 X1 / 复查 R）

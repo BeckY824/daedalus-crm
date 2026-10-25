@@ -6,11 +6,11 @@ import { 负责人候选 } from "@/lib/owners";
 import { 可选渠道 } from "@/lib/options";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
 import { llmEnabled } from "@/lib/llm";
-import { 客户筛选条件, 客户行字段, 成客户行, 客户金额分页, 在看子集 } from "./query";
+import { 客户筛选条件, 客户行字段, 成客户行, 客户金额分页, 在看子集, 只按页签 } from "./query";
 import { 规整币种 } from "@/lib/currency";
-import { 自动掉公海 } from "@/lib/pool-db";
+import { 自动掉公海, 客户页签数 } from "@/lib/pool-db";
 import { getBusiness } from "@/lib/business";
-import { 读的我 } from "@/lib/team-scope";
+import { 读的我, 虚线只读的 } from "@/lib/team-scope";
 import { defaultClient } from "@/lib/prisma";
 import { 读团队 } from "@/lib/sync/client";
 import { 客户页签归属 } from "@/lib/pool";
@@ -88,11 +88,15 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
     两个页签上的数：都不带筛选、和左栏「客户」角标在同一套限定下数（layout.tsx 的 customer.count()），
     所以「我的 / 团队客户 N」+「公海 M」= 角标。子集里不摆页签，不数
   */
-  const [total, 公海总数, 非公海总数] = await Promise.all([
-    prisma.customer.count({ where }),
-    子集 ? Promise.resolve(null) : prisma.customer.count({ where: { pool: { isNot: null } } }),
-    子集 ? Promise.resolve(null) : prisma.customer.count({ where: { pool: { is: null } } }),
+  const 就是页签 = 子集 ? null : 只按页签(where);
+  const [筛出, 页签数] = await Promise.all([
+    就是页签 ? Promise.resolve(null) : prisma.customer.count({ where }),
+    子集 ? Promise.resolve(null) : 客户页签数(),
   ]);
+  const 公海总数 = 页签数?.公海 ?? null;
+  const 非公海总数 = 页签数?.非公海 ?? null;
+  // 除了页签什么都没筛（最常见的「点进客户页」）：总数就是页签上那个数，不再数一遍
+  const total = 筛出 ?? (就是页签 === "公海" ? 公海总数 : 非公海总数) ?? 0;
   /*
     「客户」页签搜不到、公海里却有对得上的：数出来给一条去公海页签的路（领导点「搜一下」找不到人，多半是掉进公海了）。
     负责人条件不带：换到公海页签时它会清掉（公海里的负责人是「原负责人」），数要和点过去看到的对得上
@@ -162,6 +166,8 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
         dept: sp.dept ?? "",
       }}
       部门选项={部门选项}
+      // 企业版虚线下属的客户：只能看（10-25 实测 F4）。团队版、没开组织架构可见范围时一律空
+      只读ids={await 虚线只读的(defaultClient, rows.map((r) => r.id))}
       本月新增={sp.createdWithin === "本月"}
       直接推荐={sp.directOf ? ((await prisma.channel.findUnique({ where: { id: sp.directOf }, select: { name: true } }))?.name ?? "这个渠道") : null}
       本批={sp.batch ? { 几位: total } : null}
