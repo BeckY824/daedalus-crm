@@ -67,9 +67,12 @@ beforeAll(async () => {
     const db = { followPlan: 表(计划, 'plannedAt'), task: 表(待办, 'dueAt') };
     window.__补 = [];
     let 放行; window.__放行 = new Promise((ok) => { 放行 = ok; }); window.__开闸 = () => 放行();
+    // 补失败：前几次补详情直接失败（断网、服务端出错）
+    let 还要失败 = cfg.补失败 ?? 0;
     async function 补详情(keys) {
       window.__补.push(keys);
-      if (cfg.缺一条) await window.__放行;
+      if (还要失败 > 0) { 还要失败--; throw new Error('补详情失败'); }
+      if (cfg.缺一条 && !cfg.补失败) await window.__放行;
       return 取详情(db, keys);
     }
     function 分批() {
@@ -99,7 +102,7 @@ beforeAll(async () => {
 }, 120_000);
 afterAll(async () => { await browser?.close(); });
 
-type 配置 = { 种子: number; 我: string; 人: string[]; 每组: Record<string, [number, number]>; 缺一条?: boolean; 外人?: number };
+type 配置 = { 种子: number; 我: string; 人: string[]; 每组: Record<string, [number, number]>; 缺一条?: boolean; 补失败?: number; 外人?: number };
 
 async function 开(cfg: 配置) {
   const page = await browser.newPage({ timezoneId: "Asia/Shanghai" }); page.setDefaultTimeout(8000);
@@ -191,6 +194,21 @@ it("要摆的那条手里没详情：先占「正在取…」，补到了和全�
   expect(await page.evaluate(() => (window as unknown as { __补: string[][] }).__补)).toEqual([[`plan:${缺}`]]);
   await page.evaluate(() => (window as unknown as { __开闸: () => void }).__开闸());
   await expect.poll(() => 占位.count()).toBe(0);
+  const [分, 全] = [await 读(page, "paged"), await 读(page, "full")];
+  for (const [k, g] of 分.entries()) expect(g.行).toEqual(全[k].行.slice(0, 50));
+  expect(errors).toEqual([]); await page.close();
+});
+
+it("补详情失败：占位不再一直转「正在取」，写「没取到」给重试；重试补到了和全取的一样", async () => {
+  const { page, errors } = await 开({ ...团队, 种子: 23, 缺一条: true, 补失败: 1 });
+  await 看(page, "我的");
+  const 占位 = page.locator("#paged .plan-row-wait");
+  await expect.poll(() => 占位.innerText()).toContain("没取到");
+  expect(await 占位.getAttribute("aria-busy")).toBe("false");
+  expect(await page.evaluate(() => (window as unknown as { __补: string[][] }).__补)).toHaveLength(1);
+  await 占位.getByRole("button", { name: "重试" }).click();
+  await expect.poll(() => 占位.count()).toBe(0);
+  expect(await page.evaluate(() => (window as unknown as { __补: string[][] }).__补)).toHaveLength(2);
   const [分, 全] = [await 读(page, "paged"), await 读(page, "full")];
   for (const [k, g] of 分.entries()) expect(g.行).toEqual(全[k].行.slice(0, 50));
   expect(errors).toEqual([]); await page.close();

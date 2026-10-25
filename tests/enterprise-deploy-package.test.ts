@@ -68,3 +68,91 @@ describe("首启建哪些账号", () => {
     expect(读("prisma/seed.ts")).toMatch(/const 名单外 = 企业版\(\) \? \[\] :/);
   });
 });
+
+describe("升级先在测试机验证", () => {
+  const 验证 = 读("deploy/enterprise/tools/verify-upgrade.sh");
+  const 打包 = 读("deploy/enterprise/tools/pack.sh");
+
+  it("验证脚本调的是客户手里同一套 upgrade.sh / rollback.sh，不另写升级逻辑", () => {
+    expect(验证).toMatch(/scripts\/upgrade\.sh/);
+    expect(验证).toMatch(/scripts\/rollback\.sh/);
+    expect(验证).not.toMatch(/docker compose up/);
+  });
+
+  it("我方的 tools/ 不进给客户的交付包", () => {
+    expect(打包).not.toMatch(/\$HERE\/tools/);
+    expect(打包).toMatch(/cp -R "\$HERE\/scripts"/);
+  });
+
+  it("CI 从已发布的版本升到这次的代码，再验自动退回", () => {
+    const ci = 读(".github/workflows/enterprise-deploy-verify.yml");
+    expect(ci).toMatch(/tools\/verify-upgrade\.sh --load/);
+    expect(ci).toMatch(/UPGRADE_TIMEOUT=\d+ \.\/scripts\/upgrade\.sh/);
+    // 空库升级等于没验：CI 先灌演练数据；改了数据库结构也要跑
+    expect(ci).toMatch(/FILL=1 \.\/tools\/verify-upgrade\.sh --load/);
+    expect(ci).toMatch(/- "prisma\/\*\*"/);
+  });
+
+  it("每一步都核核心业务表的内容哈希，不只看行数；空库直接不验", () => {
+    expect(验证).toMatch(/\$DRILL\/core-hash\.js/);
+    expect(验证).toMatch(/\$DRILL\/fill\.js/);
+    expect(验证).toMatch(/库是空的/);
+    expect(验证).toMatch(/CORE_SKIP/);
+  });
+});
+
+describe("备份真能恢复（恢复演练）", () => {
+  const 演练 = 读("deploy/enterprise/tools/restore-drill.sh");
+  const 恢复 = 读("deploy/enterprise/scripts/restore.sh");
+  const 打包 = 读("deploy/enterprise/tools/pack.sh");
+  const ci = 读(".github/workflows/enterprise-deploy-verify.yml");
+
+  it("演练调的是客户手里同一套 backup.sh / restore.sh", () => {
+    expect(演练).toMatch(/scripts\/backup\.sh/);
+    expect(演练).toMatch(/scripts\/restore\.sh/);
+    expect(演练).toMatch(/NO_START=1/);
+  });
+
+  it("五种坏备份都要被拒绝、数据不动", () => {
+    for (const 坏 of ["截断一半", "中间改一个字节", "密码不对", "随机字节", "没有数据库的包"]) {
+      expect(演练).toMatch(new RegExp(`refuse "${坏}"`));
+    }
+  });
+
+  it("恢复前把整个压缩流读到底（只列目录发现不了后半截坏）", () => {
+    expect(恢复).toMatch(/gzip -t/);
+    expect(恢复).toMatch(/NO_START/);
+  });
+
+  it("CI 恢复演练跑三遍，一条命令安装且计时 30 分钟", () => {
+    expect(ci).toMatch(/restore-drill:[\s\S]*round: \[1, 2, 3\]/);
+    expect(ci).toMatch(/upgrade-drill:[\s\S]*round: \[1, 2, 3\]/);
+    expect(ci).toMatch(/scripts\/install\.sh --domain localhost --load/);
+    expect(ci).toMatch(/-lt 1800/);
+    expect(ci).toMatch(/tools\/restore-drill\.sh --fill/);
+  });
+
+  it("CI 用这次打的镜像打交付包，不去拉 GHCR 上的同名版本", () => {
+    expect(打包).toMatch(/LOCAL_APP_IMAGE/);
+    expect(ci).toMatch(/LOCAL_APP_IMAGE=1 deploy\/enterprise\/tools\/pack\.sh/);
+  });
+});
+
+describe("status.sh 的行家检查", () => {
+  const 状态 = 读("deploy/enterprise/scripts/status.sh");
+
+  it("磁盘：部署目录和 Docker 数据目录都看，85% 或剩不到 5G 提示", () => {
+    expect(状态).toMatch(/DockerRootDir/);
+    expect(状态).toMatch(/-ge 85/);
+    expect(状态).toMatch(/-lt 5242880/);
+  });
+
+  it("证书：读正在用的那张，14 天内过期提示", () => {
+    expect(状态).toMatch(/openssl s_client -connect 127\.0\.0\.1:443/);
+    expect(状态).toMatch(/-checkend 1209600/);
+  });
+
+  it("时钟：没和时间服务器同步就提示", () => {
+    expect(状态).toMatch(/NTPSynchronized/);
+  });
+});
