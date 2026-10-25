@@ -82,6 +82,19 @@ function 公海条件(sp: 客户条件): Prisma.CustomerWhereInput {
   return { pool: { is: null } };
 }
 
+/**
+ * 这份条件除了页签本身什么都没筛：给「客户」/「公海」两个字之一，筛了别的给 null。
+ * 列表页拿它省一次 count——没筛时列表总数就是页签上的数（lib/pool-db.ts 客户页签数），不用再数一遍
+ */
+export function 只按页签(where: Prisma.CustomerWhereInput): "非公海" | "公海" | null {
+  const { AND, pool, ...别的 } = where;
+  if (Object.keys(别的).length) return null;
+  if (!Array.isArray(AND) || AND.some((x) => Object.keys(x).length)) return null;
+  if (pool && "is" in pool && pool.is === null && Object.keys(pool).length === 1) return "非公海";
+  if (pool && "isNot" in pool && pool.isNot === null && Object.keys(pool).length === 1) return "公海";
+  return null;
+}
+
 export async function 客户筛选条件(
   sp: 客户条件,
 ): Promise<Prisma.CustomerWhereInput> {
