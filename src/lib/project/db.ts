@@ -10,7 +10,7 @@ import { 还差, 节点推进生效, 按必填走, 节点必填, type 必填数�
 import { 规整项目, 规整沟通, type 向导项目, type 向导跟进 } from "./wizard";
 import { 持有上限of, type 组织规则 } from "./org-rules";
 import { 企业版 } from "@/lib/enterprise/switch";
-import { 读组织, 直属上级of, type 组织 } from "@/lib/enterprise/org";
+import { 读组织, 直属上级of, 管理员类别of, type 组织 } from "@/lib/enterprise/org";
 import { 生效组织规则 } from "./org-rules-store";
 import { 超时回收日, 已超时, 超时理由, 超时起点 } from "./timeout";
 import { getSetting, setSetting } from "../settings";
@@ -39,25 +39,27 @@ export function 能管项目(me: 谁, p: { ownerId: string; pooledAt?: Date | nu
 }
 
 /**
- * 企业版 D-37：负责人的直属上级能改这个项目的节点。组织里设成销售管理不会改账号角色，
+ * 企业版 D-37：负责人的直属上级、组织里的总管理员能改这个项目的节点。组织里设的角色不会改账号角色，
  * 直属上级可能还是 SALES，光看 能管项目 会把他拦在外面（质量审 #138）。org = null（不是企业版）→ 和 能管项目 一样
  */
 export function 能改节点(me: 谁, p: { ownerId: string; pooledAt?: Date | null }, org: 组织 | null): boolean {
-  return 能管项目(me, p) || (!p.pooledAt && 是直属上级(me, p.ownerId, org));
+  return 能管项目(me, p) || (!p.pooledAt && 代管节点(me, p.ownerId, org));
 }
-export function 是直属上级(me: 谁, ownerId: string, org: 组织 | null): boolean {
-  return !!org && 直属上级of(org, ownerId) === me.id;
+/** 企业版：负责人的直属上级，或组织里的总管理员（10-24 用户定：总管理员能推，和老板一样） */
+export function 代管节点(me: 谁, ownerId: string, org: 组织 | null): boolean {
+  return !!org && (直属上级of(org, ownerId) === me.id || 管理员类别of(org, me.id) === "总管理员");
 }
 
 /**
- * 企业版 D-37：负责人有直属上级时，手动往前推节点只给这位直属上级和老板；负责人本人、隔级上级、
+ * 企业版 D-37：负责人有直属上级时，手动往前推节点只给这位直属上级、老板和组织里的总管理员；负责人本人、隔级上级、
  * 虚线上级（D-39 只读）都不行，本人填齐必填照样自动推。往后退、点结局、进异常不归这条管。
  * 负责人没设直属上级（组织还没配）照旧，免得谁都推不动。org = null（不是企业版）→ 不拦。
  * 返回拦下的话，null = 能推
  */
 export function 往前推不给(me: 谁, ownerId: string, org: 组织 | null): string | null {
-  const 上级 = org ? 直属上级of(org, ownerId) : null;
-  if (!上级 || me.id === 上级 || me.role === "ADMIN") return null;
+  if (!org) return null;
+  const 上级 = 直属上级of(org, ownerId);
+  if (!上级 || me.id === 上级 || me.role === "ADMIN" || 管理员类别of(org, me.id) === "总管理员") return null;
   return me.id === ownerId ? "往前推节点要由你的直属上级来推" : "只有负责人的直属上级能往前推节点";
 }
 
@@ -218,8 +220,8 @@ export async function 改节点(
     const 往前 = !result && !p.result && 节点序号(到) > 节点序号(p);
     const 不给 = 往前 ? 往前推不给(me, p.ownerId, org) : null;
     if (不给) return { ok: false as const, error: 不给 };
-    // 企业版节点必填（D-37）：配了必填的节点，往前推只给老板、主管、负责人的直属上级；销售本人填齐了自动推
-    if (往前 && 按必填走(规则, p.node) && me.role !== "ADMIN" && me.role !== "MANAGER" && !是直属上级(me, p.ownerId, org)) {
+    // 企业版节点必填（D-37）：配了必填的节点，往前推只给老板、主管、负责人的直属上级、总管理员；销售本人填齐了自动推
+    if (往前 && 按必填走(规则, p.node) && me.role !== "ADMIN" && me.role !== "MANAGER" && !代管节点(me, p.ownerId, org)) {
       const 差 = 还差(规则, await 读必填数据(tx, p));
       return {
         ok: false as const,
@@ -452,13 +454,17 @@ const 超时扫过键 = "projectTimeoutSweptOn";
 
 const 算超时要的 = {
   id: true, name: true, phase: true, node: true, result: true, pooledAt: true, nextStepAt: true, ownerId: true, customerId: true, createdAt: true,
-  customer: { select: { lastFollowAt: true } },
+  customer: { select: { lastFollowAt: true, pool: { select: { customerId: true } } } },
   logs: { select: { at: true }, orderBy: { at: "desc" as const }, take: 1 },
 } satisfies Prisma.ProjectSelect;
 type 待查项目 = Prisma.ProjectGetPayload<{ select: typeof 算超时要的 }>;
 
-/** 起点 = 最近一次有人管：建项目、最后一行节点变更 / 转让 / 领取、客户上最后一次跟进，取最晚的（timeout.ts） */
+/**
+ * 起点 = 最近一次有人管：建项目、最后一行节点变更 / 转让 / 领取、客户上最后一次跟进，取最晚的（timeout.ts）。
+ * 客户在客户公海里的不收（企业版第四节）：项目跟着客户，谁领客户谁带走；先收进项目公海就和客户拆开了
+ */
 function 超时了(规则: 组织规则, p: 待查项目, 今: Date): boolean {
+  if (p.customer.pool) return false;
   return 已超时(超时回收日(规则, p, 超时起点(p.createdAt, p.logs[0]?.at, p.customer.lastFollowAt)), 今);
 }
 
@@ -467,7 +473,7 @@ async function 超时的项目(规则: 组织规则, 今: Date, ownerId?: string
   const 节点 = Object.keys(规则.超时回收.节点天数);
   if (!规则.超时回收.开 || !节点.length) return [];
   const 们 = await prisma.project.findMany({
-    where: { pooledAt: null, result: null, phase: { in: [...能进公海的阶段] }, node: { in: 节点 }, ...(ownerId ? { ownerId } : {}) },
+    where: { pooledAt: null, result: null, phase: { in: [...能进公海的阶段] }, node: { in: 节点 }, customer: { pool: { is: null } }, ...(ownerId ? { ownerId } : {}) },
     select: 算超时要的,
   });
   return 们.filter((p) => 超时了(规则, p, 今));
