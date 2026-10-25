@@ -48,26 +48,32 @@ export function shm路径(url = process.env.DATABASE_URL ?? ""): string | null {
  */
 const 句柄表 = ((globalThis as unknown as { __shm句柄?: Map<string, { fd: number; ino: number; dev: number }> }).__shm句柄 ??= new Map());
 
-function shm句柄(shm: string): number {
+function shm句柄(shm: string): { fd: number; ino: number; dev: number } {
   const 现 = fs.statSync(shm); // stat 不开 fd，不碰锁
   const 有 = 句柄表.get(shm);
-  if (有 && 有.ino === 现.ino && 有.dev === 现.dev) return 有.fd;
+  if (有 && 有.ino === 现.ino && 有.dev === 现.dev) return 有;
   const fd = fs.openSync(shm, "r");
   const 实 = fs.fstatSync(fd);
-  句柄表.set(shm, { fd, ino: 实.ino, dev: 实.dev });
-  return fd;
+  const 新 = { fd, ino: 实.ino, dev: 实.dev };
+  句柄表.set(shm, 新);
+  return 新;
 }
 
-/** 库的提交指纹：WAL 索引头第一份拷贝（48 字节）。读不出 / 没初始化回 null */
+/**
+ * 库的提交指纹：-shm 的 inode + WAL 索引头第一份拷贝（48 字节）。读不出 / 没初始化回 null。
+ * 带上 inode：-shm 被删了重建（所有连接关过一轮），新头可能和旧头逐字相同（同样的 checkpoint 次数、同样的帧数），
+ * 中间改过的数据就认不出来了
+ */
 export function 库指纹(shm = shm路径()): string | null {
   if (!shm) return null;
   try {
     const b = Buffer.alloc(48);
-    if (fs.readSync(shm句柄(shm), b, 0, 48, 0) !== 48) return null;
+    const 柄 = shm句柄(shm);
+    if (fs.readSync(柄.fd, b, 0, 48, 0) !== 48) return null;
     // iVersion = 3007000、isInit = 1 才是 SQLite 写好的头
     if (b.readUInt32LE(0) !== 3007000 && b.readUInt32BE(0) !== 3007000) return null;
     if (b[12] !== 1) return null;
-    return b.toString("hex");
+    return `${柄.dev}:${柄.ino}:${b.toString("hex")}`;
   } catch {
     return null;
   }
@@ -92,6 +98,7 @@ export async function 缓存着<T>(key: string, 算: () => Promise<T>): Promise<
 
   const 值 = 算();
   const 新 = { 指纹, 到期: 此刻 + 最长, 值 };
+  表.delete(key); // 先删再放，换过的 key 挪到末尾，超量时先淘汰最久没换的
   表.set(key, 新);
   值.catch(() => { if (表.get(key) === 新) 表.delete(key); });
   if (表.size > 最多条) for (const [k, v] of 表) if (v.到期 <= 此刻 || 表.size > 最多条) 表.delete(k);
@@ -101,4 +108,9 @@ export async function 缓存着<T>(key: string, 算: () => Promise<T>): Promise<
 /** 测试用 */
 export function 清首页缓存(): void {
   表.clear();
+}
+
+/** 测试用 */
+export function 首页缓存条数(): number {
+  return 表.size;
 }

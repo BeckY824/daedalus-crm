@@ -2,7 +2,10 @@
  * 首页重查询的短时缓存（lib/home-cache.ts）。钉的是：
  * - 库指纹（WAL 索引头）：任何提交都会变——模型写、裸 SQL 写、交互式事务提交、另一个连接 / 别的进程写；只读不变；
  *   取指纹不关 -shm（关了会丢 SQLite 的锁，别的进程写库时本进程 SIGBUS）
- * - 缓存着：同一份只数一次、同时来的共用一次；库一变下一次立刻重数；数失败不留；非企业版 / CRM_HOME_CACHE=0 每次现数
+ * - 缓存着：同一份只数一次、同时来的共用一次；库一变下一次立刻重数；最多活 30 秒；数失败不留；最多 64 条、先淘汰最久没换的；
+ *   非企业版 / CRM_HOME_CACHE=0 每次现数
+ * - 指纹带 -shm 的 inode（-shm 删了重建，新头可能和旧头逐字相同）
+ * - key：过了零点换一份；沉睡按 谁的 各一份；限定可见范围的人不走缓存
  * - 对拍：客户数、沉睡前几名开着缓存和关着结果一模一样；刚写进去的客户 / 跟进马上反映出来
  * 用拷出来的一份库（绝对路径，企业版开只读通道），不碰共用的测试库。
  */
@@ -27,8 +30,8 @@ const 临时 = vi.hoisted(() => {
 import { prisma, defaultClient as raw } from "@/lib/prisma";
 import { PrismaClient } from "@/generated/prisma";
 import { 关读通道 } from "@/lib/read-pool";
-import { 库指纹, shm路径, 缓存着, 首页缓存开着, 清首页缓存 } from "@/lib/home-cache";
-import { 客户数 } from "@/lib/dashboard-sql";
+import { 库指纹, shm路径, 缓存着, 首页缓存开着, 清首页缓存, 首页缓存条数 } from "@/lib/home-cache";
+import { 客户数, 取行数 } from "@/lib/dashboard-sql";
 import { _内部 as 盯盘 } from "@/lib/sentinel-data";
 import { dayjs } from "@/lib/utils";
 
@@ -86,6 +89,11 @@ describe("库指纹", () => {
     expect(shm路径("postgresql://x")).toBeNull();
     expect(shm路径("")).toBeNull();
     expect(库指纹("/no/such/file-shm")).toBeNull();
+  });
+
+  it("带上 -shm 的 inode：-shm 删了重建后头逐字相同也认得出", () => {
+    const st = fs.statSync(shm路径()!);
+    expect(库指纹()!.startsWith(`${st.dev}:${st.ino}:`)).toBe(true);
   });
 
   it("模型写、裸 SQL 写、交互式事务提交、另一个连接写都会变；只读不变", async () => {
@@ -203,6 +211,40 @@ describe("缓存着", () => {
     await expect(缓存着("k", async () => { throw new Error("坏了"); })).rejects.toThrow("坏了");
     expect(await 缓存着("k", async () => 7)).toBe(7);
   });
+
+  it("最多活 30 秒", async () => {
+    开();
+    let n = 0;
+    const 算 = async () => ++n;
+    const 起 = Date.now();
+    const 钟 = vi.spyOn(Date, "now");
+    try {
+      钟.mockReturnValue(起);
+      expect(await 缓存着("k", 算)).toBe(1);
+      钟.mockReturnValue(起 + 29_999);
+      expect(await 缓存着("k", 算)).toBe(1);
+      钟.mockReturnValue(起 + 30_000);
+      expect(await 缓存着("k", 算)).toBe(2);
+    } finally {
+      钟.mockRestore();
+    }
+  });
+
+  it("最多 64 条，超了先淘汰最久没换的", async () => {
+    开();
+    let n = 0;
+    const 算 = async () => ++n;
+    for (let i = 0; i < 64; i++) await 缓存着(`k${i}`, 算);
+    expect(首页缓存条数()).toBe(64);
+    // 库变了，k0 重数一次：它成了最新换的那条
+    await 新客户("淘汰顺序", 天);
+    const 重数 = await 缓存着("k0", 算);
+    expect(重数).toBe(65);
+    await 缓存着("k64", 算);
+    expect(首页缓存条数()).toBe(64);
+    // 淘汰的是 k1（最久没换），k0 还在
+    expect(await 缓存着("k0", 算)).toBe(重数);
+  });
 });
 
 describe("对拍：开着缓存和关着一模一样，刚写的马上反映", () => {
@@ -265,5 +307,57 @@ describe("对拍：开着缓存和关着一模一样，刚写的马上反映", (
     expect(只它.重叠).toBe(1);
     const 没有 = await 盯盘.沉睡前几名({ now, 边界, 前几名: 8, 别的客户: [] });
     expect(没有.重叠).toBe(0);
+  });
+
+  it("客户数：过了零点换一份，不拿昨天那份", async () => {
+    const 今天 = dayjs();
+    const 明天 = 今天.add(1, "day");
+    开();
+    const 今 = await 客户数(prisma, 今天, true);
+    const 明 = await 客户数(prisma, 明天, true);
+    关();
+    expect(明).toEqual(await 客户数(prisma, 明天, true));
+    expect(明).not.toEqual(今);
+  });
+
+  it("沉睡：过了零点换一份，各人各一份", async () => {
+    const 业务员 = (await raw.user.create({ data: { email: "hc-sales@x.com", name: "业务员", password: "x", role: "USER" } })).id;
+    await raw.customer.create({ data: { name: "业务员的", phone: "13600000001", salesOwnerId: 业务员, followStatus: "意向较高", createdAt: new Date(Date.now() - 70 * 天), lastFollowAt: new Date(Date.now() - 70 * 天) } });
+    const 今天 = dayjs();
+    const 明天 = 今天.add(1, "day");
+    // 今天跟进满 13 天、明天满 14 天：明天才算沉睡，两天的结果不一样
+    const 差一天 = 今天.subtract(13, "day").startOf("day").add(1, "hour").toDate();
+    await raw.customer.create({ data: { name: "明天才睡", phone: "13600000003", salesOwnerId: 老板, followStatus: "意向较高", createdAt: 差一天, lastFollowAt: 差一天 } });
+    const 取 = (now: typeof 今天, 谁的?: string) => 盯盘.沉睡前几名({ 谁的, now, 边界: 盯盘.沉睡边界(now)!, 前几名: 8, 别的客户: [] });
+    开();
+    const 全部今 = await 取(今天);
+    const 全部明 = await 取(明天);
+    const 只他 = await 取(今天, 业务员);
+    关();
+    expect(全部明).toEqual(await 取(明天));
+    expect(只他).toEqual(await 取(今天, 业务员));
+    expect(只他.沉睡).toBe(1);
+    expect(全部今.沉睡).toBeGreaterThan(1);
+    expect(全部明.沉睡).toBeGreaterThan(全部今.沉睡);
+  });
+
+  it("限定可见范围的人不走缓存：取的是限定后的行，也不污染不限定的那份", async () => {
+    const now = dayjs();
+    const 业务员 = (await raw.user.findFirst({ where: { email: "hc-sales@x.com" } }))?.id
+      ?? (await raw.user.create({ data: { email: "hc-sales@x.com", name: "业务员", password: "x", role: "USER" } })).id;
+    await raw.customer.create({ data: { name: "限定的", phone: "13600000002", salesOwnerId: 业务员, followStatus: "待跟进", createdAt: new Date(Date.now() - 2 * 天) } });
+    // 只看得到业务员自己客户的 db（代替 team-scope 那层 where）
+    const 限定 = {
+      customer: { findMany: (q: object) => raw.customer.findMany({ ...q, where: { salesOwnerId: 业务员 } }) },
+      followUp: { findMany: (q: { where?: object }) => raw.followUp.findMany({ ...q, where: { ...q.where, customer: { salesOwnerId: 业务员 } } }) },
+    } as unknown as typeof prisma;
+    开();
+    const 全部 = await 客户数(prisma, now, true);
+    清首页缓存();
+    const 限定的 = await 客户数(限定, now, false);
+    expect(首页缓存条数()).toBe(0);
+    expect(限定的).toEqual(await 取行数(限定, now));
+    expect(限定的).not.toEqual(全部);
+    expect(await 客户数(prisma, now, true)).toEqual(全部);
   });
 });
