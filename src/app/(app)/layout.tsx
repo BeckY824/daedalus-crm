@@ -11,6 +11,7 @@ import { getBusiness } from "@/lib/business";
 import { BusinessProvider } from "@/lib/business-client";
 import { 本地模式, 归属对不上, 读 as 读云端凭据 } from "@/lib/desktop/cloud";
 import { multiTenant } from "@/lib/tenant/context";
+import { 企业版 } from "@/lib/enterprise/switch";
 import { accessibleWorkspacesFor } from "@/lib/tenant/workspace-access";
 import { llmEnabled, listModelOptions } from "@/lib/llm";
 import { 读AI计次, 不计次 } from "@/lib/ai-meter";
@@ -96,7 +97,7 @@ export default async function AppLayout({
   return (
     <ShortcutProvider mac={/Macintosh|Mac OS|iPhone|iPad/.test(ua)}>
     <BusinessProvider value={business} timeZone={multiTenant() ? "Asia/Shanghai" : null}>
-      {/* 反馈：托管版和桌面端有我们这个云可发，自部署的开源版没有，按钮改去 GitHub issues */}
+      {/* 反馈：托管版和桌面端有我们这个云可发，自部署的开源版没有，按钮改去 GitHub issues；企业版不放反馈键 */}
       <AiMeterProvider 初值={AI计次}>
       <AppShell
         user={user}
@@ -104,7 +105,7 @@ export default async function AppLayout({
         要跟={(({ 逾期, 今天 }) => ({ 逾期, 今天 }))(算提醒(提醒项))}
         订单要看={(({ 超期, 今天 }) => ({ 超期, 今天 }))(算提醒([], new Date(), 订单提醒项).订单)}
         desktop={desktop}
-        反馈去向={本地模式() || multiTenant() ? "cloud" : "github"}
+        反馈去向={企业版() ? "none" : 本地模式() || multiTenant() ? "cloud" : "github"}
         pane={pane}
         ai={有AI ? { models } : null}
         收藏={收藏}

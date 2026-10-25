@@ -6,6 +6,7 @@ import { TrialExpiredError } from "./tenant/guard";
 import { 加上限定 } from "./team-scope";
 import { 企业版 } from "./enterprise/switch";
 import { 单连接 } from "./sqlite-url";
+import { 读通道, 读通道开着, 读方法, 取SQL, 只读SQL, 只读查询, 关读通道 } from "./read-pool";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -112,6 +113,49 @@ function modelProxy(model: string): unknown {
   );
 }
 
+/** 企业版开了只读通道时每个模型的那一层：查、数走只读通道，别的（写）原样走主连接 */
+const 分流的模型 = new Map<string, unknown>();
+
+function 分流(prop: string, c: PrismaClient): unknown {
+  if (prop === "$queryRaw" || prop === "$queryRawUnsafe") {
+    return (...args: unknown[]) => {
+      const sql = 取SQL(prop, args);
+      const r = sql !== null && 只读SQL(sql) ? 读通道() : null;
+      const 用 = (r ?? c) as unknown as Record<string, (...a: unknown[]) => unknown>;
+      return 用[prop](...args);
+    };
+  }
+  if (prop === "$transaction") {
+    return (...args: unknown[]) => {
+      // 数组式事务的每一句都得是主连接上建的；只读通道的查询混进来，Prisma 会把它放到事务外面跑——直接拦
+      if (Array.isArray(args[0]) && args[0].some((p) => p && typeof p === "object" && 只读查询.has(p))) {
+        throw new Error("数组式 $transaction 里不能放只读通道的查询：事务里的查询请用 tx 或交互式事务");
+      }
+      return (c.$transaction as (...a: unknown[]) => unknown).apply(c, args);
+    };
+  }
+  if (prop === "$disconnect") return async () => { await 关读通道(); await c.$disconnect(); };
+  const v = Reflect.get(c, prop, c);
+  if (prop.startsWith("$") || prop.startsWith("_") || !v || typeof v !== "object") {
+    return typeof v === "function" ? v.bind(c) : v;
+  }
+  if (!分流的模型.has(prop)) {
+    分流的模型.set(prop, new Proxy(v as Record<string, unknown>, {
+      get(d, m) {
+        const f = Reflect.get(d, m, d);
+        if (typeof f !== "function") return f;
+        if (typeof m !== "string" || !读方法.has(m)) return f.bind(d);
+        return (...args: unknown[]) => {
+          // 每次现取：开关刚关掉就回主连接
+          const r = 读通道() as unknown as Record<string, Record<string, (...a: unknown[]) => unknown>> | null;
+          return r ? r[prop][m](...args) : (f as (...a: unknown[]) => unknown).apply(d, args);
+        };
+      },
+    }));
+  }
+  return 分流的模型.get(prop);
+}
+
 export const prisma: PrismaClient = new Proxy(defaultClient, {
   get(target, prop) {
     if (typeof prop !== "string") return Reflect.get(target, prop, target);
@@ -119,6 +163,8 @@ export const prisma: PrismaClient = new Proxy(defaultClient, {
     // 自部署 / 桌面端：没有租户这一层；桌面端团队版的业务员限定、企业版按组织看客户在 scopedClient 里
     if (!multiTenant()) {
       const c = process.env.DESKTOP_LOCAL === "1" || 企业版() ? scopedClient : target;
+      // 企业版的只读通道（lib/read-pool.ts）：查询分到另外 4 个连接，写入 / 事务照旧在这一个上。关着时下面一行不走
+      if (c === scopedClient && 读通道开着()) return 分流(prop, c);
       const v = Reflect.get(c, prop, c);
       return typeof v === "function" ? v.bind(c) : v;
     }
