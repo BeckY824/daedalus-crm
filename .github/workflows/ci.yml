@@ -5,10 +5,43 @@ on:
     branches: [main]
   pull_request:
 
+# 同一个 PR 又推了新提交，旧的那轮直接取消，别排队白跑（10-24 提速）。
+# push 到 main 按提交分组：每个合进来的提交都跑完，不互相取消。
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.head_ref) || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# 10-24 提速：单测、E2E、排版闸门都拆成几片并行跑，用例和闸门规则一条不动，只改怎么跑。
+# 分支保护认的三个必过检查名字不变：「类型 / 代码检查 / 单元测试」「E2E」「密钥扫描」，
+# 前两个现在是汇总 job，等各片跑完、全绿才绿。
 jobs:
-  check:
-    name: 类型 / 代码检查 / 单元测试
+  lint:
+    name: 类型 / 代码检查（tsc + eslint）
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+        # 上线用到的依赖有高危及以上漏洞就红（H-068，10-04 起）。修不了上游的用 package.json 的 overrides 钉住
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npx prisma generate
+        # 托管版的控制面客户端也要生成，否则 import @/generated/control 编译不过
+      - run: npx prisma generate --schema=prisma/control.prisma
+        env:
+          CONTROL_DATABASE_URL: file:/tmp/control-ci.db
+      - run: npx tsc --noEmit
+      - run: npx eslint .
+
+  unit:
+    name: 单元测试 ${{ matrix.shard }}/4
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
         # 要 tag：tests/r2-shell-upgrade 拿老版本的 tag 建老库来测升级，浅检出没有 tag 会直接报红
@@ -19,57 +52,148 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-        # 上线用到的依赖有高危及以上漏洞就红（H-068，10-04 起）。修不了上游的用 package.json 的 overrides 钉住
       # NSIS 单测读取锁定版本的真实上游模板；不运行 Electron 下载或原生构建脚本。
       - name: 安装 NSIS 模板测试依赖
         run: npm ci --prefix desktop --ignore-scripts --no-audit --no-fund
       # 安装桌面依赖也会启用既有解压链路测试。7zip-bin 的文件未必带执行位，先修复并验证工具可运行。
       - name: 准备解压链路测试工具
         run: node -e "const {path7za}=require('./desktop/node_modules/7zip-bin'); require('node:fs').chmodSync(path7za,0o755); require('node:child_process').execFileSync(path7za,['i'],{stdio:'ignore'})"
-      - run: npm audit --omit=dev --audit-level=high
       - run: npx prisma generate
-        # 托管版的控制面客户端也要生成，否则 import @/generated/control 编译不过
       - run: npx prisma generate --schema=prisma/control.prisma
         env:
           CONTROL_DATABASE_URL: file:/tmp/control-ci.db
-      - run: npx tsc --noEmit
-      - run: npx eslint .
+      # 浏览器按 Playwright 版本缓存：命中了下面那步只补系统依赖，不再每次下载 Chromium（10-24 提速）
+      - name: 缓存 Playwright 浏览器
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
         # 有几份单测在真 Chromium 里点组件（ai-settings-ui、import-ai-columns-ui、r6-review-otp、r7-review-auth-ui），
         # 没装浏览器整份起不来（2026-10-05 main 上第一次撞到）
       - run: npx playwright install --with-deps chromium
         # 与生产（Dockerfile 的 ENV TZ=Asia/Shanghai）一致。
-        # vitest.config.ts 里也钉了一道，这里再写一次是为了让人看 workflow 就知道
-      - run: npx vitest run
+        # vitest.config.ts 里也钉了一道，这里再写一次是为了让人看 workflow 就知道。
+        # 每片在自己的机器上跑，测试库 prisma/test.db 各建各的，互不干扰
+      - run: npx vitest run --shard=${{ matrix.shard }}/4 --reporter=dot
         env:
           TZ: Asia/Shanghai
 
-  e2e:
-    name: E2E
+  check:
+    name: 类型 / 代码检查 / 单元测试
+    needs: [lint, unit]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: 各片都绿才算过
+        run: |
+          echo "类型 / 代码检查：${{ needs.lint.result }}；单元测试各片：${{ needs.unit.result }}"
+          [ "${{ needs.lint.result }}" = success ] && [ "${{ needs.unit.result }}" = success ]
+
+  e2e-web:
+    name: E2E 网页 ${{ matrix.shard }}/5
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.56.1-noble
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5]
     steps:
       - uses: actions/checkout@v4
+      # 容器里没有 setup-node，npm 下载缓存自己存（10-24 提速）
+      - name: 缓存 npm 下载
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-e2e-${{ hashFiles('package-lock.json') }}
       - run: npm ci
+      # next build 用 Next 的增量编译缓存；源码没变的部分直接复用（10-24 提速）
+      - name: 缓存 Next 构建
+        uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: next-${{ github.job }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**', 'next.config.ts', 'public/**') }}
+          restore-keys: |
+            next-${{ github.job }}-${{ hashFiles('package-lock.json') }}-
       - run: npx prisma generate
         # 托管版的控制面客户端也要生成，否则 import @/generated/control 编译不过
       - run: npx prisma generate --schema=prisma/control.prisma
         env:
           CONTROL_DATABASE_URL: file:/tmp/control-ci.db
       # 默认网页验生产构建，避免只验证 dev server；仍使用隔离 E2E 库。
-      - run: npx playwright test
+      # 每片各自 next build、各自跑 globalSetup 建空库；片内仍按文件串行
+      - run: npx playwright test --shard=${{ matrix.shard }}/5
         env:
           E2E_PROD: "1"
           HOME: /root
           # 用例的浏览器固定 Asia/Shanghai，服务端也要一致，否则日期文案水合失配
           TZ: Asia/Shanghai
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-web-${{ matrix.shard }}
+          path: test-results/
+          retention-days: 7
+
+  e2e-layout:
+    name: 排版闸门 ${{ matrix.shard }}/3
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - name: 缓存 npm 下载
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-e2e-${{ hashFiles('package-lock.json') }}
+      - run: npm ci
+      - name: 缓存 Next 构建
+        uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: next-${{ github.job }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**', 'next.config.ts', 'public/**') }}
+          restore-keys: |
+            next-${{ github.job }}-${{ hashFiles('package-lock.json') }}-
+      - run: npx prisma generate
+      - run: npx prisma generate --schema=prisma/control.prisma
+        env:
+          CONTROL_DATABASE_URL: file:/tmp/control-ci.db
       # 发版前排版闸门（10-19）：桌面本地模式 + 像真客户的数据，1024/1280/1366 × AI 栏常驻 / 左栏最宽量主要页面越界、被盖住。
       # 这几天的显示 bug 都是客户先发现的，以后让它在这里先红。规则见 e2e/layout-audit.ts，不许为了变绿放宽
-      - run: npx playwright test -c playwright.layout.config.ts
+      - run: npx playwright test -c playwright.layout.config.ts --shard=${{ matrix.shard }}/3
         env:
           E2E_PROD: "1"
           HOME: /root
           TZ: Asia/Shanghai
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-layout-${{ matrix.shard }}
+          path: test-results/
+          retention-days: 7
+
+  e2e-hosted:
+    name: E2E 托管版
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.1-noble
+    steps:
+      - uses: actions/checkout@v4
+      - name: 缓存 npm 下载
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-e2e-${{ hashFiles('package-lock.json') }}
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma generate --schema=prisma/control.prisma
+        env:
+          CONTROL_DATABASE_URL: file:/tmp/control-ci.db
       # 托管版有自己的库和端口，与上面那套互不干扰
       - run: npm run test:hosted
         env:
@@ -79,9 +203,49 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-report
+          name: playwright-report-hosted
           path: test-results/
           retention-days: 7
+
+  e2e:
+    name: E2E
+    needs: [e2e-web, e2e-layout, e2e-hosted]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: 各片都绿才算过
+        run: |
+          echo "网页：${{ needs.e2e-web.result }}；排版闸门：${{ needs.e2e-layout.result }}；托管版：${{ needs.e2e-hosted.result }}"
+          [ "${{ needs.e2e-web.result }}" = success ] && [ "${{ needs.e2e-layout.result }}" = success ] && [ "${{ needs.e2e-hosted.result }}" = success ]
+
+  # 每轮 CI 的真实耗时写进本轮的 Summary：总墙钟 + 每个 job，便于盯「总耗时 ≤ 12 分钟」
+  timing:
+    name: 耗时
+    needs: [check, e2e, gitleaks]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    steps:
+      - name: 写耗时表
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}/jobs?per_page=100" > jobs.json
+          gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}" --jq .run_started_at > start.txt
+          {
+            echo "## CI 耗时"
+            jq -r --arg start "$(cat start.txt)" '
+              def t: fromdateiso8601;
+              def mmss: "\(. / 60 | floor)分\(. % 60)秒";
+              [.jobs[] | select(.name != "耗时" and .completed_at != null)] as $j
+              | "总墙钟（开跑到最后一个 job 结束）：**\(([$j[].completed_at | t] | max) - ($start | t) | mmss)**",
+                "",
+                "| job | 结果 | 排队 | 运行 |",
+                "|---|---|---|---|",
+                ($j | sort_by(.started_at)[] | "| \(.name) | \(.conclusion) | \((.started_at | t) - (.created_at | t) | mmss) | \((.completed_at | t) - (.started_at | t) | mmss) |")
+            ' jobs.json
+          } >> "$GITHUB_STEP_SUMMARY"
 
   gitleaks:
     name: 密钥扫描

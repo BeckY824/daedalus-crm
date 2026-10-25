@@ -11,7 +11,7 @@ import { 查完再写 } from "@/lib/check-then-write";
 import { 钉住老签约 } from "@/lib/contract-owner";
 import { revalidatePath } from "next/cache";
 import { prisma, defaultClient } from "@/lib/prisma";
-import { 看全部, 看得到, 读的我, 同事的客户, 只读错误 } from "@/lib/team-scope";
+import { 看全部, 看得到, 读的我, 同事的客户, 只读错误, type 谁 } from "@/lib/team-scope";
 import { 同事撞号说法, type 查重种类 } from "@/lib/sync/dedupe";
 import { 问同事 } from "@/lib/sync/dedupe-client";
 import { requireUser } from "@/lib/auth";
@@ -26,6 +26,7 @@ import {
   ATTRIBUTION_KEYS,
 } from "@/lib/concurrency";
 import { FOLLOW_STATUSES, DECISION_STATUSES, OPP_STAGES } from "@/lib/constants";
+import { 客户存了推项目 } from "@/lib/project/auto-advance";
 import { recordAudit, describeCustomerChanges } from "@/lib/audit";
 import { 唯一负责人 } from "@/lib/owners";
 import { getBusiness } from "@/lib/business";
@@ -35,14 +36,17 @@ import { statusLabel, 外贸订单 } from "@/lib/business-config";
 import { 查电话, 规整手机号, 认回打码号 } from "@/lib/phone";
 import { 同号条件, 分机留存起 } from "@/lib/phone-dedupe";
 import { 同邮箱条件, 同微信条件, 同阿里条件, 邮箱键 } from "@/lib/email-dedupe";
-import type { 带走数 } from "@/lib/carry-over";
-import { 带走没做完的, 带走并记下, 还项目, type 带走的 } from "@/lib/carry-over-db";
+import type { 带走数, 转走项目预览 } from "@/lib/carry-over";
+import { 带走没做完的, 带走并记下, 还项目, 数转走的项目, type 带走的 } from "@/lib/carry-over-db";
+import { 记换负责人 } from "@/lib/owner-log-db";
+import { 企业版 } from "@/lib/enterprise/switch";
 import { setOppStatus } from "../opportunities/actions";
 import { 认得 } from "@/lib/project/hook";
 import { 客户的项目数 } from "@/lib/project/db";
 import { 写签约的订单, 订单说不通, type 订单附加 } from "@/lib/order-contract";
 import { 外贸键, 外贸字段名, 外贸至少一种, 规整外贸格, 规整外贸档案, 规整阿里ID, 认国家, type 外贸档案 } from "@/lib/customer-extra";
 import { 写外贸档案 } from "@/lib/customer-extra-db";
+import { 挡字段, 客户列字段, type 字段名 } from "@/lib/enterprise/field-perm";
 import { 团队订单前缀 } from "@/lib/order";
 import { 读团队 } from "@/lib/sync/client";
 import type { Prisma } from "@/generated/prisma";
@@ -118,7 +122,7 @@ type 撞到的 = { name: string; salesOwnerId: string | null; channelOwnerId: st
 const 撞到的字段 = { name: true, salesOwnerId: true, channelOwnerId: true, pool: { select: { customerId: true } }, salesOwner: { select: { name: true } } } as const;
 
 /** 保存时撞号那句话：看得到的说是谁；业务员撞同事的只说负责人（同 DuplicateHit）。依据 =「手机号 138…」或「邮箱 a@b.com」 */
-function 撞号说法(依据: string, dup: 撞到的, 我: string | null, 客户: string): string {
+function 撞号说法(依据: string, dup: 撞到的, 我: 谁 | null, 客户: string): string {
   if (看得到(dup, 我)) return `${依据} 已存在（${dup.name}），请勿重复录入`;
   return 同事撞号说法(依据, dup.salesOwner?.name ?? "同事", dup.name, 客户);
 }
@@ -365,6 +369,19 @@ export async function saveCustomer(input: CustomerInput, 接着?: unknown): Prom
     ...attribution,
   };
 
+  // 企业版字段权限（规则没开不读库）：编辑时动了「只能看」的字段就拒；新建不拦，电话是必填的
+  if (改前) {
+    const 同 = (a: unknown, b: unknown) => (a instanceof Date ? a.getTime() : a ?? "") === (b instanceof Date ? b.getTime() : b ?? "");
+    const 动了 = Object.entries(客户列字段).flatMap(([列, 名]): 字段名[] =>
+      列 in data && !同((data as Record<string, unknown>)[列], (改前 as Record<string, unknown>)[列]) ? [名] : []);
+    if (档案.data.whatsapp !== undefined) {
+      const 原 = await prisma.customerExtra.findUnique({ where: { customerId: 改前.id }, select: { whatsapp: true } });
+      if (!同(档案.data.whatsapp, 原?.whatsapp)) 动了.push("电话");
+    }
+    const 挡 = await 挡字段(me.id, 动了);
+    if (挡) return { ok: false, error: 挡 };
+  }
+
   if (!input.id) {
     /*
       上面那次查重和建档之间有缝：两个窗口同时点「保存」，两边都查不到对方、都建进去，同号两份档案。
@@ -440,6 +457,7 @@ export async function saveCustomer(input: CustomerInput, 接着?: unknown): Prom
       ? await 带走没做完的([{ customerId: input.id, 旧: 改前.salesOwnerId }], data.salesOwnerId, me.id)
       : undefined;
     revalidateCustomer(input.id);
+    await 客户存了推项目(me, input.id);
     return { ok: true, id: input.id, 带走 };
   }
 
@@ -497,6 +515,7 @@ export async function saveCustomer(input: CustomerInput, 接着?: unknown): Prom
     // 我什么都没改，写下去也是原样，直接当成功（外贸档案在旁表，不过这道闸，照改）
     if (!mine.length) {
       await 改外贸档案(me, input.id, data.name, 档案.data, b.customer);
+      await 客户存了推项目(me, input.id);
       return { ok: true, id: input.id };
     }
 
@@ -522,6 +541,7 @@ export async function saveCustomer(input: CustomerInput, 接着?: unknown): Prom
         ? await 带走没做完的([{ customerId: input.id, 旧: current.salesOwnerId }], data.salesOwnerId, me.id)
         : undefined;
       revalidateCustomer(input.id);
+      await 客户存了推项目(me, input.id);
       return { ok: true, id: input.id, 带走 };
     }
   }
@@ -746,6 +766,19 @@ export type BulkResult =
     }
   | { ok: false; error: string };
 
+/**
+ * 转之前先列出会一起转走的项目（企业版 D-36）：批量分配、改负责人、公海领取 / 分配之前界面先问这一下，
+ * 有项目才弹确认框。只读，不改任何东西。不是企业版一律回 0 个 = 不弹，和原来一样直接转
+ */
+export async function 转走项目预览of(ids: string[], 新负责人?: string): Promise<转走项目预览> {
+  const me = await requireUser();
+  if (!企业版()) return { 项目数: 0, 项目: [] };
+  // 不传 = 转给自己（公海领取）
+  const 新 = 新负责人 ?? me.id;
+  if (!Array.isArray(ids) || typeof 新 !== "string" || !新) return { 项目数: 0, 项目: [] };
+  return 数转走的项目(ids.filter((x) => typeof x === "string"), 新);
+}
+
 /** 批量改销售负责人 */
 export async function assignSalesOwner(ids: string[], salesOwnerId: string): Promise<BulkResult> {
   const me = await requireUser();
@@ -753,6 +786,8 @@ export async function assignSalesOwner(ids: string[], salesOwnerId: string): Pro
   if (!ids.length) return { ok: true, updated: 0, unchanged: 0, missing: 0 };
 
   if (!(await 在职(salesOwnerId))) return { ok: false, error: "该成员不存在或已停用，请选择一位在职成员" };
+  const 挡 = await 挡字段(me.id, ["销售负责人"]);
+  if (挡) return { ok: false, error: 挡 };
 
   // 本来就归他的不算「改动」，分开统计才对得上操作人看到的选中条数
   const already = await prisma.customer.count({ where: { id: { in: ids }, salesOwnerId } });
@@ -809,6 +844,7 @@ export async function 撤销改负责人(原值: { id: string; 值: string }[], 
       // 条件里再带一次新负责人：查完到这里之间被人改走了就不动
       const r = await tx.customer.updateMany({ where: { id: x.id, salesOwnerId: 新负责人 }, data: { salesOwnerId: x.值 } });
       if (!r.count) return false;
+      await 记换负责人(tx, [{ customerId: x.id, from: 新负责人, to: x.值 }], me.id, "undo");
       if (带过来) {
         await tx.followPlan.updateMany({ where: { id: { in: 带过来.计划 }, customerId: x.id, ownerId: 新负责人, done: false }, data: { ownerId: x.值 } });
         await tx.task.updateMany({ where: { id: { in: 带过来.待办 }, customerId: x.id, ownerId: 新负责人, done: false }, data: { ownerId: x.值 } });
@@ -836,6 +872,8 @@ export async function bulkFollowStatus(ids: string[], followStatus: string): Pro
   if (!ids.length) return { ok: true, updated: 0, unchanged: 0, missing: 0 };
   const 状态错 = 跟进不对(followStatus);
   if (状态错) return { ok: false, error: 状态错 };
+  const 挡 = await 挡字段(me.id, ["跟进状态"]);
+  if (挡) return { ok: false, error: 挡 };
 
   const already = await prisma.customer.count({ where: { id: { in: ids }, followStatus } });
   // 先记下每位原来的状态，给撤销用（排查 D1）
@@ -1219,6 +1257,8 @@ export async function patchCustomer(id: string, key: PatchableKey, value: string
   if (!PATCHABLE.includes(key)) return { ok: false, error: "这个字段不能在这里改" };
   // 团队互看：同事的客户读得到、改不了（lib/team-scope.ts），外贸档案那几格也一样
   if (await 同事的客户(defaultClient, id)) return { ok: false, error: new 只读错误().message };
+  const 挡 = 客户列字段[key] ? await 挡字段(me.id, [客户列字段[key]]) : null;
+  if (挡) return { ok: false, error: 挡 };
   // 动到归属的几格（负责人、渠道负责人、来源、推荐人）之前先钉住老签约（排查 X1 / 复查 R）
   if (["salesOwnerId", "channelOwnerId", "channelId", "referrerCustomerId"].includes(key)) await 钉住老签约();
 
@@ -1242,6 +1282,7 @@ export async function patchCustomer(id: string, key: PatchableKey, value: string
     });
     revalidatePath(`/customers/${id}`);
     revalidatePath("/customers");
+    await 客户存了推项目(me, id);
     return { ok: true };
   }
   const data: Record<string, unknown> = {};
@@ -1292,6 +1333,7 @@ export async function patchCustomer(id: string, key: PatchableKey, value: string
     : undefined;
   revalidatePath(`/customers/${id}`);
   revalidatePath("/customers");
+  await 客户存了推项目(me, id);
   return { ok: true, 带走 };
 }
 

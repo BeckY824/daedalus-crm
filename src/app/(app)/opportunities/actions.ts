@@ -17,6 +17,7 @@ import { getBusiness } from "@/lib/business";
 import { 外贸订单 } from "@/lib/business-config";
 import type { Prisma } from "@/generated/prisma";
 import { 报价明细 } from "@/lib/features";
+import { 挡字段 } from "@/lib/enterprise/field-perm";
 import { 整理报价行, 报价合计 } from "@/lib/quote";
 import { 写报价, 历次报价, 上次报价 as 查上次报价, type 一次报价 } from "@/lib/quote-db";
 
@@ -155,6 +156,14 @@ export async function saveOpportunity(input: {
     ...(询盘 ? { createdAt: 询盘 } : {}),
   };
 
+  // 企业版字段权限（规则没开不读库）：编辑时动了「只能看」的字段就拒，新建不拦
+  if (原) {
+    const 动了 = ([["amount", "商机金额"], ["stage", "商机阶段"], ["ownerId", "商机负责人"]] as const)
+      .flatMap(([列, 名]) => (data[列] !== 原[列] ? [名] : []));
+    const 挡 = await 挡字段(me.id, 动了);
+    if (挡) return { ok: false as const, error: 挡 };
+  }
+
   // 归属变化和原样保存不代表推进；真正的业务字段或币种变动才重新计停滞天数。
   const 原业务: Record<string, unknown> = 原 ?? {};
   const 比较值 = (v: unknown) => v instanceof Date ? v.getTime() : v;
@@ -191,7 +200,7 @@ export async function saveOpportunity(input: {
   });
 
   刷新商机(input.customerId);
-  return { ok: true as const };
+  return { ok: true as const, id: result.id };
 }
 
 /** 写一版报价；真记了一版才留一条日志（和上一版一样就什么都没发生） */
@@ -228,6 +237,8 @@ export async function moveStage(id: string, stage: string, 还原概率?: number
     const me = await requireUser();
     if (!OPP_STAGES.includes(stage as (typeof OPP_STAGES)[number])) return { ok: false as const, error: `商机阶段「${stage}」不是合法取值` };
     if (还原概率 !== undefined && (!Number.isFinite(还原概率) || 还原概率 < 0 || 还原概率 > 100)) return { ok: false as const, error: "成交概率必须在 0~100 之间" };
+    const 挡 = await 挡字段(me.id, ["商机阶段"]);
+    if (挡) return { ok: false as const, error: 挡 };
     const 是外贸 = 外贸订单(await getBusiness());
     const result = await prisma.$transaction(async (tx) => {
       const before = await tx.opportunity.findUnique({ where: { id } });

@@ -11,7 +11,12 @@ import { recordAudit } from "@/lib/audit";
 import { 不在了 } from "@/lib/not-there";
 import { getBusiness } from "@/lib/business";
 import { 规整向导, 向导接着建, type 建好的, type 向导联系人, type 向导项目, type 向导跟进 } from "@/lib/project/wizard";
-import { 改节点, 勾交付, 加角色, 改角色, 加异常类别, 改异常类别, 删项目, 交付项们, 改项目, 加组员, 换组员角色, 移出组员, 放回公海, 领取公海项目, type 交付项 } from "@/lib/project/db";
+import { 改节点, 勾交付, 加角色, 改角色, 加异常类别, 改异常类别, 删项目, 交付项们, 改项目, 加组员, 换组员角色, 移出组员, 放回公海, 领取公海项目, 超上限, 记项目沟通, 超时预览, 公海超时收回, type 交付项 } from "@/lib/project/db";
+import { 合上改动, type 规则改动 } from "@/lib/project/org-rules";
+import { 读组织规则, 生效组织规则, 存组织规则 } from "@/lib/project/org-rules-store";
+import { 企业版 } from "@/lib/enterprise/switch";
+import { 记这个项目的自动推进, 客户存了推项目 } from "@/lib/project/auto-advance";
+import { 读团队 } from "@/lib/sync/client";
 import type { 位置 } from "@/lib/project/nodes";
 import { saveCustomer, type CustomerInput } from "../customers/actions";
 
@@ -38,10 +43,19 @@ export async function 建档向导(input: 建档向导输入) {
     const me = await requireUser();
     if (!(await 开着())) return 没开;
     if (!input || typeof input !== "object" || !input.客户 || typeof input.客户 !== "object") return { ok: false as const, error: "建档信息不完整，请从头再走一遍" };
-    const 好 = 规整向导(me, input);
+    // 开了超时回收：项目建在线索阶段，首条跟进也得填下一步时间
+    const 规则 = await 生效组织规则();
+    // 下一步时间只在开了超时回收时有这格（不是企业版一律没开）：没开时老草稿里留着的也不认、不写，和原来一样
+    const 要下一步 = 规则.超时回收.开;
+    const 好 = 规整向导(me, 要下一步 || !input.跟进 ? input : { ...input, 跟进: { ...input.跟进, 下一步时间: null } }, new Date(), 要下一步);
     if ("error" in 好) return { ok: false as const, error: 好.error };
     const 负责人 = await prisma.user.findUnique({ where: { id: 好.项目.ownerId }, select: { name: true, active: true } });
     if (!负责人?.active) return { ok: false as const, error: "项目负责人不存在或已停用，请选一位在职成员" };
+    // 负责人选了别人 = 指派，开了持有上限的要算；自己建给自己不拦（lib/project/db.ts 超上限）
+    if (好.项目.ownerId !== me.id) {
+      const 超 = await 超上限(prisma, 规则, 好.项目.ownerId, { phase: "线索", result: null });
+      if (超) return { ok: false as const, error: 超 };
+    }
 
     const 建了: Partial<建好的> = {};
     const r = await saveCustomer({ ...input.客户, id: undefined, updatedAt: null, base: null }, 向导接着建(me, 好, 建了));
@@ -51,6 +65,8 @@ export async function 建档向导(input: 建档向导输入) {
       summary: `建档：新建项目「${好.项目.name}」（负责人 ${负责人.name}），连同主要联系人「${好.联系人.name}」和首条跟进`,
       detail: { 项目: 好.项目.name, 负责人: 负责人.name, 金额: 好.项目.amount, 币种: 好.项目.currency, 联系人: 好.联系人.name },
     });
+    // 首条跟进记在潜客培育上：配的必填建档时就齐了的，接着往前推
+    await 客户存了推项目(me, r.id);
     刷新项目(建了.projectId, r.id);
     revalidatePath("/follow-ups");
     return { ok: true as const, customerId: r.id, projectId: 建了.projectId! };
@@ -73,6 +89,7 @@ export async function 改项目节点(projectId: string, 到: 位置, 异常?: {
         summary: `项目「${p?.name ?? ""}」改到 ${到.phase}·${到.node}${到.result ? `（${到.result}${类别 ? `：${类别}` : ""}）` : ""}`,
         detail: { 阶段: 到.phase, 节点: 到.node, 结局: 到.result ?? null, 异常类别: 类别, 备注: 类别 ? 异?.备注?.trim() || null : null },
       });
+      await 记这个项目的自动推进(me, projectId, r.自动推到);
       刷新项目(projectId, p?.customerId);
     }
     return r;
@@ -120,6 +137,7 @@ export async function 勾项目交付(projectId: string, 项: 交付项, 勾: bo
         user: me, action: "update", entity: "Project", entityId: projectId,
         summary: `项目「${p?.name ?? ""}」${勾 ? "勾上" : "取消"}「${交付项们[项]}」`,
       });
+      await 记这个项目的自动推进(me, projectId, r.自动推到);
       刷新项目(projectId, p?.customerId);
     }
     return r;
@@ -215,9 +233,10 @@ export async function 编辑项目(projectId: string, patch: 向导项目 & { co
         user: me, action: "update", entity: "Project", entityId: projectId,
         summary: `编辑项目「${p?.name ?? ""}」：改了${r.变了.map((k) => 项目字段名[k] ?? k).join("、")}`,
       });
+      await 记这个项目的自动推进(me, projectId, r.自动推到);
       刷新项目(projectId, p?.customerId);
     }
-    return r.ok ? { ok: true as const } : r;
+    return r.ok ? { ok: true as const, ...(r.自动推到 ? { 自动推到: r.自动推到 } : {}) } : r;
   } catch (e) { return 不在了(e); }
 }
 
@@ -268,5 +287,65 @@ export async function 移出项目组员(memberId: string) {
       刷新项目(m.projectId);
     }
     return r;
+  } catch (e) { return 不在了(e); }
+}
+
+/** 企业版组织规则（持有上限等）：不是企业版改不了；只有老板能改，每条默认关（lib/project/org-rules.ts） */
+export async function 改组织规则(改: 规则改动) {
+  try {
+    const me = await requireUser();
+    if (!(await 开着())) return 没开;
+    if (!企业版()) return { ok: false as const, error: "组织规则是企业版的功能" };
+    if (me.role !== "ADMIN") return { ok: false as const, error: "组织规则只有老板能改" };
+    const 新 = 合上改动(await 读组织规则(), 改);
+    if ("error" in 新) return { ok: false as const, error: 新.error };
+    await 存组织规则(新);
+    const g = 新.公海, t = 新.超时回收;
+    const 推 = 新.节点推进;
+    const 说 = 改.节点推进 !== undefined
+      ? 推.开 ? `组织规则：节点推进开，${Object.keys(推.必填).length} 个节点配了必填` : "组织规则：节点推进关"
+      : 改.超时回收 !== undefined
+      ? t.开 ? `组织规则：超时回收开，设了 ${Object.keys(t.节点天数).length} 个节点的处理时长` : "组织规则：超时回收关"
+      : g.持有上限开 ? `组织规则：项目持有上限开，默认 ${g.默认上限} 个，单独设了 ${Object.keys(g.每人上限).length} 人` : "组织规则：项目持有上限关";
+    await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "orgRules", summary: 说, detail: 新 });
+    // 改了时长当场按新的扫一遍（老板保存前已经看过会回收几个）
+    const 收回 = 改.超时回收 !== undefined ? await 公海超时收回(me) : 0;
+    revalidatePath("/settings");
+    if (收回) revalidatePath("/projects");
+    return { ok: true as const, 收回 };
+  } catch (e) { return 不在了(e); }
+}
+
+/** 老板保存超时回收设置前先看：按改完的规则，现在会有几个项目回到公海 */
+export async function 预览超时回收(改: 规则改动) {
+  try {
+    const me = await requireUser();
+    if (!(await 开着())) return 没开;
+    if (!企业版()) return { ok: false as const, error: "组织规则是企业版的功能" };
+    if (me.role !== "ADMIN") return { ok: false as const, error: "组织规则只有老板能改" };
+    const 新 = 合上改动(await 读组织规则(), 改);
+    if ("error" in 新) return { ok: false as const, error: 新.error };
+    return { ok: true as const, 个数: await 超时预览(新), 团队: !!读团队() };
+  } catch (e) { return 不在了(e); }
+}
+
+/** 在项目上记一条沟通（项目详情「记一条」）。开了超时回收的线索 / 商机阶段要带下一步时间 */
+export async function 记项目沟通Action(projectId: string, input: 向导跟进) {
+  try {
+    const me = await requireUser();
+    if (!(await 开着())) return 没开;
+    if (!企业版()) return { ok: false as const, error: "在项目上记沟通是企业版的功能，请去客户页记" };
+    const r = await 记项目沟通(me, projectId, input);
+    if (r.ok) {
+      const p = await prisma.project.findUnique({ where: { id: projectId }, select: { name: true, customerId: true } });
+      await recordAudit({
+        user: me, action: "create", entity: "FollowUp", entityId: r.followUpId,
+        summary: `在项目「${p?.name ?? ""}」上记了一条沟通`,
+      });
+      await 记这个项目的自动推进(me, projectId, r.自动推到);
+      刷新项目(projectId, p?.customerId);
+      revalidatePath("/follow-ups");
+    }
+    return r.ok ? { ok: true as const, ...(r.自动推到 ? { 自动推到: r.自动推到 } : {}) } : r;
   } catch (e) { return 不在了(e); }
 }

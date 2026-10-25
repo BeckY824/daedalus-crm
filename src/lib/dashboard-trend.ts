@@ -60,3 +60,38 @@ export function 每周新增(周: { 起: Dayjs; 止: Dayjs }[], 客户: { create
     return n;
   });
 }
+
+/*
+  卡片下方另两条小曲线（进行中商机金额、赢单率）。原来写在 Board 里是「8 周 × 每条商机」各现建一个 dayjs 再 isBefore：
+  企业版 10 倍数据压测时首页 CPU 九成多花在这一句上（2026-10-24 CPU 分析）。
+  现在每条商机只取一次建档时刻，之后全是数字比较。isBefore 不带单位比的就是两个真实时刻，
+  所以 `createdAt.getTime() < 止.valueOf()` 一模一样（北京业务钟的 valueOf 也是真实时刻，见 business-clock.ts）；
+  金额按原来的顺序一条条加，浮点合计也不变。tests/dashboard-week-series.test.ts 拿原来的写法对拍
+*/
+
+/** 截至每周止（不含）建档、还在进行中的商机金额，单位千元四舍五入。`算这条` 是原来 filter 里的币种条件 */
+export function 每周进行中金额<T extends { createdAt: Date; status: string; amount: number }>(
+  周: { 止: Dayjs }[],
+  商机: T[],
+  算这条: (o: T) => boolean,
+): number[] {
+  const 行 = 商机.filter((o) => o.status === "OPEN" && 算这条(o)).map((o) => ({ t: o.createdAt.getTime(), amount: o.amount }));
+  return 周.map((w) => {
+    const 止 = w.止.valueOf();
+    let sum = 0;
+    for (const o of 行) if (o.t < 止) sum += o.amount;
+    return Math.round(sum / 1000);
+  });
+}
+
+/** 截至每周止（不含）建档的已关闭商机里赢单的百分比，四舍五入；一条都没关闭是 0 */
+export function 每周赢单率(周: { 止: Dayjs }[], 商机: { createdAt: Date; status: string }[]): number[] {
+  const 行 = 商机.filter((o) => o.status === "WON" || o.status === "LOST").map((o) => ({ t: o.createdAt.getTime(), 赢: o.status === "WON" }));
+  return 周.map((w) => {
+    const 止 = w.止.valueOf();
+    let 关 = 0;
+    let 赢 = 0;
+    for (const o of 行) if (o.t < 止) { 关++; if (o.赢) 赢++; }
+    return 关 ? Math.round((赢 / 关) * 100) : 0;
+  });
+}

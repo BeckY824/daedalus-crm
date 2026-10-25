@@ -4,12 +4,16 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { App, Alert, Button, Card, Checkbox, Input, Modal, Popconfirm, Progress, Select, Space, Tag, Timeline } from "antd";
+import DatePicker from "@/components/BusinessDatePicker";
 import { PageHead, CustomerLink, FollowTypeCell } from "@/components/ui";
 import { useBusiness } from "@/lib/business-client";
-import { fmtDateTime } from "@/lib/utils";
+import { dayjs, fmtDateTime } from "@/lib/utils";
+import { 跟进类型们 } from "@/lib/constants";
+import { 外贸精简 } from "@/lib/business-config";
 import { 金额 } from "@/lib/currency";
 import { 阶段们, 节点们, 出口们, 交付还差, 下一步, 节点序号, 节点总数, 原因上限, type 位置 } from "@/lib/project/nodes";
-import { 改项目节点, 勾项目交付, 删除项目, 放回项目公海, 领取项目 } from "../actions";
+import { 超时理由 } from "@/lib/project/timeout";
+import { 改项目节点, 勾项目交付, 删除项目, 放回项目公海, 领取项目, 记项目沟通Action } from "../actions";
 import type { 可选成员 } from "@/lib/utils";
 import { ProjectEditModal, ProjectTeamCard, type 组员, type 角色, type 联系人 } from "./ProjectTeam";
 
@@ -19,11 +23,25 @@ export type 项目详情 = {
   customer: { id: string; name: string; school: string | null } | null;
   contact: { id: string; name: string; position: string | null } | null;
   ownerId: string; ownerName: string; creatorName: string; createdAt: string;
+  /** 历史负责人（只企业版有，别的版本是空的）：把这个项目放回过公海的人，最近放回的在前，同一个人只列一次 */
+  historyOwners: string[];
   phase: string; node: string; result: string | null;
   /** 异常状态时：选的异常类别名、备注（可空） */
   exceptionReason: string | null; exceptionCategory: string | null;
-  /** 在项目公海里；能放公海 = 我是负责人且在线索 / 商机阶段；能领取 = 在公海里且不是我放回去的 */
+  /** 在项目公海里；能放公海 = 我是负责人且在线索 / 商机阶段；能领取 = 在公海里，且（企业版 或 不是我放回去的） */
   pooled: boolean; 能放公海: boolean; 能领取: boolean;
+  /** 服务端读的 企业版()：放回公海的说法跟着它走（企业版能自己领回） */
+  企业版: boolean;
+  /**
+   * 企业版超时回收：nextStepAt 是最近一次沟通填的下一步时间（服务端排好的 YYYY-MM-DD）；回收日 = 哪天没人跟进就自动回公海（null = 不会）；
+   * 要下一步 = 记沟通必须填下一步时间；能记沟通 = 企业版里的负责人、老板、主管、项目组成员，且不在公海（不是企业版照原来去客户页记）
+   */
+  nextStepAt: string | null; 回收日: string | null; 要下一步: boolean; 能记沟通: boolean;
+  /**
+   * 企业版节点必填：这个节点配了必填才有（没开 / 没配 / 有结局 / 在公海 = null）。填齐了自动往前推；
+   * 只能靠填齐 = 不是老板、主管，手动往前推不给（往后退、点结局照旧）
+   */
+  必填: { 配了: string[]; 还差: string[]; 只能靠填齐: boolean } | null;
   balanceSettled: boolean; balanceSettledBy: string | null; balanceSettledAt: string | null;
   acceptancePassed: boolean; acceptancePassedBy: string | null; acceptancePassedAt: string | null;
   /** kind 不是 node 的行是换负责人（转让 / 放回公海 / 从公海领取），transfer 记从谁到谁；category 是进异常时选的类别 */
@@ -61,8 +79,9 @@ function 位置文字(p: 位置): string {
  * 异常状态只在项目已经在订单阶段时出现，线索、商机阶段不给这个入口。
  * 往前只能一步（比现在多走超过一步的灰着），往后随便退——和 lib/project/nodes.ts 改节点问题 同一条规矩
  */
-function 去处们(当前: 位置) {
-  const 太远 = (到: 位置) => 节点序号(到) > 节点序号(当前) + 1;
+function 去处们(当前: 位置, 不能往前 = false) {
+  // 配了必填、不是老板主管：往前的节点灰着（靠填齐自动推），结局照旧能点
+  const 太远 = (到: 位置) => 节点序号(到) > 节点序号(当前) + (不能往前 && !到.result ? 0 : 1);
   return 阶段们.map((s) => {
     const 尾 = 节点们[s][节点们[s].length - 1];
     const 结局 = s === "订单" ? 出口们.订单.filter((r) => r !== "异常状态" || 当前.phase === "订单") : [出口们[s][1]];
@@ -86,7 +105,7 @@ function 去处们(当前: 位置) {
 /** 节点变更里换负责人那几种行怎么说 */
 function 换人文字(l: 项目详情["logs"][number]): string {
   const t = l.transfer ?? { from: "没人", to: "没人" };
-  if (l.kind === "pool-release") return `${t.from} 把项目放回项目公海`;
+  if (l.kind === "pool-release") return l.reason === 超时理由 ? `${t.from} 的项目超时没跟进，自动回到项目公海` : `${t.from} 把项目放回项目公海`;
   if (l.kind === "pool-claim") return `${t.to} 从项目公海领取，成为负责人`;
   return `负责人从 ${t.from} 转给 ${t.to}`;
 }
@@ -115,6 +134,7 @@ export default function ProjectDetail({
   const [原因, set原因] = useState("");
   const [类别, set类别] = useState<string | null>(null);
   const [编辑开着, set编辑开着] = useState(false);
+  const [记一条开着, set记一条开着] = useState(false);
   const 当前: 位置 = { phase: p.phase, node: p.node, result: p.result };
   const 下 = 下一步(当前);
   const 差 = 交付还差(p);
@@ -122,13 +142,15 @@ export default function ProjectDetail({
   const 可改 = 能改 && !p.pooled;
   const 不能改 = p.pooled ? "这个项目在项目公海里，领取了才能改" : 能改 ? undefined : "只有项目负责人、老板或主管能改";
 
-  const 跑 = async (f: () => Promise<{ ok: boolean; error?: string }>, 成了?: string) => {
+  const 跑 = async (f: () => Promise<{ ok: boolean; error?: string; 自动推到?: string[] }>, 成了?: string) => {
     set忙(true);
     try {
       const r = await f();
       if (!r.ok) message.error(r.error ?? "没改成，请稍后再试");
       else {
         if (成了) message.success(成了);
+        // 企业版节点必填：这次保存把必填填齐了，项目自动往前推了几步
+        if (r.自动推到?.length) message.success(`必填齐了，自动推进到 ${r.自动推到.join(" → ")}`);
         router.refresh();
       }
       return r.ok;
@@ -176,7 +198,7 @@ export default function ProjectDetail({
         extra={
           <Space wrap>
             {p.能放公海 && (
-              <Popconfirm title="放回项目公海？" description="放回去以后谁都能领，你自己不能再领回来" okText="放回公海" onConfirm={() => void 跑(() => 放回项目公海(p.id), "已放回项目公海")}>
+              <Popconfirm title="放回项目公海？" description={p.企业版 ? "放回去以后谁都能领，你自己也能再领回来；你会记成这个项目的历史负责人" : "放回去以后谁都能领，你自己不能再领回来"} okText="放回公海" onConfirm={() => void 跑(() => 放回项目公海(p.id), "已放回项目公海")}>
                 <Button disabled={忙}>放回公海</Button>
               </Popconfirm>
             )}
@@ -218,10 +240,10 @@ export default function ProjectDetail({
               value={null}
               disabled={!可改 || 忙}
               title={不能改}
-              options={去处们(当前)}
+              options={去处们(当前, !!p.必填?.只能靠填齐)}
               onChange={(v: string | null) => v && 改到(JSON.parse(v) as 位置)}
             />
-            <Button type="primary" disabled={!可改 || 忙 || !下} title={不能改 ?? (下 ? undefined : p.result ? "先改回某个节点再往前推" : "这是最后一个节点了，接下来点结局")} onClick={() => 下 && 改到(下)}>
+            <Button type="primary" disabled={!可改 || 忙 || !下 || !!p.必填?.只能靠填齐} title={不能改 ?? (p.必填?.只能靠填齐 ? "这个节点填齐必填后自动往前推；要先推请找老板或主管" : 下 ? undefined : p.result ? "先改回某个节点再往前推" : "这是最后一个节点了，接下来点结局")} onClick={() => 下 && 改到(下)}>
               {下 ? `下一步：${下.phase === p.phase ? 下.node : `${下.phase}·${下.node}`}` : "下一步"}
             </Button>
           </Space>
@@ -233,6 +255,13 @@ export default function ProjectDetail({
           status={异常 ? "exception" : p.result === "成功交付" ? "success" : "active"}
           aria-label={`第 ${节点序号(当前) + 1} 个节点，共 ${节点总数} 个`}
         />
+        {p.必填 && (
+          <div style={{ marginTop: 12, color: p.必填.还差.length ? "var(--text-muted)" : "var(--success-text)", overflowWrap: "anywhere" }}>
+            {p.必填.还差.length
+              ? `这个节点填齐必填后自动往前推，还差：${p.必填.还差.join("、")}`
+              : "这个节点的必填都齐了"}
+          </div>
+        )}
       </Card>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, marginBottom: 16 }}>
@@ -241,6 +270,11 @@ export default function ProjectDetail({
           {p.contact && <div style={行样}><span style={键样}>联系人</span>{p.contact.name}{p.contact.position ? ` · ${p.contact.position}` : ""}</div>}
           <div style={行样}><span style={键样}>金额</span>{金额(p.amount, p.currency)}</div>
           <div style={行样}><span style={键样}>负责人</span>{p.pooled ? <span>在公海里<span style={{ color: "var(--text-muted)" }}>（{p.ownerName} 放回的）</span></span> : p.ownerName}</div>
+          {p.historyOwners.length > 0 && (
+            <div style={行样}><span style={键样}>历史</span><span style={{ minWidth: 0, overflowWrap: "anywhere" }} title="历史负责人：把这个项目放回过公海的人">{p.historyOwners.join("、")}</span></div>
+          )}
+          {p.nextStepAt && !p.pooled && <div style={行样}><span style={键样}>下一步</span>{p.nextStepAt}</div>}
+          {p.回收日 && <div style={{ ...行样, color: 回收临近(p.回收日) ? "var(--warning-text)" : "var(--text-muted)" }}>{p.回收日} 前没人跟进，会自动回到项目公海</div>}
           {p.remark && <div style={{ marginTop: 8, whiteSpace: "pre-wrap", color: "var(--text-muted)" }}>{p.remark}</div>}
         </Card>
         <Card title="交付">
@@ -291,14 +325,17 @@ export default function ProjectDetail({
                 <div>
                   <div>{l.kind !== "node" ? 换人文字(l) : l.from ? `${位置文字(l.from)} → ${位置文字(l.to)}` : `建档，落在 ${位置文字(l.to)}`}</div>
                   {l.category && <div style={{ color: "var(--danger-text)" }}>异常类别：{l.category}</div>}
-                  {l.reason && <div style={{ color: "var(--danger-text)", whiteSpace: "pre-wrap" }}>{l.category ? "备注" : "原因"}：{l.reason}</div>}
-                  <div style={{ color: "var(--text-muted)", fontSize: 12 }}>{l.who} · {fmtDateTime(l.at)}</div>
+                  {l.reason && l.reason !== 超时理由 && <div style={{ color: "var(--danger-text)", whiteSpace: "pre-wrap" }}>{l.category ? "备注" : "原因"}：{l.reason}</div>}
+                  <div style={{ color: "var(--text-muted)", fontSize: 12 }}>{l.reason === 超时理由 ? "系统" : l.who} · {fmtDateTime(l.at)}</div>
                 </div>
               ),
             }))}
           />
         </Card>
-        <Card title="沟通" extra={p.customer && <Link href={`/customers/${p.customer.id}`}>去{b.customer}页记一条</Link>}>
+        <Card
+          title="沟通"
+          extra={p.能记沟通 ? <Button type="link" size="small" disabled={忙} onClick={() => set记一条开着(true)}>记一条</Button> : p.customer && <Link href={`/customers/${p.customer.id}`}>去{b.customer}页{p.企业版 ? "看看" : "记一条"}</Link>}
+        >
           {p.followUps.length === 0 && <div style={{ color: "var(--text-muted)" }}>{p.customer ? "还没有挂在这个项目上的沟通" : "领取后显示"}</div>}
           {p.followUps.map((f) => (
             <div key={f.id} style={{ marginBottom: 12 }}>
@@ -324,6 +361,8 @@ export default function ProjectDetail({
         />
       )}
 
+      {p.能记沟通 && 记一条开着 && <RecordFollowModal p={p} 外贸={外贸精简(b)} onClose={() => set记一条开着(false)} 跑={跑} />}
+
       <Modal
         open={!!异常框}
         title="进异常状态"
@@ -348,5 +387,78 @@ export default function ProjectDetail({
         <Input.TextArea rows={4} maxLength={原因上限} showCount value={原因} onChange={(e) => set原因(e.target.value)} placeholder="备注（可不写）" />
       </Modal>
     </div>
+  );
+}
+
+/** 回收日在两天内（含已到）：提示变成警示色 */
+function 回收临近(回收日: string): boolean {
+  return dayjs(回收日).diff(dayjs().startOf("day"), "day") <= 2;
+}
+
+const 沟通时间格式 = "YYYY-MM-DD HH:mm";
+
+/**
+ * 在项目上记一条沟通：方式、时间、内容，加下一步时间（开了超时回收、线索 / 商机阶段必填）。
+ * 记了会挂在客户上（客户页也看得到）和项目当时的节点上；填的下一步时间决定这个项目哪天没跟进会回公海
+ */
+function RecordFollowModal({ p, 外贸, onClose, 跑 }: {
+  p: 项目详情;
+  外贸: boolean;
+  onClose: () => void;
+  跑: (f: () => Promise<{ ok: boolean; error?: string }>, 成了?: string) => Promise<boolean>;
+}) {
+  const 能选类型 = 跟进类型们(外贸).filter((t) => t.value !== "TASK" && t.value !== "REMIND");
+  const [type, setType] = useState<string>(能选类型[0]?.value ?? "PHONE");
+  const [occurredAt, setOccurredAt] = useState(() => dayjs().format(沟通时间格式));
+  const [content, setContent] = useState("");
+  const [下一步时间, set下一步时间] = useState<string | null>(null);
+  const [交中, set交中] = useState(false);
+  const 差 = !content.trim() ? "请填写这次沟通的内容" : p.要下一步 && !下一步时间 ? "请填下一步时间：到那天还没跟进，项目会自动回到项目公海" : "";
+
+  const 交 = async () => {
+    set交中(true);
+    const ok = await 跑(() => 记项目沟通Action(p.id, { type, content, occurredAt, 下一步时间 }), "已记下这条沟通");
+    set交中(false);
+    if (ok) onClose();
+  };
+
+  return (
+    <Modal
+      open
+      title="记一条沟通"
+      okText="记下"
+      okButtonProps={{ disabled: !!差, loading: 交中, title: 差 || undefined }}
+      onCancel={onClose}
+      onOk={() => void 交()}
+    >
+      <div style={{ display: "grid", gap: 12 }}>
+        <Select aria-label="沟通方式" value={type} options={能选类型.map((t) => ({ value: t.value, label: t.label }))} onChange={(v: string) => setType(v)} />
+        <DatePicker
+          aria-label="沟通时间"
+          showTime={{ format: "HH:mm" }}
+          format={沟通时间格式}
+          allowClear={false}
+          style={{ width: "100%" }}
+          value={dayjs(occurredAt, 沟通时间格式)}
+          disabledDate={(x) => x.isAfter(dayjs(), "day")}
+          onChange={(v) => v && setOccurredAt(v.format(沟通时间格式))}
+        />
+        <Input.TextArea aria-label="沟通内容" rows={4} value={content} onChange={(e) => setContent(e.target.value)} placeholder="这次聊了什么" />
+        <div>
+          <div style={{ marginBottom: 4 }}>
+            下一步时间{p.要下一步 ? <span style={{ color: "var(--danger-text)" }}> *</span> : <span style={{ color: "var(--text-muted)" }}>（可不填）</span>}
+          </div>
+          <DatePicker
+            aria-label="下一步时间"
+            style={{ width: "100%" }}
+            value={下一步时间 ? dayjs(下一步时间) : null}
+            disabledDate={(x) => x.isBefore(dayjs(), "day")}
+            onChange={(v) => set下一步时间(v ? v.format("YYYY-MM-DD") : null)}
+          />
+          {p.要下一步 && <div style={{ marginTop: 4, color: "var(--text-muted)", fontSize: 12 }}>到那天还没人跟进，项目会自动回到项目公海</div>}
+        </div>
+        {差 && <div style={{ color: "var(--text-muted)" }}>{差}</div>}
+      </div>
+    </Modal>
   );
 }
