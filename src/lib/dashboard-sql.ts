@@ -3,6 +3,7 @@ import type { PrismaClient } from "@/generated/prisma";
 import { dayjs } from "@/lib/utils";
 import { 近90天趋势, 最近8周, 每周新增, type 趋势点 } from "@/lib/dashboard-trend";
 import { 带币种 } from "@/lib/money-db";
+import { 缓存着 } from "@/lib/home-cache";
 
 /**
  * 看板上「数客户」的那几样（近 90 天两条线、本月 / 上月新增、每周新增），在库里按天先数好再取回来。
@@ -210,7 +211,11 @@ export async function 取行数(db: PrismaClient, now: Dayjs): Promise<客户数
  */
 export async function 客户数(db: PrismaClient, now: Dayjs, 不限定: boolean): Promise<客户数> {
   const 计 = 不限定 ? 排边界(now) : null;
-  return 计 ? 库里数(db, 计) : 取行数(db, now);
+  if (!计) return 取行数(db, now);
+  // 不分人、只随数据和日子变：短时缓存（lib/home-cache.ts，企业版才开，库一变就作废）。
+  // 结果只看当天零点：120 天前那天的跟进只影响第 0..29 个零点的活跃数，而最早的「当天」是第 30 个以后
+  const 值 = await 缓存着(`客户数:${now.startOf("day").valueOf()}`, () => 库里数(db, 计));
+  return { ...值, trend: 值.trend.map((p) => ({ ...p })), 每周新增: 值.每周新增.slice() };
 }
 
 /** 首页那一份「全部商机」要的列：赢单窗口、漏斗、两条小曲线都从这一份里挑 */

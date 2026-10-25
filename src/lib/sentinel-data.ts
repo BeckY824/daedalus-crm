@@ -8,6 +8,7 @@ import { 今天零点, 逾期条件 } from "./overdue";
 import { prisma, defaultClient } from "./prisma";
 import { 限定的我 } from "./team-scope";
 import { 毫秒, 第几天 } from "./dashboard-sql";
+import { 缓存着 } from "./home-cache";
 import { dayjs } from "./utils";
 import type { Dayjs } from "dayjs";
 import { buildWatchlist, STALE_DAYS, STATUS_WEIGHT, type SentinelInput, type WatchItem } from "./sentinel";
@@ -32,13 +33,19 @@ async function allWatchlist(now = dayjs(), 范围: { ownerId?: string } = {}, �
   */
   const 肯定没睡 = new Date(now.valueOf() - (STALE_DAYS - 2) * 86_400_000);
   const 边界 = 取法 ? 沉睡边界(now) : null;
+  // 库里取前几名：沉睡的前几名、总数不看别的几样，和下面几样一起先开查，取回 id 接着取这几位客户
+  const 沉睡q = 边界 ? 沉睡查询({ 谁的, now, 边界, 前几名: 取法!.前几名 }) : null;
+  const 前几P = 沉睡q?.前几和总数();
+  const 沉睡行P = 前几P?.then((x) => 取沉睡客户({ 谁的, 肯定没睡, now, ids: x.ids }));
+  // 下面 Promise.all 先失败时这两个没人等：先挂上，免得报未处理的拒绝（后面照样 await 原 Promise，错照抛）
+  沉睡行P?.catch(() => {});
   const [overduePlans, customers, opps, lateNodes, business] = await Promise.all([
     prisma.followPlan.findMany({
       // 逾期按今天零点算，和首页、左栏角标、计划页一个口径（lib/overdue.ts）：今天上午没做的还算今天的
       where: 逾期条件(范围, now.toDate()).plan,
       select: { subject: true, plannedAt: true, plannedOn: true, customer: { select: { id: true, name: true } }, owner: { select: { name: true } } },
     }),
-    // 走库里取前几名时，沉睡客户等别的几样取完再取（要先知道别的几样涉及哪些客户才数得准总数）
+    // 走库里取前几名时沉睡客户在上面另取
     边界 ? Promise.resolve(null) : 取沉睡客户({ 谁的, 肯定没睡, now }),
     prisma.opportunity.findMany({
       where: {
@@ -81,11 +88,11 @@ async function allWatchlist(now = dayjs(), 范围: { ownerId?: string } = {}, �
     return { items, total: items.length };
   }
 
-  // 库里取前几名：别的几样（逾期计划、停滞商机、订单节点）照旧全判，先知道它们涉及哪些客户
+  // 库里取前几名：别的几样（逾期计划、停滞商机、订单节点）照旧全判，知道它们涉及哪些客户才数得准总数
   const 别的客户 = [...new Set(判([]).map((x) => x.customerId))];
-  const 前几 = await 沉睡前几名({ 谁的, now, 边界: 边界!, 前几名: 取法!.前几名, 别的客户 });
-  const items = 判(await 取沉睡客户({ 谁的, 肯定没睡, now, ids: 前几.ids }));
-  return { items, total: 前几.沉睡 + 别的客户.length - 前几.重叠 };
+  const [前几, 重叠, 沉睡行] = await Promise.all([前几P!, 沉睡q!.重叠(别的客户), 沉睡行P!]);
+  const items = 判(沉睡行);
+  return { items, total: 前几.沉睡 + 别的客户.length - 重叠 };
 }
 
 async function 取沉睡客户(a: { 谁的?: string; 肯定没睡: Date; now: Dayjs; ids?: string[] }): Promise<SentinelInput["customers"]> {
@@ -136,39 +143,51 @@ function 沉睡边界(now: Dayjs): number[] | null {
  * 所以库里只按分数取门槛（第 N 名的分），门槛及以上的 id 取回来在 JS 里用同一个比较排。
  * 天数、分数和 sentinel.ts 同一套：状态权重 × 8 + min(天数, 40)，天数按 沉睡边界() 的零点数
  */
-async function 沉睡前几名(a: { 谁的?: string; now: Dayjs; 边界: number[]; 前几名: number; 别的客户: string[] }) {
+function 沉睡查询(a: { 谁的?: string; now: Dayjs; 边界: number[]; 前几名: number }) {
   const 零点 = a.边界;
   const 现在 = a.now.valueOf();
   const 状态 = Object.entries(STATUS_WEIGHT);
   const 字面 = (v: string) => `'${v.replace(/'/g, "''")}'`;
   const 最近 = `CASE WHEN lastFollowAt IS NOT NULL AND ${毫秒("lastFollowAt")} > ${现在} THEN ${毫秒("createdAt")} ELSE COALESCE(${毫秒("lastFollowAt")}, ${毫秒("createdAt")}) END`;
-  const 沉睡 = `SELECT id, CASE followStatus ${状态.map(([k, w]) => `WHEN ${字面(k)} THEN ${w}`).join(" ")} END AS w, t FROM (
+  const 沉睡 = (只这些 = false) => `SELECT id, CASE followStatus ${状态.map(([k, w]) => `WHEN ${字面(k)} THEN ${w}`).join(" ")} END AS w, t FROM (
       SELECT id, followStatus, ${最近} AS t FROM Customer
-      WHERE followStatus IN (${状态.map(([k]) => 字面(k)).join(",")})${a.谁的 ? " AND salesOwnerId = ?" : ""}
+      WHERE followStatus IN (${状态.map(([k]) => 字面(k)).join(",")})${a.谁的 ? " AND salesOwnerId = ?" : ""}${只这些 ? " AND id IN (SELECT value FROM json_each(?))" : ""}
     ) WHERE t < ${零点[零点.length - 1]}`;
   const 分 = `w * 8 + CASE WHEN t < ${零点[0]} THEN ${封顶} ELSE ${封顶 - 1} - (${第几天("t", 零点)}) END`;
   const 谁 = a.谁的 ? [a.谁的] : [];
-  const [候选, [数]] = await Promise.all([
-    // 第 N 名的分数当门槛，门槛及以上的全取回来（只有 id 和分）：同分的按 localeCompare 排得在 JS 里排
-    prisma.$queryRawUnsafe<{ id: string; f: bigint | number }[]>(
-      `WITH s AS MATERIALIZED (SELECT id, ${分} AS f FROM (${沉睡}))
-       SELECT id, f FROM s WHERE f >= COALESCE((SELECT f FROM s ORDER BY f DESC LIMIT 1 OFFSET ?), ${Number.MIN_SAFE_INTEGER})`,
-      ...谁,
-      a.前几名 - 1,
-    ),
-    prisma.$queryRawUnsafe<{ n: bigint | number; o: bigint | number | null }[]>(
-      `SELECT count(*) AS n, sum(id IN (SELECT value FROM json_each(?))) AS o FROM (${沉睡})`,
-      JSON.stringify(a.别的客户),
-      ...谁,
-    ),
-  ]);
-  // 和 buildWatchlist 同一个比较：分高在前，同分按 customerId.localeCompare
-  const ids = 候选
-    .map((r) => ({ id: r.id, f: Number(r.f) }))
-    .sort((x, y) => y.f - x.f || x.id.localeCompare(y.id))
-    .slice(0, a.前几名)
-    .map((r) => r.id);
-  return { ids, 沉睡: Number(数.n), 重叠: Number(数.o ?? 0) };
+  // 前几名和总数不看别的几样，30 人同一时刻数的是同一份：短时缓存（lib/home-cache.ts，企业版才开，库一变就作废）
+  const 前几和总数 = () => 缓存着(`沉睡:${a.谁的 ?? ""}:${零点[0]}:${a.前几名}`, async () => {
+    const [候选, [数]] = await Promise.all([
+      // 第 N 名的分数当门槛，门槛及以上的全取回来（只有 id 和分）：同分的按 localeCompare 排得在 JS 里排
+      prisma.$queryRawUnsafe<{ id: string; f: bigint | number }[]>(
+        `WITH s AS MATERIALIZED (SELECT id, ${分} AS f FROM (${沉睡()}))
+         SELECT id, f FROM s WHERE f >= COALESCE((SELECT f FROM s ORDER BY f DESC LIMIT 1 OFFSET ?), ${Number.MIN_SAFE_INTEGER})`,
+        ...谁,
+        a.前几名 - 1,
+      ),
+      prisma.$queryRawUnsafe<{ n: bigint | number }[]>(`SELECT count(*) AS n FROM (${沉睡()})`, ...谁),
+    ]);
+    // 和 buildWatchlist 同一个比较：分高在前，同分按 customerId.localeCompare
+    const ids = 候选
+      .map((r) => ({ id: r.id, f: Number(r.f) }))
+      .sort((x, y) => y.f - x.f || x.id.localeCompare(y.id))
+      .slice(0, a.前几名)
+      .map((r) => r.id);
+    return { ids, 沉睡: Number(数.n) };
+  }).then((x) => ({ ids: x.ids.slice(), 沉睡: x.沉睡 }));
+  // 两边都有的：只按别的几样涉及的那些 id 查（主键），不再把全部沉睡客户扫一遍
+  const 重叠 = async (别的客户: string[]) => {
+    if (!别的客户.length) return 0;
+    const [r] = await prisma.$queryRawUnsafe<{ o: bigint | number }[]>(`SELECT count(*) AS o FROM (${沉睡(true)})`, ...谁, JSON.stringify(别的客户));
+    return Number(r.o ?? 0);
+  };
+  return { 前几和总数, 重叠 };
+}
+
+async function 沉睡前几名(a: { 谁的?: string; now: Dayjs; 边界: number[]; 前几名: number; 别的客户: string[] }) {
+  const q = 沉睡查询(a);
+  const [{ ids, 沉睡 }, 重叠] = await Promise.all([q.前几和总数(), q.重叠(a.别的客户)]);
+  return { ids, 沉睡, 重叠 };
 }
 
 /**
