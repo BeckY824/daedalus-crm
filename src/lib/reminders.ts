@@ -14,7 +14,7 @@
  * 和人坐在同一台电脑前，本机的「今天」就是他的今天。
  */
 
-import { businessDayjs } from "./business-clock";
+import { businessDayjs, businessTimeZone } from "./business-clock";
 import { calendarDay, calendarDaysBetween } from "./schedule-date";
 
 export type 提醒项 = {
@@ -62,10 +62,37 @@ function 零点(d: Date): Date {
   return businessDayjs(d).startOf("day").toDate();
 }
 
+/**
+ * 北京业务钟是固定 UTC+8（business-clock），墙钟字段直接拿瞬间加 8 小时的 UTC 字段，
+ * 和 businessDayjs(t) 的 hour()/minute()/format("YYYY-MM-DD") 同一套数，但不建 Dayjs 对象。
+ * 一个人名下几千条没做的计划，每打开一页 layout 都要过一遍（2026-10-25 企业版 10 倍数据：
+ * 3334 条，走 Dayjs 约 10 ms，这样约 1 ms）。本机钟用 Date 的本地字段，也和原生 Dayjs 一样。
+ */
+const 北京偏移 = 8 * 3_600_000;
+
+/** 当天第几分钟（业务钟）；时间无效时为 NaN */
+function 当天分钟(t: Date): number {
+  const ms = t.getTime();
+  if (businessTimeZone()) return Math.floor((((ms + 北京偏移) % 天) + 天) % 天 / 60_000);
+  return t.getHours() * 60 + t.getMinutes();
+}
+
+/** 等于 calendarDay(t)；时间无效时交回 calendarDay 原样处理 */
+function 日历串(t: Date): string {
+  if (Number.isNaN(t.getTime())) return calendarDay(t);
+  const 北京 = businessTimeZone() !== null;
+  const d = 北京 ? new Date(t.getTime() + 北京偏移) : t;
+  const y = 北京 ? d.getUTCFullYear() : d.getFullYear();
+  const m = (北京 ? d.getUTCMonth() : d.getMonth()) + 1;
+  const day = 北京 ? d.getUTCDate() : d.getDate();
+  return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
 /** 明确标记优先；旧未知记录沿用非午夜的兼容规则。 */
 export function 定了时刻(t: Date, 明确钟点?: boolean | null): boolean {
-  const local = businessDayjs(t);
-  return 明确钟点 ?? (local.hour() !== 0 || local.minute() !== 0);
+  if (明确钟点 != null) return 明确钟点;
+  const 分 = 当天分钟(t);
+  return Number.isNaN(分) || 分 !== 0;
 }
 
 /** 「今天」的边界：逾期 / 今天按它分。算提醒() 和库里直接数的 数提醒()（lib/reminders-db.ts）共用，口径不分家 */
@@ -81,20 +108,28 @@ export function 算提醒(项: 提醒项[], now = new Date(), 订单项: 订单�
   const 定时: 定时项[] = [];
   const 错过: 定时项[] = [];
 
+  // 最早逾期那一项的日历日，跟着 最早逾期 一起换，不必每次重算
+  let 最早逾期日 = "";
+
   for (const x of 项) {
     if (!x.时间) continue;
     const t = x.时间;
     if (x.日历日 ? x.日历日 < 今天串 : t < 今天开始) {
       逾期++;
-      if (!最早逾期 || (x.日历日 ?? calendarDay(t)) < (最早逾期.日历日 ?? calendarDay(最早逾期.时间!))) 最早逾期 = x;
+      const 日 = x.日历日 ?? 日历串(t);
+      if (!最早逾期 || 日 < 最早逾期日) {
+        最早逾期 = x;
+        最早逾期日 = 日;
+      }
     } else if (x.日历日 ? x.日历日 === 今天串 : t < 明天开始) {
       今天++;
     }
     // 10 分钟的回看：壳一分钟问一次，偶尔错过一轮（电脑刚醒）也还接得住
+    // 先比时间窗（便宜），落在窗里的少数几条才看定没定钟点；判断结果和原来的先后无关
     const 一项 = () => ({ key: `${x.kind}:${x.id}`, at: t.toISOString(), 标题: x.标题, 客户: x.客户, customerId: x.customerId, 方式: x.方式 ?? null });
-    if (!x.日历日 && 定了时刻(t, x.明确钟点) && t.getTime() >= now.getTime() - 10 * 60_000 && t.getTime() < now.getTime() + 天) {
+    if (!x.日历日 && t.getTime() >= now.getTime() - 10 * 60_000 && t.getTime() < now.getTime() + 天 && 定了时刻(t, x.明确钟点)) {
       定时.push(一项());
-    } else if (!x.日历日 && 定了时刻(t, x.明确钟点) && t.getTime() < now.getTime() - 10 * 60_000 && t.getTime() >= now.getTime() - 天) {
+    } else if (!x.日历日 && t.getTime() < now.getTime() - 10 * 60_000 && t.getTime() >= now.getTime() - 天 && 定了时刻(t, x.明确钟点)) {
       // 过了回看窗口的（D-049）：壳睡前见过的才会拿去说「合盖时到点了」
       错过.push(一项());
     }
@@ -103,7 +138,7 @@ export function 算提醒(项: 提醒项[], now = new Date(), 订单项: 订单�
   错过.sort((a, b) => a.at.localeCompare(b.at));
 
   const 最久 = 最早逾期
-    ? { 客户: 最早逾期.客户, 天: calendarDaysBetween(最早逾期.日历日 ?? calendarDay(最早逾期.时间!), 今天串) }
+    ? { 客户: 最早逾期.客户, 天: calendarDaysBetween(最早逾期日, 今天串) }
     : null;
   return { 逾期, 今天, 定时, 错过, 最久, 订单: 算订单(订单项, 今天开始, 明天开始) };
 }
