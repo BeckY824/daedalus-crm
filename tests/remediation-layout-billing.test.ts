@@ -35,6 +35,8 @@ it.each([
   [false, "OWNER", "qa-private", false],
 ])("H-098 真实layout按hosted=%s/role=%s/slug=%s决定订阅入口=%s", async (hosted, role, slug, billing) => {
   state.hosted = hosted; state.workspaces = [{ id: "qa-ws", name: "QA", slug, role }]; vi.stubEnv("SHARED_WORKSPACE", "qa-shared");
+  // 业务时区由 business-clock 按同一份环境变量判（F3），托管版的环境变量要跟 multiTenant() 的桩一致
+  vi.stubEnv("MULTI_TENANT", hosted ? "1" : "");
   const layout = await AppLayout({ children: null, pane: null, modal: null });
   expect(layout.props.children.props.timeZone).toBe(hosted ? "Asia/Shanghai" : null);
   expect(找壳(layout)?.workspace).toMatchObject({ name: "QA", billing });
