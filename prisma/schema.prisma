@@ -650,6 +650,8 @@ model FollowUp {
 
   @@index([customerId, occurredAt])
   @@index([type])
+  /// 跟进记录页按发生时间倒序取最近 300 条（迁移 050）：20 万条时没有它每次都要全表排序
+  @@index([occurredAt])
 }
 
 /// 跟进记录的原文。

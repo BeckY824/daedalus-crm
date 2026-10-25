@@ -138,7 +138,8 @@ describe("迁移文件", () => {
       // 028及030–035也在存量基础表加列。这里保留旧表形状，不能直接用新schema掩盖加列失败。
       db.exec('CREATE TABLE "Opportunity" ("id" TEXT PRIMARY KEY)');
       db.exec('CREATE TABLE "Task" ("id" TEXT PRIMARY KEY)');
-      db.exec('CREATE TABLE "FollowUp" ("id" TEXT PRIMARY KEY)');
+      // 050 给 occurredAt 建索引，这一列第一版就有
+      db.exec('CREATE TABLE "FollowUp" ("id" TEXT PRIMARY KEY, "occurredAt" DATETIME)');
       db.prepare('INSERT INTO "FollowPlan" VALUES (?, ?, ?)').run("old-plan", 1, 123456);
       // 第一遍：一个都不许抛。全新库上 ADD COLUMN 也是真的在加列
       for (const f of 文件) {
