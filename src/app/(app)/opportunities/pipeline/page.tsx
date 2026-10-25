@@ -1,4 +1,6 @@
-import { prisma } from "@/lib/prisma";
+import { prisma, defaultClient } from "@/lib/prisma";
+import { 限定的我 } from "@/lib/team-scope";
+import { 缓存着 } from "@/lib/home-cache";
 import { requireUser } from "@/lib/auth";
 import PipelineView from "./PipelineView";
 import { 负责人候选 } from "@/lib/owners";
@@ -24,7 +26,8 @@ export default async function PipelinePage({ searchParams }: { searchParams?: Pr
   const 每列 = 读每列(sp.n);
 
   const [页, users] = await Promise.all([
-    取管道(prisma, 起, 每列, 读新(sp.new)),
+    // 不限定（老板、个人版、企业版没开按组织看）时轻查询走短时缓存（lib/pipeline-page.ts）
+    (async () => 取管道(prisma, 起, 每列, 读新(sp.new), (await 限定的我(defaultClient)) ? undefined : 缓存着))(),
     // 新建框要的候选：和列表页同一个框（../OpportunityForm.tsx）
     负责人候选(),
   ]);
