@@ -33,9 +33,13 @@ function 拷库(名: string): string {
   return f;
 }
 
-/** 老版本（0.46.24 及以前）的库：没有 alibabaId 这一列。拿当前测试库拷一份、把这列拆掉，和真老库的表结构一样 */
+/**
+ * 老版本（0.46.24 及以前）的库：没有 alibabaId 这一列。拿当前测试库拷一份、把这列拆掉，和真老库的表结构一样。
+ * 先拆查重索引（migrations/048，引用着这一列，不拆 SQLite 不让删列）：老库本来也没有它
+ */
 function 拆成老库(f: string) {
   const d = new DatabaseSync(f);
+  d.exec('DROP INDEX IF EXISTS "CustomerExtra_alibabaIdKey_idx"');
   d.exec('ALTER TABLE "CustomerExtra" DROP COLUMN "alibabaId"');
   d.close();
 }
