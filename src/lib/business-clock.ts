@@ -43,10 +43,14 @@ nativeDayjs.extend((_options, Dayjs) => {
 });
 let browserTimeZone: "Asia/Shanghai" | null = null;
 
-/** 服务端不接受浏览器全局状态；托管业务日为北京时间，本地桌面为本机。 */
+/**
+ * 服务端不接受浏览器全局状态；托管、企业版业务日为北京时间，本地桌面和开源自部署为本机。
+ * 企业版（CRM_ENTERPRISE=1，2026-10-25 F3）：公司在国内、夜扫和到期按北京日界线，
+ * 人在伦敦打开网页也按北京显示和划「今天」；不跟着容器 TZ 走，TZ 设错了也不漂。
+ */
 export function businessTimeZone(): "Asia/Shanghai" | null {
   return typeof window === "undefined" && typeof process !== "undefined" && process.versions?.node
-    ? process.env.MULTI_TENANT === "1" ? "Asia/Shanghai" : null : browserTimeZone;
+    ? process.env.MULTI_TENANT === "1" || process.env.CRM_ENTERPRISE === "1" ? "Asia/Shanghai" : null : browserTimeZone;
 }
 export function configureBrowserBusinessTimeZone(zone: "Asia/Shanghai" | null): void {
   // Worker没有window/process，同样使用调用页面显式传入的业务钟。
