@@ -2,11 +2,13 @@
 /**
  * 企业版压测（10-24 结果：30 人 × 10 倍数据，主要页面 p95 < 200 ms）。
  *
- *   node scripts/perf/enterprise-p95.mjs --out <输出目录> [--scale 10] [--duration 180] [--port 3570] [--skip-build] [--reuse-db]
+ *   node scripts/perf/enterprise-p95.mjs --out <输出目录> [--scale 10] [--duration 180] [--port 3570] [--skip-build] [--reuse-db] [--extra]
  *   GATE=1 …   任何一页 p95 ≥ 200 ms 或有请求出错就以 1 退出
  *
  * 流程：
- *   1. <输出目录>/crm.db 新建一份空库（prisma db push），enterprise-seed.ts 造 30 人 + SCALE 倍数据
+ *   1. <输出目录>/crm.db 新建一份空库（prisma db push），enterprise-seed.ts 造 30 人 + SCALE 倍数据；
+ *      --extra 再加一组逾期跟进计划和带节点的订单（见 enterprise-seed.ts，2026-10-25 起），不加就和原来一样、旧基线能比。
+ *      --reuse-db 时库里是哪种数据看 <输出目录>/seed.json（没有就是不加的那种），和这次要的对不上就报错
  *   2. next build + next start，按企业版部署包的样子起：CRM_ENTERPRISE=1，不设 DESKTOP_DATA / MULTI_TENANT，TZ=Asia/Shanghai
  *   3. 用同一个 AUTH_SECRET 给 30 个人各签一张会话票据（和 createSession 一样的 HS256 + {sub, ims}），不走登录、不碰密码
  *   4. 单人基线：一个销售按顺序把每页开 15 次（前 3 次热身不算）
@@ -36,6 +38,8 @@ const 端口 = Number(参数.port ?? 3570);
 const 站 = `http://127.0.0.1:${端口}`;
 const 库 = path.join(输出, "crm.db");
 const 名单文件 = path.join(输出, "people.json");
+const 种子文件 = path.join(输出, "seed.json");
+const 加一组 = 参数.extra === "1";
 const 密钥 = "perf-only-secret-not-used-anywhere-else-0123456789";
 const 门槛 = 200;
 const 等 = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -62,12 +66,15 @@ const 结果 = { at: new Date().toISOString(), scale: SCALE, users: 30, duration
 
 /* ---------- 1. 库和数据 ---------- */
 if (!参数["reuse-db"] || !fs.existsSync(库)) {
-  for (const f of [库, `${库}-journal`, `${库}-wal`, `${库}-shm`]) fs.rmSync(f, { force: true });
+  for (const f of [库, `${库}-journal`, `${库}-wal`, `${库}-shm`, 种子文件]) fs.rmSync(f, { force: true });
   const 计 = 秒表();
   跑("npx", ["prisma", "db", "push", "--skip-generate"], { ...环境, NODE_ENV: "development" });
-  跑("npx", ["tsx", "scripts/perf/enterprise-seed.ts"], { ...环境, NODE_ENV: "development", SCALE: String(SCALE), OUT: 名单文件 });
+  跑("npx", ["tsx", "scripts/perf/enterprise-seed.ts"], { ...环境, NODE_ENV: "development", SCALE: String(SCALE), OUT: 名单文件, EXTRA: 加一组 ? "1" : "" });
   结果.seedSec = 计();
 }
+const 种子 = fs.existsSync(种子文件) ? JSON.parse(fs.readFileSync(种子文件, "utf8")) : { extra: false };
+if (!!种子.extra !== 加一组) throw new Error(`${库} 是${种子.extra ? "加了一组" : "没加那组"}的数据，这次${加一组 ? "带了" : "没带"} --extra：去掉 --reuse-db 重造，或换个输出目录`);
+结果.seed = 种子;
 结果.dbMB = +(fs.statSync(库).size / 1048576).toFixed(1);
 const 名单 = JSON.parse(fs.readFileSync(名单文件, "utf8"));
 
@@ -190,7 +197,7 @@ const 行 = (k, v) => `| ${k} | ${v.n} | ${v.p50} | **${v.p95}** | ${v.p99} | ${
 const md = [
   `# 企业版压测：30 人 × ${SCALE} 倍数据`,
   "",
-  `${结果.at}，${结果.platform}，Node ${结果.node}。库 ${结果.dbMB} MB；压测 ${时长 / 1000} 秒，${结果.load.rps} 次/秒；服务端内存峰值 ${结果.serverRssMB.max} MB。`,
+  `${结果.at}，${结果.platform}，Node ${结果.node}。数据：${种子.extra ? "原来那些 + 加的一组（逾期跟进计划、带节点的订单，--extra）" : "原来那些（不带 --extra）"}${种子.plans ? `，跟进计划 ${种子.plans} 条、订单 ${种子.orders} 张、订单节点 ${种子.orderNodes} 个` : ""}。库 ${结果.dbMB} MB；压测 ${时长 / 1000} 秒，${结果.load.rps} 次/秒；服务端内存峰值 ${结果.serverRssMB.max} MB。`,
   "",
   `**裁判：各页 p95 < ${门槛} ms 且没有出错 → ${结果.pass ? "绿" : "红"}**${超.length ? `（超了：${超.join("；")}）` : ""}${结果.load.all.errors ? `（出错 ${结果.load.all.errors} 次：${结果.errorsSample.join("；")}）` : ""}`,
   "",
