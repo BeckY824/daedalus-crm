@@ -37,6 +37,11 @@ export type 项目详情 = {
    * 要下一步 = 记沟通必须填下一步时间；能记沟通 = 企业版里的负责人、老板、主管、项目组成员，且不在公海（不是企业版照原来去客户页记）
    */
   nextStepAt: string | null; 回收日: string | null; 要下一步: boolean; 能记沟通: boolean;
+  /**
+   * 企业版节点必填：这个节点配了必填才有（没开 / 没配 / 有结局 / 在公海 = null）。填齐了自动往前推；
+   * 只能靠填齐 = 不是老板、主管，手动往前推不给（往后退、点结局照旧）
+   */
+  必填: { 配了: string[]; 还差: string[]; 只能靠填齐: boolean } | null;
   balanceSettled: boolean; balanceSettledBy: string | null; balanceSettledAt: string | null;
   acceptancePassed: boolean; acceptancePassedBy: string | null; acceptancePassedAt: string | null;
   /** kind 不是 node 的行是换负责人（转让 / 放回公海 / 从公海领取），transfer 记从谁到谁；category 是进异常时选的类别 */
@@ -74,8 +79,9 @@ function 位置文字(p: 位置): string {
  * 异常状态只在项目已经在订单阶段时出现，线索、商机阶段不给这个入口。
  * 往前只能一步（比现在多走超过一步的灰着），往后随便退——和 lib/project/nodes.ts 改节点问题 同一条规矩
  */
-function 去处们(当前: 位置) {
-  const 太远 = (到: 位置) => 节点序号(到) > 节点序号(当前) + 1;
+function 去处们(当前: 位置, 不能往前 = false) {
+  // 配了必填、不是老板主管：往前的节点灰着（靠填齐自动推），结局照旧能点
+  const 太远 = (到: 位置) => 节点序号(到) > 节点序号(当前) + (不能往前 && !到.result ? 0 : 1);
   return 阶段们.map((s) => {
     const 尾 = 节点们[s][节点们[s].length - 1];
     const 结局 = s === "订单" ? 出口们.订单.filter((r) => r !== "异常状态" || 当前.phase === "订单") : [出口们[s][1]];
@@ -136,13 +142,15 @@ export default function ProjectDetail({
   const 可改 = 能改 && !p.pooled;
   const 不能改 = p.pooled ? "这个项目在项目公海里，领取了才能改" : 能改 ? undefined : "只有项目负责人、老板或主管能改";
 
-  const 跑 = async (f: () => Promise<{ ok: boolean; error?: string }>, 成了?: string) => {
+  const 跑 = async (f: () => Promise<{ ok: boolean; error?: string; 自动推到?: string[] }>, 成了?: string) => {
     set忙(true);
     try {
       const r = await f();
       if (!r.ok) message.error(r.error ?? "没改成，请稍后再试");
       else {
         if (成了) message.success(成了);
+        // 企业版节点必填：这次保存把必填填齐了，项目自动往前推了几步
+        if (r.自动推到?.length) message.success(`必填齐了，自动推进到 ${r.自动推到.join(" → ")}`);
         router.refresh();
       }
       return r.ok;
@@ -232,10 +240,10 @@ export default function ProjectDetail({
               value={null}
               disabled={!可改 || 忙}
               title={不能改}
-              options={去处们(当前)}
+              options={去处们(当前, !!p.必填?.只能靠填齐)}
               onChange={(v: string | null) => v && 改到(JSON.parse(v) as 位置)}
             />
-            <Button type="primary" disabled={!可改 || 忙 || !下} title={不能改 ?? (下 ? undefined : p.result ? "先改回某个节点再往前推" : "这是最后一个节点了，接下来点结局")} onClick={() => 下 && 改到(下)}>
+            <Button type="primary" disabled={!可改 || 忙 || !下 || !!p.必填?.只能靠填齐} title={不能改 ?? (p.必填?.只能靠填齐 ? "这个节点填齐必填后自动往前推；要先推请找老板或主管" : 下 ? undefined : p.result ? "先改回某个节点再往前推" : "这是最后一个节点了，接下来点结局")} onClick={() => 下 && 改到(下)}>
               {下 ? `下一步：${下.phase === p.phase ? 下.node : `${下.phase}·${下.node}`}` : "下一步"}
             </Button>
           </Space>
@@ -247,6 +255,13 @@ export default function ProjectDetail({
           status={异常 ? "exception" : p.result === "成功交付" ? "success" : "active"}
           aria-label={`第 ${节点序号(当前) + 1} 个节点，共 ${节点总数} 个`}
         />
+        {p.必填 && (
+          <div style={{ marginTop: 12, color: p.必填.还差.length ? "var(--text-muted)" : "var(--success-text)", overflowWrap: "anywhere" }}>
+            {p.必填.还差.length
+              ? `这个节点填齐必填后自动往前推，还差：${p.必填.还差.join("、")}`
+              : "这个节点的必填都齐了"}
+          </div>
+        )}
       </Card>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, marginBottom: 16 }}>
