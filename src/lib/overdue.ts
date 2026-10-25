@@ -33,15 +33,21 @@ export function 是逾期(时间: Date | string | null | undefined, now: Date = 
 
 /**
  * 同一个口径、先把「今天」算好：一次判几千条时用它（计划页分组，2026-10-25 企业版压测），
- * 不必每条都重算一遍今天零点和日历日
+ * 不必每条都重算一遍今天零点和日历日。
+ * 日历日每个串只验一次：同一天的计划很多，isCalendarDate 在企业版下每次都要建 Dayjs。
+ * 日历日一定是 10 个字符，别的长度不用验；Date.parse 和 new Date(串).getTime() 一样，只是不建对象
  */
 export function 逾期判定(now: Date = new Date()): (时间: Date | string | null | undefined) => boolean {
-  let 今天: string | undefined, 零点: number | undefined;
+  let 今天: string | undefined, 零点: number | undefined, 验过: Map<string, boolean> | undefined;
   return (时间) => {
     if (!时间) return false;
-    if (typeof 时间 === "string" && isCalendarDate(时间)) return 时间 < (今天 ??= calendarDay(now));
-    const t = typeof 时间 === "string" ? new Date(时间) : 时间;
-    return t.getTime() < (零点 ??= 今天零点(now).getTime());
+    if (typeof 时间 === "string" && 时间.length === 10) {
+      let 是日历日 = (验过 ??= new Map()).get(时间);
+      if (是日历日 === undefined) 验过.set(时间, (是日历日 = isCalendarDate(时间)));
+      if (是日历日) return 时间 < (今天 ??= calendarDay(now));
+    }
+    const t = typeof 时间 === "string" ? Date.parse(时间) : 时间.getTime();
+    return t < (零点 ??= 今天零点(now).getTime());
   };
 }
 
