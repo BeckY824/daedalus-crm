@@ -1,6 +1,6 @@
 import type { Prisma, PrismaClient } from "@/generated/prisma";
 import { scheduleValue } from "@/lib/schedule-date";
-import { 分组, 组名, 每批 } from "@/lib/plans-groups";
+import { 分组, 分组日键, 组名, 每批, type 组 } from "@/lib/plans-groups";
 
 /**
  * 跟进计划页一页取多少（2026-10-24 企业版压测）。
@@ -112,8 +112,11 @@ export async function 取详情(db: Db, keys: readonly string[] | "全部", 稳�
 }
 
 type 轻项 = { key: string; 时间: string | null; ownerId: string };
-/** 轻列表一份：全部未完成事项，和压成 轻 / 负责人 的样子（要给页面时才压，压一次记在这份上） */
-type 轻份 = { 全部: 轻项[]; 压好?: { 轻: 轻行[]; 负责人: string[] } };
+/**
+ * 轻列表一份：全部未完成事项，和压成 轻 / 负责人 的样子（要给页面时才压，压一次记在这份上）；
+ * 分好：分好的组，键是 分组日键 + 谁的（"" 是全部成员），只摆前 N 条用、别改
+ */
+type 轻份 = { 全部: 轻项[]; 压好?: { 轻: 轻行[]; 负责人: string[] }; 分好?: Map<string, Record<组, 轻项[]>> };
 
 async function 取轻份(db: Db): Promise<轻份> {
   const [轻计划, 轻待办] = await Promise.all([
@@ -144,10 +147,15 @@ export async function 取计划页(
   const 份 = 共用 ? await 共用("计划页轻列表", () => 取轻份(db)) : await 取轻份(db);
   const { 全部 } = 份;
 
-  // 两种看法各挑每组前 N 条
+  // 两种看法各挑每组前 N 条。分组只按「今天」变：共用时同一天的分好记在这份上，30 人同一时刻不再各分一遍
+  // （2026-10-25 企业版压测：1.5 万条时两种看法各分一遍约 4 ms，占跟进计划页服务端 CPU 最大的一块）
+  const 日键 = 分组日键();
+  const 分好 = (份.分好 ??= new Map());
   const 要 = new Set<string>();
-  for (const 这些 of [全部, 全部.filter((x) => x.ownerId === meId)]) {
-    const 组 = 分组(这些);
+  for (const 谁 of ["", meId]) {
+    const 键 = `${日键}|${谁}`;
+    let 组 = 分好.get(键);
+    if (!组) 分好.set(键, (组 = 分组(谁 ? 全部.filter((x) => x.ownerId === 谁) : 全部)));
     组名.forEach((g, i) => { for (const x of 组[g].slice(0, 每组[i])) 要.add(x.key); });
   }
 
