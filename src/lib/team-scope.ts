@@ -55,9 +55,10 @@ const 等于 = (w: 谁) => (typeof w === "string" ? w : { in: [...w] });
 /**
  * 我：业务员本机的 id（老板等 = null）；互看：团队开了同事互看；别人的：只能看的客户（互看时同事负责、不在公海的；
  * 企业版是虚线下属的），拦在它们下面新建。
- * 企业版另有：读 = 看得到谁的客户（比 我 多出虚线下属）；全拦 = 只能看的客户下面跟进也不许建；话 = 挡下时给人看的那句
+ * 企业版另有：读 = 看得到谁的客户（比 我 多出虚线下属）；全拦 = 只能看的客户下面跟进也不许建；话 = 挡下时给人看的那句；
+ * 线索全看 = 线索不限定（市场管理开着线索分配时要看、要分全部线索，F9 10-25），客户那条线照旧
  */
-export type 限定 = { 我: 谁 | null; 互看: boolean; 别人的: ReadonlySet<string>; 读?: 谁; 全拦?: boolean; 话?: string };
+export type 限定 = { 我: 谁 | null; 互看: boolean; 别人的: ReadonlySet<string>; 读?: 谁; 全拦?: boolean; 话?: string; 线索全看?: boolean };
 const 不限定: 限定 = { 我: null, 互看: false, 别人的: new Set() };
 const g = globalThis as unknown as { __限定?: 限定 & { 到: number }; __限定刷新?: Promise<限定> };
 
@@ -379,7 +380,7 @@ export function 加上限定(db: PrismaClient): PrismaClient {
       $allModels: {
         async $allOperations({ model, operation, args, query }) {
           if (写操作.has(operation)) 改完推一下();
-          const { 我, 互看, 别人的, 读, 全拦, 话 } = await 现在的限定(db);
+          const { 我, 互看, 别人的, 读, 全拦, 话, 线索全看 } = await 现在的限定(db);
           if (!我) return query(args);
           // 有只读的客户：团队版互看、企业版虚线下属。读谁 / 读互看 = 查、数、带出来的关联按哪个范围放开
           const 有只读 = 互看 || !!读;
@@ -392,7 +393,7 @@ export function 加上限定(db: PrismaClient): PrismaClient {
             if (typeof id === "string" && 别人的.has(id)) throw new 只读错误(话);
           }
           const a = 限定关联(model, (args ?? {}) as 查询参数, 读谁, 读互看);
-          const 条件 = !限定的操作.has(operation) ? null : 写操作.has(operation) ? 限定条件(model, 我, false) : 限定条件(model, 读谁, 读互看);
+          const 条件 = !限定的操作.has(operation) || (线索全看 && model === "Lead") ? null : 写操作.has(operation) ? 限定条件(model, 我, false) : 限定条件(model, 读谁, 读互看);
           // 原来的 where 原样摊开、条件并进 AND：findUnique / update / delete 要求唯一键留在最外层
           const q = query((条件 ? { ...a, where: 并限定(a.where, 条件) } : a) as typeof args);
           if (!有只读 || !条件 || !单条改删.has(operation)) return q;
