@@ -34,6 +34,15 @@ export const 毫秒 = (列: string) =>
   `CASE WHEN typeof(${列}) IN ('integer','real') THEN ${列} ELSE CAST(round((julianday(${列}) - 2440587.5) * 86400000) AS INTEGER) END`;
 
 /**
+ * 同一个 f(毫秒(列))，把 typeof 判断提到外面：`CASE WHEN 是数 THEN f(列) ELSE f(换算后的列) END`。
+ * f 里同一个 t 要比好几次（第几天的嵌套 CASE 约 7 次），SQLite 会把子查询里的 t 原样展开，
+ * 每比一次就重算一遍 typeof + CASE；提到外面后整数行只判一次类型，20 万条跟进省三四十毫秒。
+ * 值和 f(毫秒(列)) 一模一样：两支就是 毫秒 的两支
+ */
+export const 按毫秒 = (列: string, f: (t: string) => string) =>
+  `CASE WHEN typeof(${列}) IN ('integer','real') THEN ${f(列)} ELSE ${f(`CAST(round((julianday(${列}) - 2440587.5) * 86400000) AS INTEGER)`)} END`;
+
+/**
  * 「t 落在第几天」：零点[j] ≤ t < 零点[j+1] 是第 j 天；早于第一个零点是 -1，晚于最后一个是最后一个的下标。
  * 二分写成嵌套 CASE，每行约 7 次整数比较
  */
@@ -122,18 +131,18 @@ async function 库里数(db: PrismaClient, 计: 计划): Promise<客户数> {
   const [建档, 活跃] = await Promise.all([
     db.$queryRawUnsafe<{ k: bigint | number; e: bigint | number; n: bigint | number }[]>(
       `SELECT k, e, count(*) AS n FROM (
-         SELECT ${第几天或负一("t", 零点)} AS k, (t IN (${周起})) AS e
-         FROM (SELECT ${毫秒("createdAt")} AS t FROM Customer)
+         SELECT ${按毫秒("createdAt", (t) => 第几天或负一(t, 零点))} AS k, ${按毫秒("createdAt", (t) => `(${t} IN (${周起}))`)} AS e
+         FROM Customer
        ) GROUP BY k, e`,
     ),
-    db.$queryRawUnsafe<{ k: bigint | number; v: bigint | number }[]>(
-      `WITH f AS (SELECT ${毫秒("occurredAt")} AS t, customerId AS c FROM FollowUp WHERE occurredAt >= ?),
-       p AS (SELECT DISTINCT c, ${不早于起点的第几天("t", 零点)} AS d FROM f WHERE t >= ${零点[0]}),
+    // 每个客户把活跃的那几天拼成不重叠的段 [起, 止)：起处 +1、止处 −1。
+    // 回的是「(起, 止) 各有几段」，不在库里再 UNION 一遍按天合计（那样要多排 20 万行）
+    db.$queryRawUnsafe<{ k: bigint | number; e: bigint | number; n: bigint | number }[]>(
+      `WITH p AS (SELECT DISTINCT customerId AS c, ${按毫秒("occurredAt", (t) => 不早于起点的第几天(t, 零点))} AS d
+         FROM FollowUp WHERE occurredAt >= ? AND ${按毫秒("occurredAt", (t) => `${t} >= ${零点[0]}`)}),
        q AS (SELECT d, LAG(d) OVER (PARTITION BY c ORDER BY d) AS pr FROM p)
-       SELECT k, sum(v) AS v FROM (
-         SELECT CASE WHEN pr IS NULL OR pr + ${窗口} < d THEN d ELSE pr + ${窗口} END AS k, 1 AS v FROM q
-         UNION ALL SELECT d + ${窗口}, -1 FROM q
-       ) GROUP BY k`,
+       SELECT CASE WHEN pr IS NULL OR pr + ${窗口} < d THEN d ELSE pr + ${窗口} END AS k, d + ${窗口} AS e, count(*) AS n
+       FROM q GROUP BY k, e`,
       计.跟进起.getTime(),
     ),
   ]);
@@ -154,7 +163,11 @@ async function 库里数(db: PrismaClient, 计: 计划): Promise<客户数> {
   const 总 = 累计[累计.length - 1];
 
   const 变化 = new Map<number, number>();
-  for (const r of 活跃) 变化.set(数(r.k), 数(r.v));
+  for (const r of 活跃) {
+    const n = 数(r.n);
+    变化.set(数(r.k), (变化.get(数(r.k)) ?? 0) + n);
+    变化.set(数(r.e), (变化.get(数(r.e)) ?? 0) - n);
+  }
   // 最大的当天之前的前缀和就够了
   const 活跃至: number[] = [];
   let s = 0;
