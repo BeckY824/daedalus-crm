@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
+import { 企业版 } from "@/lib/enterprise/switch";
+import { 企业版跳转 } from "@/lib/enterprise/web-paths";
 
 /**
  * 与 lib/auth.ts 保持一致：生产环境缺少 AUTH_SECRET 时直接失败，
@@ -49,6 +51,16 @@ export async function proxy(request: NextRequest) {
   */
   if (process.env.DESKTOP_LOCAL === "1" && !本机地址(request.headers.get("host"))) {
     return new NextResponse("Misdirected Request", { status: 421 });
+  }
+  // 企业版网页里不留我们云端 / 桌面端的页面（注册、条款、手机伴侣、反馈），见 lib/enterprise/web-paths.ts
+  if (企业版()) {
+    const 去 = 企业版跳转(pathname);
+    if (去) {
+      const url = request.nextUrl.clone();
+      url.pathname = 去;
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
   }
   const valid = await hasValidSession(request);
 

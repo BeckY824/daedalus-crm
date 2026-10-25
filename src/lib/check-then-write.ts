@@ -11,7 +11,8 @@
  * 一个接一个跑（tests/check-then-write.test.ts 钉着），后进来的那个查的时候先进来的已经写完了。
  *
  * 另一个进程同时写（少见：桌面端只有一个本地服务）时 SQLite 会回「库忙」或写冲突，那一次什么都没写进去，
- * 整段重来即可，几轮拿不下就照常抛出去。
+ * 整段重来即可，几轮拿不下就照常抛出去。排队太久开不了事务、或者事务跑超时被关掉（P2028）也一样：
+ * 要么还没开始，要么整段已经回滚，什么都没写进去，重来是安全的。
  *
  * **事务里只用 tx**：在里面走外面的 prisma 写，要排在这个事务后面等它提交（等到 busy_timeout）；
  * 走外面读，看不到事务里还没提交的那几行。要的配置（getBusiness 之类）先在外面读好。
@@ -19,10 +20,10 @@
 import type { Prisma } from "@/generated/prisma";
 import { prisma } from "./prisma";
 
-/** 「库忙 / 写冲突」：这一轮什么都没写进去，可以整段重来 */
+/** 「库忙 / 写冲突 / 事务没开成或超时被关」：这一轮什么都没写进去，可以整段重来 */
 function 撞上别的写入(e: unknown): boolean {
   const code = (e as { code?: string } | null)?.code;
-  if (code === "P2034") return true;
+  if (code === "P2034" || code === "P2028") return true;
   const msg = e instanceof Error ? e.message : String(e);
   return /database is locked|SQLITE_BUSY/i.test(msg);
 }
