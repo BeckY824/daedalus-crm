@@ -7,6 +7,7 @@
  *   - 组织里的总管理员（账号 MANAGER）：能推所有项目，和老板一样（10-24 用户定）
  *   - 负责人没设直属上级（组织还没配）：和原来一样，本人也能推
  *   - 不是企业版：组织表配着也不拦
+ *   - 「按组织架构看客户」开关关着（F10）：本人能推，和团队版一样；直属上级照样能改节点
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
@@ -14,7 +15,7 @@ vi.mock("@/lib/sync/client", () => ({ 读团队: () => null }));
 
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
-import { 改节点, 往前推不给, 能改节点 } from "@/lib/project/db";
+import { 改节点, 往前推不给, 能改节点, 直属才推 } from "@/lib/project/db";
 import { 读组织 } from "@/lib/enterprise/org";
 import { invalidateSettingsCache, setSetting } from "@/lib/settings";
 import { 默认组织规则 } from "@/lib/project/org-rules";
@@ -53,6 +54,8 @@ describe("企业版推节点只给直属上级", () => {
     });
     客户 = (await prisma.customer.create({ data: { name: "客户甲", phone: "", salesOwnerId: 销售.id } })).id;
     vi.stubEnv("CRM_ENTERPRISE", "1");
+    await setSetting("enterprise.rule.org_scope", true);
+    invalidateSettingsCache();
   });
   afterEach(() => { vi.unstubAllEnvs(); });
 
@@ -132,6 +135,15 @@ describe("企业版推节点只给直属上级", () => {
   it("负责人没设直属上级：照旧，本人能推", async () => {
     const p = await 项目(散.id);
     expect(await 改节点(散, p.id, 往前)).toMatchObject({ ok: true });
+  });
+
+  it("「按组织架构看客户」关着：本人能推，直属上级照样能推", async () => {
+    await setSetting("enterprise.rule.org_scope", false);
+    invalidateSettingsCache();
+    const p = await 项目(销售.id);
+    expect(await 直属才推(await 读组织())).toBeNull();
+    expect(await 改节点(销售, p.id, 往前)).toMatchObject({ ok: true });
+    expect(await 改节点(组长, p.id, { phase: "线索", node: "线索推进" })).toMatchObject({ ok: true });
   });
 
   it("不是企业版：组织配着也不拦", async () => {
