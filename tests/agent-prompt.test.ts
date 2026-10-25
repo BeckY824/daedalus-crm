@@ -5,7 +5,7 @@
  * 谁顺手删掉一行，模型照样会答，只是答得又慢又歪，测试一条都不红。
  *
  *   J-134 / J-142：最终回答那一步要「第一句就是答案」「一条记录不画表」
- *   J-147：原生 function calling 那条路，系统提示词里不许再留 JSON 协议（两套说明书一起给，它只听一套，8 道错 7 道）
+ *   J-147：原生 function calling 那条路，系统提示词里不许再留 JSON 协议（两套说明书一起给，它只听一套，8 道错 7 道）；中途 4xx 退回 JSON 协议时要换回 JSON 那套、带上工具清单
  *   J-148：直连跑完工具就去组织回答，不再白问一次「要不要调工具」
  *   J-149：页面上下文进系统提示词，不进认意图的那句话——否则上下文里带「渠道」二字，问什么都被渠道清单接走
  */
@@ -24,6 +24,8 @@ let JSON轮次: 消息[][] = [];
 let 给的工具: string[][] = [];
 /** 决策轮依次要调什么（空了就空手） */
 let 剧本: { name: string; args: string }[] = [];
+/** 决策轮按这个状态码抛错（对面不吃 tools 的 400、上游 502……），null 不抛 */
+let 决策报错: number | null = null;
 
 const 抄 = (ms: { role: string; content: unknown }[]) => ms.map((m) => ({ role: m.role, content: String(m.content ?? "") }));
 
@@ -42,6 +44,7 @@ vi.mock("@/lib/llm", () => ({
   chatTools: async (ms: { role: string; content: unknown }[], tools: { function: { name: string } }[]) => {
     决策轮次.push(抄(ms));
     给的工具.push(tools.map((t) => t.function.name));
+    if (决策报错 !== null) throw Object.assign(new Error(`上游 ${决策报错}`), { status: 决策报错 });
     const 这轮 = 剧本.shift();
     return { text: "", toolCalls: 这轮 ? [{ id: `c${决策轮次.length}`, function: 这轮 }] : [] };
   },
@@ -64,6 +67,7 @@ beforeEach(async () => {
   JSON轮次 = [];
   给的工具 = [];
   剧本 = [];
+  决策报错 = null;
   delete process.env.AGENT_TOOLCALLS;
 });
 
@@ -108,6 +112,27 @@ describe("原生 function calling 那条路的系统提示词（J-147）", () =>
     expect(决策轮次).toEqual([]);
     expect(JSON轮次.length).toBeGreaterThanOrEqual(1);
     expect(JSON轮次[0][0].content).toContain("每一轮只输出严格 JSON");
+  });
+
+  it("原生调用回 400（对面不吃 tools）退回 JSON 协议：系统提示词换成 JSON 那套，带上工具清单", async () => {
+    决策报错 = 400;
+    await 问("明杰哥的电话是多少");
+    expect(决策轮次).toHaveLength(1);
+    expect(JSON轮次.length).toBeGreaterThanOrEqual(1);
+    const 系统 = JSON轮次[0][0];
+    expect(系统.role).toBe("system");
+    expect(系统.content).toContain("你能调用的工具：");
+    expect(系统.content).toContain("- find_person：");
+    expect(系统.content).toContain("每一轮只输出严格 JSON");
+    expect(系统.content).not.toContain("需要数据就直接调用工具");
+    // 其余照旧：问题还是那一句，只换了系统提示词
+    expect(JSON轮次[0][1].content.trimEnd().endsWith("明杰哥的电话是多少")).toBe(true);
+  });
+
+  it("对照：502 换协议也救不回来，照旧报错，不退回 JSON", async () => {
+    决策报错 = 502;
+    await expect(问("明杰哥的电话是多少")).rejects.toMatchObject({ status: 502 });
+    expect(JSON轮次).toEqual([]);
   });
 });
 
