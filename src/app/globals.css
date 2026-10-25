@@ -200,6 +200,18 @@ html.glass .ant-input-affix-wrapper, html.glass .ant-input-outlined, html.glass 
   background: color-mix(in srgb, var(--panel) 78%, transparent); }
 html.glass .ant-segmented { background: color-mix(in srgb, var(--ink) 6%, transparent); }
 html.glass .ant-pagination .ant-pagination-item, html.glass .ant-pagination .ant-select-selector { background: color-mix(in srgb, var(--panel) 70%, transparent); }
+/* 网页版的毛玻璃（2026-10-24，lib/appearance.ts 的 网页玻璃键）：网页背后没有壁纸，自己垫一层——
+   和设置页「窗口」小样同一组颜色（左上偏蓝、右下偏琥珀），压得更淡，铺满窗口、不跟着滚。
+   上面各层半透明的规矩照用，透上来的就是这层；颜色都从 token 来，换主题跟着换 */
+html.glass.web-glass {
+  min-height: 100%;
+  background:
+    radial-gradient(ellipse 70% 60% at 0% 0%, color-mix(in srgb, var(--cat-blue) 22%, transparent), transparent 70%),
+    radial-gradient(ellipse 65% 60% at 100% 100%, color-mix(in srgb, var(--cat-amber) 20%, transparent), transparent 70%),
+    radial-gradient(ellipse 50% 45% at 85% 10%, color-mix(in srgb, var(--cat-violet) 10%, transparent), transparent 70%),
+    var(--workbench);
+  background-attachment: fixed;
+}
 
 /* ---------- 桌面端的门（login/DesktopAuth.tsx）：左边一句话，右边一个表单 ---------- */
 .auth { position: relative; min-height: 100vh; display: grid; grid-template-columns: minmax(280px, 1fr) minmax(360px, 1.15fr); background: var(--page-bg); }
