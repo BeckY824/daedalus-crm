@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from "@/generated/prisma";
 import { scheduleValue } from "@/lib/schedule-date";
+import { dayjs } from "@/lib/utils";
 import { 分组, 分组日键, 组名, 每批, type 组 } from "@/lib/plans-groups";
 
 /**
@@ -133,7 +134,7 @@ async function 取轻份(db: Db): Promise<轻份> {
 
 /**
  * `共用`：不限定（lib/team-scope 的 限定的我 是 null：老板、个人版、企业版没开按组织看）时页面传 lib/home-cache.ts 的
- * 缓存着 进来——轻列表不分人、不看日子（分组在下面每次现分），30 人同一时刻取的是同一份，库一有提交就重取，企业版才开。
+ * 缓存着 进来——轻列表不分人、不看日子（分组按「今天」分好也记在这份上，见下面），30 人同一时刻取的是同一份，库一有提交就重取，企业版才开。
  * 2026-10-25 企业版压测：1.5 万条时两句轻查询加拼列表约 33 ms、压成 轻 约 10 ms，每次开页都是白算。
  * 这里不直接引它：本文件还要打进浏览器跑（tests/plans-pager.ui.test.ts），不能带 node:fs。
  * 共用时给出的 轻 / 负责人 是共用的那份（页面只读：压紧或原样交给 PlansView），别改
@@ -149,13 +150,15 @@ export async function 取计划页(
 
   // 两种看法各挑每组前 N 条。分组只按「今天」变：共用时同一天的分好记在这份上，30 人同一时刻不再各分一遍
   // （2026-10-25 企业版压测：1.5 万条时两种看法各分一遍约 4 ms，占跟进计划页服务端 CPU 最大的一块）
-  const 日键 = 分组日键();
+  // 日键和分组共用同一个「现在」：各取一次的话，零点前后那几毫秒可能一个算昨天、一个算今天，分好的组记错日子
+  const now = dayjs();
+  const 日键 = 分组日键(now);
   const 分好 = (份.分好 ??= new Map());
   const 要 = new Set<string>();
   for (const 谁 of ["", meId]) {
     const 键 = `${日键}|${谁}`;
     let 组 = 分好.get(键);
-    if (!组) 分好.set(键, (组 = 分组(谁 ? 全部.filter((x) => x.ownerId === 谁) : 全部)));
+    if (!组) 分好.set(键, (组 = 分组(谁 ? 全部.filter((x) => x.ownerId === 谁) : 全部, now)));
     组名.forEach((g, i) => { for (const x of 组[g].slice(0, 每组[i])) 要.add(x.key); });
   }
 
