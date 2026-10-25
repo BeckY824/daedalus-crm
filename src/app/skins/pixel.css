@@ -66,4 +66,4 @@
 /* 8. AI 草稿：底上一层网点（铅笔），确认后网点没了，换成信号蓝的实心投影 */
 :root[data-skin="pixel"] .prop { border-width: 2px; background-image: repeating-conic-gradient(color-mix(in srgb, var(--line-soft) 55%, transparent) 0 25%, transparent 0 50%); background-size: 4px 4px; }
 /* 9. 像素字不做抗锯齿 */
-:root[data-skin="pixel"] :is(.page-head h1, .rec-head-name, .cli-welcome-t, .rail-mark b, .stat-value, .signal-v b) { -webkit-font-smoothing: none; }
+:root[data-skin="pixel"] :is(.page-head h1, .rec-head-name, .cli-welcome-t, .stat-value, .signal-v b) { -webkit-font-smoothing: none; }
