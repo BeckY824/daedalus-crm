@@ -93,6 +93,39 @@ describe("D4：卡出来之后数据变了", () => {
   });
 });
 
+/*
+  2026-10-25：改渠道负责人那句改成直连出卡、不先 list_channels 核对名字。
+  人说的渠道名常常不全（「明杰」/ 库里「明杰哥」），卡上要换成库里的全名，否则确认时必然「没有这个渠道」。
+*/
+describe("改渠道卡：人说的渠道名差一点", () => {
+  it("唯一一个渠道名包含它 → 卡上换成全名、带上现值，确认能写进去", async () => {
+    // 电话换个号：同样内容的卡 10 分钟内只认一次（apply.ts 的 确认过的卡），别和上面那组撞上
+    const 卡 = await 出卡("propose_channel_update", { channelName: "明杰", phone: "13900003333", reason: "他换号了" });
+    expect(卡.kind === "update_channel" && 卡.channelName).toBe("明杰哥");
+    expect(卡.现值?.phone).toBe("13900000009");
+    const r = await applyProposal(卡);
+    expect(r.ok, r.ok ? "" : r.error).toBe(true);
+    expect((await prisma.channel.findUnique({ where: { id: 渠道 } }))!.phone).toBe("13900003333");
+  });
+
+  it("库里没有 → 照样出卡、名字原样，并告诉模型请人在卡上改", async () => {
+    const { TOOL_MAP } = await import("@/lib/agent/tools");
+    const { getBusiness } = await import("@/lib/business");
+    const ctx = { userId: "tester-id", userName: "测试员", b: await getBusiness(), recordOffset: 0, proposals: [] as Proposal[], 号: <T,>(p: T) => p };
+    const r = await TOOL_MAP.get("propose_channel_update")!.run({ channelName: "抖音", ownerName: "测试员", reason: "r" }, ctx as never);
+    expect(ctx.proposals).toHaveLength(1);
+    expect(ctx.proposals[0].kind === "update_channel" && ctx.proposals[0].channelName).toBe("抖音");
+    expect(JSON.stringify(r.data)).toContain("没有叫「抖音」的渠道");
+  });
+
+  it("不止一个渠道名包含它 → 不替人挑，名字原样", async () => {
+    await prisma.channel.create({ data: { name: "明杰姐", channelOwnerId: "tester-id" } });
+    const 卡 = await 出卡("propose_channel_update", { channelName: "明杰", phone: "13900001111", reason: "r" });
+    expect(卡.kind === "update_channel" && 卡.channelName).toBe("明杰");
+    expect(卡.现值).toBeUndefined();
+  });
+});
+
 describe("确认时对象已经没了", () => {
   for (const [工具, args] of [
     ["propose_status_change", { to: "意向较高", reason: "r" }],
