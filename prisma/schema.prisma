@@ -652,6 +652,8 @@ model FollowUp {
   @@index([type])
   /// 跟进记录页按发生时间倒序取最近 300 条（迁移 050）：20 万条时没有它每次都要全表排序
   @@index([occurredAt])
+  /// 按成员筛跟进（迁移 050）：只有上面那条时 SQLite 没统计信息，会改成按 occurredAt 扫全表再挑人
+  @@index([ownerId, occurredAt])
 }
 
 /// 跟进记录的原文。
