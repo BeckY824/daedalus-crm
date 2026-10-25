@@ -68,7 +68,7 @@ async function 导出再导回(b: BusinessConfig) {
 
 const 客户页 = async (sp: Record<string, string>) =>
   ((await (await import("@/app/(app)/customers/page")).default({ searchParams: Promise.resolve(sp) } as never)) as {
-    props: { rows: { name: string; grade: string | null }[]; 旧职位: string[] };
+    props: { rows: { name: string; grade: string | null }[]; 旧职位: string[]; 国家们: string[] };
   }).props;
 
 describe("业务配置里删掉一个选项：老记录照常", () => {
@@ -83,6 +83,15 @@ describe("业务配置里删掉一个选项：老记录照常", () => {
     expect(全部.旧职位, "删掉的职位还有人在用：筛选下拉照样给").toEqual(["高管"]);
     expect((await 客户页({ grade: "高管" })).rows.map((r) => r.name)).toEqual(["王总"]);
     await expect((await import("@/app/(app)/customers/[id]/page")).default({ params: Promise.resolve({ id: c.id }), searchParams: Promise.resolve({}) } as never)).resolves.toBeTruthy();
+  });
+
+  it("国家筛选只给库里真有的：去重、按名字排、空的不给", async () => {
+    for (const [i, country] of ["美国", "德国", "美国", null, "阿联酋"].entries()) {
+      const c = await prisma.customer.create({ data: { name: `客户${i}`, phone: `1380000010${i}`, salesOwnerId: 我 } });
+      await prisma.customerExtra.create({ data: { customerId: c.id, country } });
+    }
+    await prisma.customer.create({ data: { name: "没档案的", phone: "13800000199", salesOwnerId: 我 } });
+    expect((await 客户页({})).国家们).toEqual(["德国", "美国", "阿联酋"].sort());
   });
 
   it("职位删了「高管」：编辑框只改备注、行内改别的格都存得进去，职位原样留着", async () => {
