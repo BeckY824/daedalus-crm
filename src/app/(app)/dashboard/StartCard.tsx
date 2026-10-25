@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { App, Button } from "antd";
-import { ExperimentOutlined, PlusOutlined, SnippetsOutlined } from "@ant-design/icons";
+import { ExperimentOutlined, ImportOutlined, PlusOutlined, SnippetsOutlined } from "@ant-design/icons";
 import { 查演示数据状态, 灌一套演示数据, type 演示数据状态 } from "@/app/(app)/demo-data";
 import { useBusiness } from "@/lib/business-client";
 import { 外贸精简 } from "@/lib/business-config";
@@ -18,14 +18,21 @@ import { 外贸精简 } from "@/lib/business-config";
  * **一张卡上只有一个主按钮**。网页版上灌演示数据能最快看出它长什么样，所以那里它是主按钮；
  * 桌面端、托管版和非管理员点不到演示数据（见 demo-data.ts 的护栏），那时「新建第一位」
  * 自己升为主按钮——不能出现一张卡上零个主按钮的情况。
+ * 企业版的管理员例外：那边没有演示数据，主按钮是「导入」（去设置 → 企业版导入），见 去导入。
  */
-export default function StartCard({ 自己服务器 = false }: {
+export default function StartCard({ 自己服务器 = false, 去导入 = false }: {
   /**
    * 跑在客户自己部署的服务器上（企业版私有部署、自部署的网页版，2026-10-25）：
    * 第三句不能再说「数据只在你的电脑上」「账号用来记 AI 次数和团队版同步」——
    * 那是桌面端的话，企业版没有我们的云端账号、AI 也不计次。page.tsx 按 !本地模式() && !multiTenant() 传
    */
   自己服务器?: boolean;
+  /**
+   * 企业版（CRM_ENTERPRISE=1）的管理员（2026-10-25 总控定）：主按钮换成「导入」，去设置里的企业版导入。
+   * 企业版是客户的正式库，演示数据接口直接拒绝（demo-data.ts），空库的第一步就是把真实数据导进来。
+   * page.tsx 按 企业版() && 管理员 传；和设置页那一栏出现的条件一致
+   */
+  去导入?: boolean;
 } = {}) {
   const b = useBusiness();
   const router = useRouter();
@@ -110,9 +117,14 @@ export default function StartCard({ 自己服务器 = false }: {
               灌一套演示数据
             </Button>
           )}
+          {去导入 && (
+            <Button type="primary" icon={<ImportOutlined />} onClick={() => router.push("/settings?tab=enterprise")}>
+              导入{b.customer}数据
+            </Button>
+          )}
           {/* 主按钮是「粘」：它比手敲快一个量级，而这一屏的人手上多半有一段微信记录 */}
           <Button
-            type={能灌演示 ? "default" : "primary"}
+            type={能灌演示 || 去导入 ? "default" : "primary"}
             icon={<SnippetsOutlined />}
             onClick={() => router.push("/customers?import=paste")}
           >

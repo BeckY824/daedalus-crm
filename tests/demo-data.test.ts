@@ -5,8 +5,9 @@
  *   - 托管版不给（多租户，重置走 seed-shared.ts）
  *   - **桌面端不给**（2026-09-18）。一个人自己的库，装完就该录自己的第一位客户
  *   - 但桌面端上**已经灌过**的老库还得留着「清除」那条路，否则灌进去的假数据删不掉
+ *   - **企业版不给**（2026-10-25 总控定）。客户的正式库，管理员也不给灌，接口直接拒绝（status 403）
  */
-import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   user: { id: "", name: "甲", email: "a@x", role: "ADMIN", title: "管理员", avatar: null },
@@ -26,6 +27,7 @@ beforeEach(async () => {
   mocks.user = { id: jia.id, name: "甲", email: "jia", role: "ADMIN", title: "管理员", avatar: null };
   delete process.env.DESKTOP_LOCAL;
 });
+afterEach(() => { vi.unstubAllEnvs(); });
 
 afterAll(async () => {
   if (原值 === undefined) delete process.env.DESKTOP_LOCAL;
@@ -77,6 +79,32 @@ describe("桌面端", () => {
 
     expect((await 清除演示数据()).ok).toBe(true);
     expect(await prisma.customer.count()).toBe(0);
+  });
+});
+
+describe("企业版（CRM_ENTERPRISE=1，2026-10-25）：只走真实导入", () => {
+  it("空库、管理员：可灌 = false；绕过界面直接调也拒绝（status 403），库里一条都没写", async () => {
+    vi.stubEnv("CRM_ENTERPRISE", "1");
+    const s = await 查演示数据状态();
+    expect(s.可灌).toBe(false);
+    expect(s.空库).toBe(true);
+    expect(s.有权限).toBe(true);
+    const r = await 灌一套演示数据();
+    expect(r).toMatchObject({ ok: false, status: 403 });
+    expect(await prisma.customer.count()).toBe(0);
+    expect(await prisma.user.count({ where: { email: { endsWith: "@qiming.local" } } })).toBe(0);
+    expect(await prisma.setting.count({ where: { key: "demoDataSeededAt" } })).toBe(0);
+  });
+
+  it("开关关（CRM_ENTERPRISE 不设或不是 1）：和原来一样能灌", async () => {
+    vi.stubEnv("CRM_ENTERPRISE", "");
+    expect((await 查演示数据状态()).可灌).toBe(true);
+    vi.stubEnv("CRM_ENTERPRISE", "0");
+    expect((await 查演示数据状态()).可灌).toBe(true);
+    const r = await 灌一套演示数据();
+    expect(r.ok).toBe(true);
+    expect(r).not.toHaveProperty("status");
+    expect(await prisma.customer.count()).toBeGreaterThan(0);
   });
 });
 

@@ -20,11 +20,14 @@ import { 取提醒项 } from "@/lib/reminders-db";
 import { 算提醒 } from "@/lib/reminders";
 import { 本地模式 } from "@/lib/desktop/cloud";
 import { multiTenant } from "@/lib/tenant/context";
+import { 企业版 } from "@/lib/enterprise/switch";
 
 export const dynamic = "force-dynamic";
 
 /** 客户自己部署的服务器（企业版、自部署网页版）：空库那张「开始」卡不说「数据只在你的电脑上」 */
 const 自己服务器 = () => !本地模式() && !multiTenant();
+/** 企业版的管理员：空库「开始」卡的主按钮是去企业版导入（企业版不给灌演示数据，见 demo-data.ts） */
+const 去导入 = (role: string) => 企业版() && !multiTenant() && role === "ADMIN";
 
 /**
  * 首页。配了 AI 就是一个对话面（指标图表去了 /overview）；没配 AI 就直接是数据看板。
@@ -53,7 +56,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     const 学员数 = await prisma.customer.count();
     if (学员数 === 0 && (await prisma.lead.count()) === 0) {
       // StartCard 自带那句「欢迎使用 Daedalus CRM」，这里不再叠一个页头
-      return <StartCard 自己服务器={自己服务器()} />;
+      return <StartCard 自己服务器={自己服务器()} 去导入={去导入(user.role)} />;
     }
     return <Board />;
   }
@@ -154,6 +157,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       models={models}
       /* 一条业务数据都没有：首页换成一张「开始」卡，不摆信号也不摆指标 */
       自己服务器={自己服务器()}
+      去导入={去导入(user.role)}
       空库={学员数 === 0 && 线索数 === 0 && mine.total === 0 && myPlans === 0 && 没做完的待办 === 0}
       信号={{
         逾期,
