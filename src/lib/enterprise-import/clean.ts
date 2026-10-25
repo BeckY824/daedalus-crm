@@ -163,7 +163,10 @@ export function 清洗(记录: readonly 原始记录[], m: 映射, 本地: 本�
   const 批商机 = new Map<string, 待写>();
 
   const 负责人 = (r: 原始记录, 写法: string | undefined): string => {
-    if (!写法) return m.默认负责人Id;
+    if (!写法) {
+      出问题(r, "提醒", "负责人空着", "原系统没写负责人，先落到默认负责人名下");
+      return m.默认负责人Id;
+    }
     const id = m.负责人[写法];
     if (id) return id;
     出问题(r, "提醒", "负责人对不上", `负责人「${写法}」对不上我们这边的成员，先落到默认负责人名下`);

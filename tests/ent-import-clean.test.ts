@@ -25,8 +25,12 @@ function 映射样(改: Partial<映射> = {}): 映射 {
 }
 
 let 序 = 0;
+/** 负责人（跟进是跟进人）没给就填张伟；要测空着的显式给 "" */
+const 负责人列 = { customer: "负责人", lead: "负责人", opportunity: "负责人", followup: "跟进人" } as Partial<Record<实体, string>>;
 function 条(实体: 实体, 字段: Record<string, string>, 外部ID?: string): 原始记录 {
   序++;
+  const 列 = 负责人列[实体];
+  if (列 && !(列 in 字段)) 字段 = { ...字段, [列]: "张伟" };
   return { 实体, 外部ID: 外部ID ?? 字段.外部 ?? `auto${序}`, 字段, 行号: 序 + 1, 出处: "测试.xlsx" };
 }
 
@@ -86,6 +90,26 @@ describe("清洗：客户", () => {
     expect(待写[0].目标).toBeUndefined();
     expect(问题.map((p) => p.类别).sort()).toEqual(["值对不上", "负责人对不上"]);
     expect(问题[0]).toMatchObject({ 级别: "提醒", 行号: expect.any(Number), 出处: "测试.xlsx" });
+  });
+
+  it("负责人空着：落到默认负责人名下，每条都提醒（客户、线索、商机、跟进一样）；写了的不提醒", () => {
+    const { 待写, 问题 } = 清洗(
+      [
+        条("customer", { 外部: "c1", 名称: "甲公司", 电话: "13800000001", 负责人: "" }),
+        条("customer", { 外部: "c2", 名称: "乙公司", 电话: "13800000002" }),
+        条("lead", { 外部: "l1", 名称: "丙", 电话: "13800000003", 负责人: "" }),
+        条("opportunity", { 外部: "o1", 客户ID: "c1", 名称: "A", 负责人: "" }),
+        条("followup", { 外部: "f1", 客户ID: "c1", 内容: "打了电话", 时间: "2026-10-01", 跟进人: "" }),
+      ],
+      映射样(),
+    );
+    expect(待写.map((w) => [w.外部ID, w.值.salesOwnerId ?? w.值.ownerId])).toEqual([
+      ["c1", "u-default"], ["c2", "u-zhang"], ["l1", "u-default"], ["o1", "u-default"], ["f1", "u-default"],
+    ]);
+    expect(问题.map((p) => [p.外部ID, p.级别, p.类别])).toEqual([
+      ["c1", "提醒", "负责人空着"], ["l1", "提醒", "负责人空着"], ["o1", "提醒", "负责人空着"], ["f1", "提醒", "负责人空着"],
+    ]);
+    expect(问题[0].说明).toBe("原系统没写负责人，先落到默认负责人名下");
   });
 
   it("没名称跳过；电话认不出原样进备注；等级认不出进备注", () => {
