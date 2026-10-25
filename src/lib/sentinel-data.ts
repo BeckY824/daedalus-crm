@@ -11,9 +11,9 @@ import { 毫秒, 第几天 } from "./dashboard-sql";
 import { 缓存着 } from "./home-cache";
 import { dayjs } from "./utils";
 import type { Dayjs } from "dayjs";
-import { buildWatchlist, STALE_DAYS, STATUS_WEIGHT, type SentinelInput, type WatchItem } from "./sentinel";
+import { buildWatchlist, 盯盘排序, STALE_DAYS, STATUS_WEIGHT, type SentinelInput, type WatchItem } from "./sentinel";
 import { getBusiness } from "./business";
-import { statusLabel, stageLabel } from "./business-config";
+import { statusLabel, stageLabel, type BusinessConfig } from "./business-config";
 
 /** 沉睡客户那一段的取法：全取回来交给 buildWatchlist 判（老路），或库里只取前几名 + 准确总数 */
 type 沉睡取法 = { 前几名: number } | null;
@@ -33,20 +33,48 @@ async function allWatchlist(now = dayjs(), 范围: { ownerId?: string } = {}, �
   */
   const 肯定没睡 = new Date(now.valueOf() - (STALE_DAYS - 2) * 86_400_000);
   const 边界 = 取法 ? 沉睡边界(now) : null;
+  const businessP = getBusiness();
+  const 判 = (input: SentinelInput, business: BusinessConfig) =>
+    buildWatchlist(input, now.toDate(), business.customer, (v) => statusLabel(business, v), Infinity);
+
+  if (!边界) {
+    const [别的, customers, business] = await Promise.all([取别的({ 谁的, now, 肯定没睡, businessP }), 取沉睡客户({ 谁的, 肯定没睡, now }), businessP]);
+    const items = 判({ ...别的, customers }, business);
+    return { items, total: items.length };
+  }
+
   // 库里取前几名：沉睡的前几名、总数不看别的几样，和下面几样一起先开查，取回 id 接着取这几位客户
-  const 沉睡q = 边界 ? 沉睡查询({ 谁的, now, 边界, 前几名: 取法!.前几名 }) : null;
-  const 前几P = 沉睡q?.前几和总数();
-  const 沉睡行P = 前几P?.then((x) => 取沉睡客户({ 谁的, 肯定没睡, now, ids: x.ids }));
-  // 下面 Promise.all 先失败时这两个没人等：先挂上，免得报未处理的拒绝（后面照样 await 原 Promise，错照抛）
-  沉睡行P?.catch(() => {});
-  const [overduePlans, customers, opps, lateNodes, business] = await Promise.all([
+  const 沉睡q = 沉睡查询({ 谁的, now, 边界, 前几名: 取法!.前几名 });
+  const 前几P = 沉睡q.前几和总数();
+  const 沉睡行P = 前几P.then((x) => 取沉睡客户({ 谁的, 肯定没睡, now, ids: x.ids }));
+  /*
+    别的几样（逾期计划、停滞商机、订单节点）照旧全判，知道它们涉及哪些客户才数得准总数。
+    判好的清单和「两边都有的」个数进短时缓存（lib/home-cache.ts，企业版才开，库一变就作废）：
+    不分前几名，30 人同一时刻判的是同一份（2026-10-25 企业版压测：逾期计划 5000 条时首页每次多 130 ms，
+    取计划连客户、负责人 54 ms，判两遍 32 ms，再加几千个 id 查重叠）。
+    原料只按日子变（逾期、超期按今天零点，天数按日历天，都是业务钟；商机那道粗筛只筛掉怎么也到不了 14 天的），key 里带业务日零点。
+    重叠那句和沉睡那句一样含「此刻」（跟进时间写在未来的客户），同样随缓存最多晚 30 秒
+  */
+  const 别的P = 缓存着(`盯盘别的:${谁的 ?? ""}:${今天零点(now.toDate()).valueOf()}`, async () => {
+    const [别的, business] = await Promise.all([取别的({ 谁的, now, 肯定没睡, businessP }), businessP]);
+    const 清单 = 判({ ...别的, customers: [] }, business);
+    const 按客户 = new Map(清单.map((x) => [x.customerId, x]));
+    return { 清单, 按客户, 重叠: await 沉睡q.重叠([...按客户.keys()]) };
+  });
+  const [前几, 别的判, 沉睡行, business] = await Promise.all([前几P, 别的P, 沉睡行P, businessP]);
+  const 沉睡 = 判({ overduePlans: [], opportunities: [], customers: 沉睡行 }, business);
+  return { items: 合并(别的判, 沉睡, 取法!.前几名), total: 前几.沉睡 + 别的判.按客户.size - 别的判.重叠 };
+}
+
+/** 逾期计划、停滞商机、订单节点三样原料 */
+async function 取别的(a: { 谁的?: string; now: Dayjs; 肯定没睡: Date; businessP: Promise<BusinessConfig> }): Promise<Omit<SentinelInput, "customers">> {
+  const { 谁的, now, 肯定没睡 } = a;
+  const [overduePlans, opps, lateNodes, business] = await Promise.all([
     prisma.followPlan.findMany({
       // 逾期按今天零点算，和首页、左栏角标、计划页一个口径（lib/overdue.ts）：今天上午没做的还算今天的
-      where: 逾期条件(范围, now.toDate()).plan,
+      where: 逾期条件({ ownerId: 谁的 }, now.toDate()).plan,
       select: { subject: true, plannedAt: true, plannedOn: true, customer: { select: { id: true, name: true } }, owner: { select: { name: true } } },
     }),
-    // 走库里取前几名时沉睡客户在上面另取
-    边界 ? Promise.resolve(null) : 取沉睡客户({ 谁的, 肯定没睡, now }),
     prisma.opportunity.findMany({
       where: {
         status: "OPEN",
@@ -67,12 +95,12 @@ async function allWatchlist(now = dayjs(), 范围: { ownerId?: string } = {}, �
       },
       select: { idx: true, name: true, dueAt: true, status: true, order: { select: { id: true, no: true, ownerId: true, customer: { select: { id: true, name: true } } } } },
     }),
-    getBusiness(),
+    a.businessP,
   ]);
   const 业务员 = new Map(
     (await prisma.user.findMany({ where: { id: { in: [...new Set(lateNodes.map((x) => x.order.ownerId))] } }, select: { id: true, name: true } })).map((u) => [u.id, u.name]),
   );
-  const 别的: Omit<SentinelInput, "customers"> = {
+  return {
     overduePlans: overduePlans.map((p) => ({ customerId: p.customer.id, customerName: p.customer.name, ownerName: p.owner.name, subject: p.subject, plannedAt: scheduleValue(p.plannedAt, p.plannedOn)! })),
     opportunities: opps.map((o) => ({ customerId: o.customer.id, customerName: o.customer.name, ownerName: o.owner.name, name: o.name, stage: stageLabel(business, o.stage), updatedAt: o.activityAt ?? o.updatedAt })),
     lateOrderNodes: lateNodes.map((x) => ({
@@ -80,19 +108,34 @@ async function allWatchlist(now = dayjs(), 范围: { ownerId?: string } = {}, �
       customerId: x.order.customer.id, customerName: x.order.customer.name, ownerName: 业务员.get(x.order.ownerId) ?? "",
     })),
   };
-  const 判 = (cs: SentinelInput["customers"]) =>
-    buildWatchlist({ ...别的, customers: cs }, now.toDate(), business.customer, (v) => statusLabel(business, v), Infinity);
+}
 
-  if (customers) {
-    const items = 判(customers);
-    return { items, total: items.length };
+/**
+ * 别的几样判好的清单（每个客户一条、排好序）和沉睡的合起来，和 buildWatchlist 把两边一起判的结果一样，只要前 n 条。
+ * 同一客户两边都有：分高的留下；同分时 buildWatchlist 留先放进去的——计划、订单在沉睡前面，商机在沉睡后面
+ * （实际计划 ≥ 100、订单 ≥ 110，沉睡最多 80，只有商机会和沉睡同分）。
+ * 两边各自已按 盯盘排序 排好，归并一遍就是整体的顺序，不用把几千条再排一次。
+ * 别的那份是缓存里共用的，给出去的是拷贝
+ */
+function 合并(别的: { 清单: WatchItem[]; 按客户: Map<string, WatchItem> }, 沉睡: WatchItem[], n: number): WatchItem[] {
+  const 让掉 = new Set<WatchItem>();
+  const 留 = 沉睡.filter((s) => {
+    const o = 别的.按客户.get(s.customerId);
+    if (!o) return true;
+    if (o.score > s.score || (o.score === s.score && o.kind !== "stalled_opp")) return false;
+    让掉.add(o);
+    return true;
+  });
+  const 甲 = 别的.清单;
+  const out: WatchItem[] = [];
+  let i = 0;
+  let j = 0;
+  while (out.length < n && (i < 甲.length || j < 留.length)) {
+    if (i < 甲.length && 让掉.has(甲[i])) i++;
+    else if (j >= 留.length || (i < 甲.length && 盯盘排序(甲[i], 留[j]) <= 0)) out.push({ ...甲[i++] });
+    else out.push({ ...留[j++] });
   }
-
-  // 库里取前几名：别的几样（逾期计划、停滞商机、订单节点）照旧全判，知道它们涉及哪些客户才数得准总数
-  const 别的客户 = [...new Set(判([]).map((x) => x.customerId))];
-  const [前几, 重叠, 沉睡行] = await Promise.all([前几P!, 沉睡q!.重叠(别的客户), 沉睡行P!]);
-  const items = 判(沉睡行);
-  return { items, total: 前几.沉睡 + 别的客户.length - 重叠 };
+  return out;
 }
 
 async function 取沉睡客户(a: { 谁的?: string; 肯定没睡: Date; now: Dayjs; ids?: string[] }): Promise<SentinelInput["customers"]> {
@@ -211,4 +254,4 @@ export async function loadWatchlist(now = dayjs(), 范围: { ownerId?: string } 
 }
 
 /** 测试用 */
-export const _内部 = { 沉睡边界, 沉睡前几名 };
+export const _内部 = { 沉睡边界, 沉睡前几名, 合并 };

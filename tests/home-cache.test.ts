@@ -29,12 +29,14 @@ const 临时 = vi.hoisted(() => {
 
 import { prisma, defaultClient as raw } from "@/lib/prisma";
 import { PrismaClient } from "@/generated/prisma";
-import { 关读通道 } from "@/lib/read-pool";
+import { 关读通道, 读通道 } from "@/lib/read-pool";
 import { 库指纹, shm路径, 缓存着, 首页缓存开着, 清首页缓存, 首页缓存条数 } from "@/lib/home-cache";
 import { 客户数, 取行数, 全部商机 } from "@/lib/dashboard-sql";
 import { 首页待办, 近期待办 } from "@/lib/dashboard-todo";
-import { _内部 as 盯盘 } from "@/lib/sentinel-data";
+import { _内部 as 盯盘, loadWatchlistPage } from "@/lib/sentinel-data";
 import { dayjs } from "@/lib/utils";
+import nativeDayjs from "dayjs";
+import { 今天零点 } from "@/lib/overdue";
 
 const 原环境 = { ...process.env };
 const 设 = (k: string, v: string | undefined) => (v === undefined ? delete process.env[k] : (process.env[k] = v));
@@ -424,5 +426,94 @@ describe("对拍：开着缓存和关着一模一样，刚写的马上反映", (
     expect(限定的).toEqual(await 取行数(限定, now));
     expect(限定的).not.toEqual(全部);
     expect(await 客户数(prisma, now, true)).toEqual(全部);
+  });
+
+  it("盯盘名单：别的几样那份进缓存；改返回值不漏；新逾期计划、做完马上反映；各人、各天各一份", async () => {
+    const now = dayjs();
+    const 全部 = (await raw.customer.findMany({ select: { id: true }, orderBy: { id: "asc" } })).map((c) => c.id);
+    for (let i = 0; i < 5; i++) await raw.followPlan.create({ data: { subject: `过期${i}`, plannedAt: new Date(Date.now() - (i + 1) * 天), customerId: 全部[i * 7], ownerId: 老板 } });
+    for (let i = 0; i < 4; i++) {
+      const 久 = new Date(Date.now() - (20 + i * 3) * 天);
+      await raw.opportunity.create({ data: { name: `停了${i}`, customerId: 全部[i * 5 + 1], ownerId: 老板, updatedAt: 久, activityAt: 久 } });
+    }
+    const 取 = (谁的?: string, 哪天 = now) => loadWatchlistPage(哪天, 谁的 ? { ownerId: 谁的 } : {}, 0, 100);
+    const r1 = await 两边(() => 取());
+    expect(r1.缓存).toEqual(r1.现数);
+    expect(r1.再取).toEqual(r1.现数);
+    for (const kind of ["overdue_plan", "sleeping", "stalled_opp"]) expect(r1.现数.items.some((x) => x.kind === kind), kind).toBe(true);
+
+    // 库没变再取：不再查计划表（企业版读走只读通道，盯它那一份）
+    const 查计划 = vi.spyOn((读通道() ?? prisma).followPlan, "findMany");
+    expect(await 取()).toEqual(r1.现数);
+    expect(查计划).not.toHaveBeenCalled();
+    查计划.mockRestore();
+
+    // 改返回值不漏进缓存
+    r1.再取.items[0].reason = "改了";
+    r1.再取.items.length = 0;
+    expect(await 取()).toEqual(r1.现数);
+
+    // 新的逾期计划马上进、做完马上出
+    const c = await 新客户("有过期计划", 2 * 天);
+    const 计划 = await raw.followPlan.create({ data: { subject: "刚过期", plannedAt: new Date(Date.now() - 3 * 天), customerId: c.id, ownerId: 老板 } });
+    const r2 = await 两边(() => 取());
+    expect(r2.缓存).toEqual(r2.现数);
+    expect(r2.现数.total).toBe(r1.现数.total + 1);
+    expect(r2.现数.items.find((x) => x.customerId === c.id)?.kind).toBe("overdue_plan");
+    await raw.followPlan.update({ where: { id: 计划.id }, data: { done: true } });
+    const r3 = await 两边(() => 取());
+    expect(r3.缓存).toEqual(r3.现数);
+    expect(r3.现数).toEqual(r1.现数);
+
+    // 各人一份
+    const 业务员 = (await raw.user.findFirst({ where: { email: "hc-sales@x.com" } }))?.id
+      ?? (await raw.user.create({ data: { email: "hc-sales@x.com", name: "业务员", password: "x", role: "USER" } })).id;
+    const 他的 = await raw.customer.create({ data: { name: "业务员有计划", phone: "13600000004", salesOwnerId: 业务员, followStatus: "待跟进", createdAt: new Date(Date.now() - 3 * 天), lastFollowAt: new Date(Date.now() - 天) } });
+    await raw.followPlan.create({ data: { subject: "他的过期", plannedAt: new Date(Date.now() - 2 * 天), customerId: 他的.id, ownerId: 业务员 } });
+    const r4 = await 两边(() => 取(业务员));
+    expect(r4.缓存).toEqual(r4.现数);
+    expect(r4.现数.items.map((x) => x.customerId)).toContain(他的.id);
+    const 他名下 = new Set((await raw.customer.findMany({ where: { salesOwnerId: 业务员 }, select: { id: true } })).map((x) => x.id));
+    expect(r4.现数.items.every((x) => 他名下.has(x.customerId))).toBe(true);
+    // 业务员那份不串给老板
+    const 老板的 = await 两边(() => 取());
+    expect(老板的.缓存).toEqual(老板的.现数);
+    expect(老板的.现数.items.map((x) => x.customerId)).toContain(他的.id);
+    expect(老板的.现数.items.some((x) => !他名下.has(x.customerId))).toBe(true);
+
+    // 过了零点换一份：逾期天数跟着变
+    const 明天 = now.add(1, "day");
+    const r5 = await 两边(() => 取(undefined, 明天));
+    expect(r5.缓存).toEqual(r5.现数);
+    expect(r5.现数).not.toEqual(await 取());
+  });
+
+  it("盯盘名单：业务日（上海）过零点换一份；人在伦敦、伦敦过零点不影响", async () => {
+    const 原TZ = process.env.TZ;
+    process.env.TZ = "Europe/London";
+    try {
+      开(); // 企业版：业务日按上海，天数也按业务钟算
+      const 上海零点 = dayjs(今天零点());
+      const 伦敦零点 = nativeDayjs().startOf("day");
+      expect(上海零点.valueOf()).not.toBe(伦敦零点.valueOf());
+      // 上海今天零点前 2 小时约的：上海过了零点逾期天数 +1
+      const c = await 新客户("零点前约的", 2 * 天);
+      await raw.followPlan.create({ data: { subject: "零点前", plannedAt: 上海零点.subtract(2, "hour").toDate(), customerId: c.id, ownerId: 老板 } });
+      const 取 = (now: number) => loadWatchlistPage(dayjs(now), {}, 0, 100);
+      const 理由 = (r: Awaited<ReturnType<typeof 取>>) => r.items.find((x) => x.customerId === c.id)?.reason;
+      for (const [零点, 该变] of [[上海零点.valueOf(), true], [伦敦零点.valueOf(), false]] as const) {
+        const 前 = 零点 - 30 * 60_000, 后 = 零点 + 30 * 60_000;
+        开();
+        const 缓存前 = await 取(前);
+        const 缓存后 = await 取(后);
+        关();
+        expect(缓存前).toEqual(await 取(前));
+        expect(缓存后).toEqual(await 取(后));
+        if (该变) expect(理由(缓存后)).not.toBe(理由(缓存前));
+        else expect(理由(缓存后)).toBe(理由(缓存前));
+      }
+    } finally {
+      process.env.TZ = 原TZ;
+    }
   });
 });
