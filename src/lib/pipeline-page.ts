@@ -1,6 +1,6 @@
 import type { Prisma, PrismaClient } from "@/generated/prisma";
 import { OPP_STAGES } from "@/lib/constants";
-import { 每批, 汇总, type 列汇总 } from "@/lib/pipeline-columns";
+import { 每批, 汇总, 读新, 记几张, type 列汇总 } from "@/lib/pipeline-columns";
 import { 带币种, 商机币种 } from "@/lib/money-db";
 
 /**
@@ -10,7 +10,7 @@ import { 带币种, 商机币种 } from "@/lib/money-db";
  * 现在分两步：
  *   1. 轻查询：同一个 where，只取 id、阶段、金额、负责人、币种。列头的条数和按币种合计、要不要显示负责人
  *      都在这一份「全部」上算，和原来一模一样（顺序也一样，按币种求和的先后不变）。
- *   2. 每列只取前 N 张的详情（默认 50），「再看 50 条」加大 N；刚新建的那一张（新）不在前 N 也带上。
+ *   2. 每列只取前 N 张的详情（默认 50），「再看 50 条」加大 N；刚新建 / 刚挪过的几张（新）不在前 N 也带上。
  *
  * 每列都不到 N 张（个人版几乎都是）：照原来那样整取、照原来的排序，不带列头那几样，
  * 页面拿到的和原来一个字节都不差，列头照原样在卡片上算。
@@ -60,7 +60,7 @@ export type 管道页 = {
 
 type Db = Pick<PrismaClient, "opportunity">;
 
-export async function 取管道(db: Db, 起: Date, 每列: Record<string, number>, 新?: string | null): Promise<管道页> {
+export async function 取管道(db: Db, 起: Date, 每列: Record<string, number>, 新?: string[] | string | null): Promise<管道页> {
   const where = 管道条件(起);
   const 轻 = await db.opportunity.findMany({
     where,
@@ -85,7 +85,9 @@ export async function 取管道(db: Db, 起: Date, 每列: Record<string, number
     return { rows: (await db.opportunity.findMany({ where, orderBy: 翻过 ? 排序 : 原排序, include: 详情 })).map(成卡) };
   }
 
-  if (新 && !要.includes(新) && 轻.some((o) => o.id === 新 && (OPP_STAGES as readonly string[]).includes(o.stage))) 要.push(新);
+  const 在管道 = new Set(轻.filter((o) => (OPP_STAGES as readonly string[]).includes(o.stage)).map((o) => o.id));
+  const 已要 = new Set(要);
+  for (const id of typeof 新 === "string" ? 读新(新) : (新 ?? []).slice(-记几张)) if (在管道.has(id) && !已要.has(id)) { 要.push(id); 已要.add(id); }
   const 详 = await db.opportunity.findMany({ where: { AND: [where, { id: { in: 要 } }] }, orderBy: 排序, include: 详情 });
 
   return {
