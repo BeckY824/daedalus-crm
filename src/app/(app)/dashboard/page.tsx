@@ -18,8 +18,13 @@ import { 数逾期跟进 } from "@/lib/overdue";
 import { 带币种, 签约合计 } from "@/lib/money-db";
 import { 取提醒项 } from "@/lib/reminders-db";
 import { 算提醒 } from "@/lib/reminders";
+import { 本地模式 } from "@/lib/desktop/cloud";
+import { multiTenant } from "@/lib/tenant/context";
 
 export const dynamic = "force-dynamic";
+
+/** 客户自己部署的服务器（企业版、自部署网页版）：空库那张「开始」卡不说「数据只在你的电脑上」 */
+const 自己服务器 = () => !本地模式() && !multiTenant();
 
 /**
  * 首页。配了 AI 就是一个对话面（指标图表去了 /overview）；没配 AI 就直接是数据看板。
@@ -48,7 +53,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     const 学员数 = await prisma.customer.count();
     if (学员数 === 0 && (await prisma.lead.count()) === 0) {
       // StartCard 自带那句「欢迎使用 Daedalus CRM」，这里不再叠一个页头
-      return <StartCard />;
+      return <StartCard 自己服务器={自己服务器()} />;
     }
     return <Board />;
   }
@@ -148,6 +153,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       context={parts.join("，") + "。"}
       models={models}
       /* 一条业务数据都没有：首页换成一张「开始」卡，不摆信号也不摆指标 */
+      自己服务器={自己服务器()}
       空库={学员数 === 0 && 线索数 === 0 && mine.total === 0 && myPlans === 0 && 没做完的待办 === 0}
       信号={{
         逾期,

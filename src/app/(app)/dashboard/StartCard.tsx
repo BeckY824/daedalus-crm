@@ -19,7 +19,14 @@ import { 外贸精简 } from "@/lib/business-config";
  * 桌面端、托管版和非管理员点不到演示数据（见 demo-data.ts 的护栏），那时「新建第一位」
  * 自己升为主按钮——不能出现一张卡上零个主按钮的情况。
  */
-export default function StartCard() {
+export default function StartCard({ 自己服务器 = false }: {
+  /**
+   * 跑在客户自己部署的服务器上（企业版私有部署、自部署的网页版，2026-10-25）：
+   * 第三句不能再说「数据只在你的电脑上」「账号用来记 AI 次数和团队版同步」——
+   * 那是桌面端的话，企业版没有我们的云端账号、AI 也不计次。page.tsx 按 !本地模式() && !multiTenant() 传
+   */
+  自己服务器?: boolean;
+} = {}) {
   const b = useBusiness();
   const router = useRouter();
   const { message } = App.useApp();
@@ -57,10 +64,17 @@ export default function StartCard() {
           <b>AI 帮你盯跟进</b>
           <span>谁该联系了、上次聊到哪、下一句怎么说，问一句就知道。</span>
         </li>
-        <li>
-          <b>数据只在你的电脑上</b>
-          <span>账号用来记 AI 次数和团队版同步。{b.customer}资料存在这台电脑上，用 AI 时只发你让它看的那一段；开了团队同步才加密经过云端。</span>
-        </li>
+        {自己服务器 ? (
+          <li>
+            <b>数据在你们自己的服务器上</b>
+            <span>{b.customer}资料存在部署这套系统的服务器上，用 AI 时只把你让它看的那一段发给服务器上配好的模型。</span>
+          </li>
+        ) : (
+          <li>
+            <b>数据只在你的电脑上</b>
+            <span>账号用来记 AI 次数和团队版同步。{b.customer}资料存在这台电脑上，用 AI 时只发你让它看的那一段；开了团队同步才加密经过云端。</span>
+          </li>
+        )}
       </ul>
       <div className="start">
         <span className="start-badge">第 1 步</span>
