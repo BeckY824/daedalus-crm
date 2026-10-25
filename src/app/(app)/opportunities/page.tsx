@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma, defaultClient } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { 搜索词 } from "@/lib/search-keyword";
 import { 带过来的客户 } from "@/lib/options";
@@ -6,7 +6,8 @@ import OpportunitiesView, { type OppRow } from "./OpportunitiesView";
 import type { Prisma } from "@/generated/prisma";
 import { 负责人候选 } from "@/lib/owners";
 import { 带币种, 商机币种 } from "@/lib/money-db";
-import { 按币种合计 } from "@/lib/currency";
+import { 商机汇总 } from "@/lib/opportunity-summary";
+import { 限定的我 } from "@/lib/team-scope";
 
 export const dynamic = "force-dynamic";
 const opportunityInclude = {
@@ -40,17 +41,14 @@ export default async function OpportunitiesPage({
     ...(sp.ownerId ? { ownerId: sp.ownerId } : {}),
   };
 
-  const [总数, 汇总行, rows, users, preselected, focused] = await Promise.all([
+  const [总数, 汇总, rows, users, preselected, focused] = await Promise.all([
     // take: 300 取回来的行数不是总数，分页条会拿它冒充总数。见 leads/page.tsx 的说明
     prisma.opportunity.count({ where }),
     /*
       汇总药丸按全量算（排查 C7）：原来拿取回来的前 300 行加，商机一多就和卡片上的数对不上。
-      没筛状态时只算进行中的（审查 M12 的口径），只要金额和概率两列，很轻
+      没筛状态时只算进行中的（审查 M12 的口径）。不限定时在库里按币种加（企业版 1 万商机 30 → 2 毫秒），见 lib/opportunity-summary.ts
     */
-    prisma.opportunity.findMany({
-      where: { ...where, ...(sp.status ? {} : { status: "OPEN" }) },
-      select: { amount: true, probability: true, status: true, ...带币种.商机 },
-    }),
+    (async () => 商机汇总(prisma, where, { 关键词: 词, stage: sp.stage, status: sp.status, ownerId: sp.ownerId }, !(await 限定的我(defaultClient))))(),
     prisma.opportunity.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -71,12 +69,7 @@ export default async function OpportunitiesPage({
       initialCustomer={preselected}
       focusMissing={Boolean(sp.opportunity) && !focused}
       总数={总数}
-      汇总={{
-        单数: 汇总行.length,
-        // 按币种分开（不换汇）：美元单和人民币单加在一起是假数字
-        合计: 按币种合计(汇总行, (o) => o.amount, 商机币种),
-        预测: 按币种合计(汇总行.filter((o) => o.status === "OPEN"), (o) => o.amount * (o.probability / 100), 商机币种),
-      }}
+      汇总={汇总}
       users={users}
       customers={[]}
       filters={{
