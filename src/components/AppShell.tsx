@@ -80,8 +80,9 @@ type Props = {
   /**
    * 反馈发到哪儿。托管版和桌面端发到我们云端；自部署的开源版不发请求，
    * 点了直接开 GitHub issues——他的实例不该认识我们的云。
+   * 企业版（客户自己服务器上的网页版）两处都不去：none = 不画反馈键和回复提示。
    */
-  反馈去向: "cloud" | "github";
+  反馈去向: "cloud" | "github" | "none";
   /**
    * 中栏，由并行路由槽位 @pane/[[...slug]] 渲染好传进来，连 <aside class="pane"> 一起。
    * 没有中栏的路由那边返回 null，这里什么都不画——壳不该知道哪个模块有中栏。
@@ -400,7 +401,7 @@ export default function AppShell({ user, workspace, 收藏 = [], 计数 = {}, �
           </Link>
           <span style={{ flex: 1 }} />
           {/* 手机上也要能说一句：用得别扭的时刻多半就发生在手机上（在路上翻学员的时候） */}
-          <FeedbackButton 去向={反馈去向} />
+          {反馈去向 !== "none" && <FeedbackButton 去向={反馈去向} />}
           <Badge count={要跟数} size="small" color={要跟.逾期 > 0 ? "var(--danger)" : palette.textMuted}>
             <Button type="text" icon={<BellOutlined />} aria-label={要跟说法 ? `跟进计划，${要跟说法}` : "跟进计划"} onClick={() => router.push("/follow-ups/plans")} />
           </Badge>
@@ -505,8 +506,8 @@ export default function AppShell({ user, workspace, 收藏 = [], 计数 = {}, �
               </button>
             </Dropdown>
             {/* 反馈在更新键的右边，两枚都是这一行的「出口」：一个往外拿新版本，一个往外送一句话。
-                网页版没有更新键，那儿就只有它一枚 */}
-            <FeedbackButton 去向={反馈去向} />
+                网页版没有更新键，那儿就只有它一枚；企业版两枚都没有 */}
+            {反馈去向 !== "none" && <FeedbackButton 去向={反馈去向} />}
           </div>
         </div>
         {/* 右边那条能拖的缝。它贴着分隔线，平时看不见，指上去才显出来 */}
@@ -516,7 +517,7 @@ export default function AppShell({ user, workspace, 收藏 = [], 计数 = {}, �
       {/* ⌘K：跳页或问一句。挂在壳上，哪一页都在 */}
       <CommandBar 有AI={Boolean(ai)} />
       {/* 我们回了你的反馈、还没看：左下角一条轻提示（一次一条，可关） */}
-      <FeedbackReplyToast 去向={反馈去向} />
+      {反馈去向 !== "none" && <FeedbackReplyToast 去向={反馈去向} />}
 
 
       {/* 中栏：槽位自己带 <aside class="pane">，没有中栏的路由返回 null */}

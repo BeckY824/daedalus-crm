@@ -43,6 +43,8 @@ import StarButton from "./StarButton";
 import AiCost, { useAiOutOfCredits } from "@/components/AiCost";
 import { toggleTask, deleteTask, deleteFollowUp, restoreFollowUp, completePlan, saveFollowUp } from "./actions";
 import { useContactRemoval } from "./useContactRemoval";
+import { useTransferConfirm } from "../useTransferConfirm";
+import { 历史负责人们, 换负责人一句 } from "@/lib/owner-log";
 import { useNarrow, useWidth } from "@/lib/roster";
 import PaneToggle from "@/components/PaneToggle";
 import { 登记详情名 } from "@/lib/page-rows";
@@ -55,6 +57,7 @@ import { 记下最近客户 } from "@/lib/last-customer";
 import { 金额, 合计文字 } from "@/lib/currency";
 import { 公海标签 } from "@/lib/pool";
 import { 带走说法 } from "@/lib/carry-over";
+import { 滚法 } from "@/lib/reduced-motion";
 import { 放进公海, 领取, 撤销公海 } from "../pool-actions";
 import { useDeleteCustomers } from "../useDeleteCustomers";
 
@@ -103,8 +106,12 @@ export default function RecordView({
   aiEnabled,
   已收藏 = false,
   能放公海 = false,
-  只读 = false,
+  只读: 只读档 = false,
+  换负责人记录 = [],
 }: RecordProps) {
+  // 「加跟进」= 团队版互看同事的客户；「全」= 企业版虚线下属的客户，跟进也不能记
+  const 只读 = !!只读档;
+  const 全只读 = 只读档 === "全";
   const { 曲线, 时长, 间隔 } = useMotionTheme();
   const router = useRouter();
   const { message, modal } = App.useApp();
@@ -113,6 +120,7 @@ export default function RecordView({
   const b = useBusiness();
   const history = useFollowHistory(customer.id, followUps, followUpsHasMore);
   const { 问怎么拿掉 } = useContactRemoval();
+  const { 先问转走的项目 } = useTransferConfirm();
   const revertChoice = useRef<string>(REVERT_CHOICES[0].value);
   const [报价全开, set报价全开] = useState(false);
   /*
@@ -178,7 +186,7 @@ export default function RecordView({
     // 人刚看到叫他的那条闪一下就被换走了（整套 e2e 抓到过新旧两份同在页面上）。原生 replaceState 接进 Next 路由，不重画
     window.history.replaceState(null, "", window.location.pathname);
     if (!el) return;
-    el.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    el.scrollIntoView({ block: "center", behavior: 滚法() });
     el.classList.add("rec-tl-item-flash");
     const t = setTimeout(() => el.classList.remove("rec-tl-item-flash"), 1600);
     return () => clearTimeout(t);
@@ -336,6 +344,7 @@ export default function RecordView({
 
   /** 公海（第 6 块）：放进 / 领取这一位，提示条上带一次撤销（和列表上同一个做法） */
   async function 公海动作(动作: "放进" | "领取") {
+    if (动作 === "领取" && !(await 先问转走的项目([customer.id]))) return;
     const res = 动作 === "放进" ? await 放进公海([customer.id]) : await 领取([customer.id]);
     router.refresh();
     if (!res.ok) return void message.error(res.error);
@@ -361,6 +370,7 @@ export default function RecordView({
   }
 
   function openFollow(record: FollowUpRow | null, aiText?: string) {
+    if (全只读) return void message.info("这是虚线下属的客户：只能看，不能改、不能转");
     setFollowInit({ record, aiText });
     setFollowOpen(true);
   }
@@ -417,7 +427,7 @@ export default function RecordView({
             AI
           </Button>
         )}
-        <Space.Compact>
+        {!全只读 && <Space.Compact>
           <Button type="primary" onClick={() => openFollow(null)}>
             记录跟进
           </Button>
@@ -440,7 +450,7 @@ export default function RecordView({
           >
             <Button type="primary" icon={<DownOutlined />} aria-label="客户更多操作" />
           </Dropdown>
-        </Space.Compact>
+        </Space.Compact>}
       </div>
 
       {/*
@@ -509,8 +519,8 @@ export default function RecordView({
           type="info"
           showIcon
           style={{ marginBottom: 12 }}
-          message={`同事 ${customer.salesOwnerName} 的${b.customer} · 只能看和加跟进`}
-          description="团队开了「同事之间互相看得到客户」。改资料、删除、转交、排计划请找负责人或老板"
+          message={全只读 ? `虚线下属 ${customer.salesOwnerName} 的${b.customer} · 只能看` : `同事 ${customer.salesOwnerName} 的${b.customer} · 只能看和加跟进`}
+          description={全只读 ? "这是虚线下属的客户：只能看，不能改、不能转。要改请找他的直属上级或总管理员" : "团队开了「同事之间互相看得到客户」。改资料、删除、转交、排计划请找负责人或老板"}
         />
       )}
 
@@ -555,6 +565,25 @@ export default function RecordView({
                 一个人用（桌面端）时这两格不摆：下拉里只有自己，摆着只是让人多想一下（和客户表单同一个 独自一人 规则） */}
             {!独自一人(users, customer.salesOwnerId) && (
               <InlineField customerId={customer.id} field="salesOwnerId" label="销售负责人" value={customer.salesOwnerId} kind="select" options={带上现任(users, customer.salesOwnerId, customer.salesOwnerName)} />
+            )}
+            {/* 历史负责人（企业版 D-36）：换过负责人才摆；悬停看每次谁转的、从谁到谁、什么时候。停用的人名字照旧显示 */}
+            {历史负责人们(换负责人记录, customer.salesOwnerName).length > 0 && (
+              <Tooltip
+                title={
+                  <div style={{ maxHeight: 260, overflowY: "auto" }}>
+                    {[...换负责人记录].reverse().map((r, i) => (
+                      <div key={i} style={{ marginBottom: 4 }}>
+                        <span style={{ opacity: 0.75 }}>{fmtDateTime(r.at)}</span> {换负责人一句(r)}
+                      </div>
+                    ))}
+                  </div>
+                }
+              >
+                <div className="rec-field" style={{ cursor: "default" }}>
+                  <div className="rec-field-k">历史负责人</div>
+                  <div className="rec-field-v">{历史负责人们(换负责人记录, customer.salesOwnerName).join("、")}</div>
+                </div>
+              </Tooltip>
             )}
             {/* 渠道负责人默认跟着推荐链；这里改的是这一位的单独订正，清空即恢复按推荐链 */}
             {!外贸 && !独自一人(users, customer.channelOwnerId) && (

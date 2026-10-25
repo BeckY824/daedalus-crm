@@ -5,6 +5,7 @@ import { isFormValidationError } from "@/lib/form-validation";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Alert, Button, Form, Input, Radio, Select, Space, Switch, Typography, App } from "antd";
+import { useCopy } from "@/lib/clipboard";
 import { 赠送说明 } from "@/lib/credits-copy";
 import type { 云端余额 } from "@/lib/llm";
 import { saveLlmSettings, testLlmSettings, clearLlmSettings, 查MCP接入, 开启MCP, 关闭MCP, 查自动判断, 设自动判断开关 } from "./actions";
@@ -38,7 +39,11 @@ export type LlmView = {
  * 本地推理（Ollama 那类）不在选单里：这套 CRM 的 AI 是 agent 循环，要模型稳定按格式调工具，
  * 本地小模型在这件事上的失败率高到会让人以为是产品坏了。要用的人走「高级」。
  */
-export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiUsage }) {
+/**
+ * 企业版（客户自己服务器上的网页版，2026-10-24）：没有我们的云端账号和免费次数，
+ * 「用我们的」就是运维在这台服务器上配好的那套，文案照这个说，也不再指去我们的隐私政策。
+ */
+export default function AiSettingsTab({ llm, usage, 企业版 = false }: { llm: LlmView; usage: AiUsage; 企业版?: boolean }) {
   const router = useRouter();
   const { message, modal } = App.useApp();
   const [form] = Form.useForm<{ providerId: string; baseUrl: string; model: string; apiKey?: string }>();
@@ -187,9 +192,11 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
         style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}
       >
         <Radio value="ours" disabled={!有平台额度}>
-          <b>用我们的</b>
+          <b>{企业版 ? "用服务器上配好的" : "用我们的"}</b>
           <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 2 }}>
-            {llm.source === "cloud" && llm.account ? (
+            {企业版 ? (
+              llm.source === "env" ? "走运维在这台服务器上配好的模型" : "这台服务器还没配模型，请运维在部署时配好"
+            ) : llm.source === "cloud" && llm.account ? (
               llm.credits?.不限 ? (
                 <>走你登录的云端账号 <b>{llm.account}</b>（测试账号，AI 不限次数）</>
               ) : llm.credits ? (
@@ -210,7 +217,9 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
         <Radio value="own">
           <b>用你自己的 API Key</b>
           <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 2 }}>
-            不计我们的免费次数。Key 加密存在这台机器上，请求由本机直接发给你选的那家，不经过我们
+            {企业版
+              ? "Key 加密存在这台服务器上，请求由服务器直接发给你选的那家"
+              : "不计我们的免费次数。Key 加密存在这台机器上，请求由本机直接发给你选的那家，不经过我们"}
           </div>
         </Radio>
       </Radio.Group>
@@ -305,7 +314,7 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
         />
       )}
 
-      <AssistBlock />
+      <AssistBlock 企业版={企业版} />
 
       <McpBlock />
 
@@ -339,7 +348,7 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
  * 界面上必须把「发出去的是什么」写在人眼前，不能只写一句「用 AI 提升准确率」——
  * 政策里怎么写的，这儿就得怎么摆。
  */
-function AssistBlock() {
+function AssistBlock({ 企业版 }: { 企业版: boolean }) {
   const { message } = App.useApp();
   const [状态, set状态] = useState<{ 可用: boolean; 已开: boolean } | null>(null);
   const [忙, set忙] = useState(false);
@@ -384,25 +393,21 @@ function AssistBlock() {
       </p>
       <p className="mcp-hint">
         <b>不占 AI 次数</b>。默认关；关着时导入只用内置的表头对照规则，功能照常，只是认不出的列要你手动选。
-        详见<a href="/privacy" target="_blank" rel="noreferrer">《隐私政策》</a>第三节。
+        {/* 那份隐私政策讲的是我们的服务，企业版的实例不适用（/privacy 在企业版里也不开） */}
+        {!企业版 && <>详见<a href="/privacy" target="_blank" rel="noreferrer">《隐私政策》</a>第三节。</>}
       </p>
     </div>
   );
 }
 
 function McpCmd({ 命令, 多行 = false }: { 命令: string; 多行?: boolean }) {
-  const { message } = App.useApp();
+  const 复制 = useCopy();
   return (
     <div className="mcp-cmd">
       <code style={多行 ? { whiteSpace: "pre" } : undefined}>{命令}</code>
       <Button
         size="small"
-        onClick={() => {
-          navigator.clipboard.writeText(命令).then(
-            () => message.success("命令已复制，去终端里粘贴执行"),
-            () => message.error("复制不了，手动选中拷贝吧"),
-          );
-        }}
+        onClick={() => void 复制(命令, "命令已复制，去终端里粘贴执行", "复制不了，手动选中拷贝吧")}
       >
         复制
       </Button>

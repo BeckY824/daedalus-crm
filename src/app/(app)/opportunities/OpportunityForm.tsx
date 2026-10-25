@@ -52,7 +52,8 @@ export default function OpportunityForm({
   customers: { id: string; name: string }[];
   initialCustomer?: { id: string; name: string } | null;
   onClose: () => void;
-  onSaved: () => void;
+  /** 新建时带上新商机的 id（管道页靠它把排在后面的那张也取回来） */
+  onSaved: (id?: string) => void;
 }) {
   // URL可直接打开弹窗；Antd Portal要在水合后挂载，服务端与首轮客户端保持关闭。
   const hydrated = useSyncExternalStore(subscribeHydration, clientHydrated, serverHydrated);
@@ -169,7 +170,7 @@ export default function OpportunityForm({
     }
     message.success(editing ? "已保存" : "商机已创建");
     守.存好了();
-    onSaved();
+    onSaved(res.id);
   }
 
   return (

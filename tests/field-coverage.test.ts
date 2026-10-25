@@ -34,6 +34,12 @@ function 标量字段(): Record<string, string[]> {
 
 /** 可写：对应的 server action 接收这个字段 */
 const 可写: Record<string, string[]> = {
+  // 企业版组织架构（2026-10-24）：设置 → 组织架构（settings/org-actions.ts）
+  EntDept: ["name", "parentId"],
+  EntMember: ["deptId", "bizRole", "line", "managerId", "dottedManagerId"],
+  // 企业版线索分配（2026-10-24）：leads/assign-actions.ts 的 分配线索 / 设配额
+  EntLeadAssign: ["leadId", "toUserId", "line", "kind"],
+  EntLeadQuota: ["userId", "quota"],
   Customer: ["name", "phone", "school", "grade", "major", "channelId", "referrerCustomerId", "salesOwnerId", "channelOwnerId", "followStatus", "decisionStatus", "expectedSignAt", "remark"],
   Channel: ["name", "phone", "remark", "channelOwnerId", "active"],
   Lead: ["name", "contact", "phone", "email", "industry", "source", "status", "remark", "ownerId"],
@@ -72,6 +78,15 @@ const 可写: Record<string, string[]> = {
 
 /** 派生 / 只读：写明为什么不能直接改 */
 const 派生: Record<string, Record<string, string>> = {
+  EntDept: { sort: "新建时排在同一级最后，系统算" },
+  EntMember: { userId: "哪个账号，一人一行；设成员时按账号定，不改" },
+  EntLeadAssign: {
+    fromUserId: "分之前线索在谁名下，分配时从线索上抄过来",
+    byUserId: "点分配的那个人，当前登录账号",
+    counted: "算不算进当月配额，按线索种类和设置算出来",
+    month: "分配那一刻的年月，按服务器本地时间算，每月清零靠它",
+  },
+  EntLeadQuota: { setById: "最后改配额的人，当前登录账号" },
   Opportunity: { activityAt: "最近业务推进时间；转交负责人保留，业务字段/报价变化时刷新，老数据为空沿用原修改时间" },
   Customer: {
     expectedSignOn: "预计签约原日历日，随保存/导入/同步保留；旧数据未知为空",
@@ -206,6 +221,83 @@ const 派生: Record<string, Record<string, string>> = {
     writtenAt: "写完那一刻客户的 updatedAt，落库时定——撤销拿它判断之后有没有人改过",
   },
   /*
+    企业版导入（2026-10-24，lib/enterprise-import/）：飞书 / 钉钉 / Excel 导进来的批次、对照、冲突、回收站、切换快照。
+    跟上面的导入账一样是「账」：系统按导入 / 同步 / 撤回 / 定冲突的流程写，人在设置页「企业版导入」里能做的
+    只有那几个动作（改映射重新试跑、正式导入、整批撤回 / 恢复、定冲突、开关同步、切换），没有直接改某一格的入口。
+    能直接改的话撤回和三方比对就不再可信。
+  */
+  EntImportBatch: {
+    source: "从哪来（excel / feishu / dingtalk），建批时定",
+    kind: "首次 / 同步 / 定冲突，建批时定",
+    status: "流程状态：试跑、写入、撤回、恢复各一步一步推进，只有这几个动作能改它",
+    userId: "谁做的，建批时打上",
+    report: "试跑报告，试跑和「改映射重新试跑」时整份重算",
+    raw: "上传的表读出来的样子，建批时存；重新试跑从这里取，不给改",
+    mapping: "人在报告上认过的映射，「改映射重新试跑」时整份重算，不单格改",
+    plan: "清洗后的待写记录，跟着报告一起算，正式导入照它写——改了就和人看过的报告对不上",
+    cursor: "正式导入 / 撤回写到第几条，续写用，系统推进",
+    total: "这一批几条，试跑时算",
+    created: "建了几条，写入时累加",
+    updated: "更新了几条，同上",
+    skipped: "没变跳过几条，同上",
+    conflicts: "记了几笔冲突，同上",
+    failed: "没写进去几条，同上",
+    note: "写不进去的明细，写入时记",
+    finishedAt: "写完那一刻",
+    revertedAt: "整批撤回时打上，恢复时清掉",
+    revertNote: "最近一次撤回 / 恢复的账（删掉、还原、留下几条），系统写",
+  },
+  EntImportRow: {
+    batchId: "属于哪一批，写入时定",
+    entity: "落到哪类记录，写入时定",
+    externalId: "原系统 ID，写入时定",
+    targetId: "落到我们这边哪条，写入时定",
+    kind: "新建还是更新，撤回按它决定删还是还原",
+    before: "更新之前那几格。**不给改**：撤回照着它还原，能改就等于能让撤回写任意值",
+    written: "写进去的值，撤回时比对有没有人动过",
+    refBefore: "写之前的对照行，撤回时退回去",
+    undo: "整批撤回时这一行怎么处理的，撤回 / 恢复时系统写",
+  },
+  EntExternalRef: {
+    source: "从哪来，第一次写入时定",
+    entity: "哪类记录，同上",
+    externalId: "原系统 ID，同上——同步按 来源 + 原系统 ID 认人，改了就认错",
+    targetId: "对到我们这边哪条，写入时定",
+    fingerprint: "原系统记录的指纹，每次写入时算，没变就跳过",
+    written: "上次我们写进去的值，三方比对用，写入时更新",
+    raw: "原系统最后一次给的原始记录，留档和切换快照用",
+    batchId: "最近写它的是哪一批",
+  },
+  EntConflict: {
+    source: "同步时记下，照原系统来的那条",
+    entity: "同上",
+    externalId: "同上",
+    targetId: "同上",
+    batchId: "哪一批同步记下的",
+    fields: "三方的值（原系统 / 我们 / 上次），记下时定",
+    incoming: "原系统这次给的整条，采用原系统时照它写",
+    localDeleted: "记下时我们这边那条已经删了，系统判断",
+    status: "人在冲突页点「采用原系统 / 保留我们」改；撤回、过时由系统改",
+    resolvedById: "谁定的，定的时候打上",
+    resolvedAt: "什么时候定的，同上",
+    resolveBatchId: "定它的那一批，整批撤回时据此退回待定",
+  },
+  EntTrash: {
+    batchId: "哪一批撤回时删的",
+    entity: "哪类记录",
+    targetId: "删掉的是哪条",
+    data: "删之前的整条记录，恢复时照它建回；不给改",
+    ref: "撤回时的对照行，恢复时照它建回",
+    rowId: "对应哪一行导入账",
+    restoredAt: "恢复时打上",
+  },
+  EntSnapshot: {
+    source: "切换的是哪个来源，切换时定",
+    userId: "谁点的切换",
+    count: "快照里几条对照",
+    data: "切换那一刻的全部对照和原始记录，留档，不给改",
+  },
+  /*
     商机 / 订单的附件（2026-10-22 D-24，lib/attachments.ts）：文件存进去以后不再改，要换就是删了再传。
     传的时候 POST /api/attachments 落一整行，之后只能 DELETE，没有改的入口
   */
@@ -230,6 +322,7 @@ const 派生: Record<string, Record<string, string>> = {
     acceptancePassedAt: "勾验收通过的那一刻，系统打上",
     closedAt: "有结局的那一刻，系统打上；回到进行中清掉",
     pooledAt: "放回公海的那一刻，系统打上；有人领取或老板重新指派时清掉",
+    nextStepAt: "记沟通时填的下一步时间，跟着最近一条沟通写；企业版超时回收用",
   },
   ProjectMember: { projectId: "哪个项目的组员，加人时定", userId: "哪位成员，加人时定；换人 = 删了再加", invitedById: "谁拉进来的，加人时打上" },
   ProjectRole: { sort: "加角色时排到最后，系统写；不做拖动排序" },
@@ -246,6 +339,11 @@ const 派生: Record<string, Record<string, string>> = {
   },
   FollowUpProject: { followUpId: "哪条沟通记录，记的时候定", projectId: "挂在哪个项目，记的时候定", node: "记这条时项目在哪个节点，系统打上" },
   CustomerCreator: { customerId: "哪位客户，一位一行", userId: "实际建档的人，向导保存那一刻打上，不改", at: "建档那一刻，系统打上" },
+  CustomerOwnerLog: {
+    customerId: "哪位客户，换负责人时系统写", userId: "谁换的，系统写", at: "换的那一刻，系统写",
+    fromOwnerId: "换之前的负责人（历史负责人），系统写", toOwnerId: "换之后的负责人，系统写",
+    kind: "改负责人、公海领取 / 分配还是成员停用，系统写",
+  },
 };
 
 /** 已知缺口：有字段、没写入路径。留在这里是为了让它一直显眼 */
@@ -255,6 +353,12 @@ const 派生: Record<string, Record<string, string>> = {
 const 已知缺口: Record<string, Record<string, string>> = {
   // 团队版项目模式 1a：进组状态 1a 拉人一律 JOINED（系统写），等 1b 进组邀请补上「已邀请 / 没接受」
   ProjectMember: { inviteStatus: "1a 拉人一律写 JOINED；用户能动它要等 1b 进组邀请（团队版会话）" },
+  // 企业版组织架构（2026-10-24）：这一步只有表和 helper，设置里的「组织架构」页在下一个 PR，到时挪进 可写
+  EntDept: { name: "设置里的组织架构页在下一个 PR 才有写入口", parentId: "设置里的组织架构页在下一个 PR 才有写入口", sort: "设置里的组织架构页在下一个 PR 才有写入口" },
+  EntMember: {
+    userId: "设置里的组织架构页在下一个 PR 才有写入口", deptId: "设置里的组织架构页在下一个 PR 才有写入口", bizRole: "设置里的组织架构页在下一个 PR 才有写入口",
+    line: "设置里的组织架构页在下一个 PR 才有写入口", managerId: "设置里的组织架构页在下一个 PR 才有写入口", dottedManagerId: "设置里的组织架构页在下一个 PR 才有写入口",
+  },
 };
 
 const 不审 = new Set(["User", "WorkspaceAccount", "FollowUpSource", "AuditLog", "Setting"]);

@@ -215,6 +215,8 @@ html.glass .ant-pagination .ant-pagination-item, html.glass .ant-pagination .ant
 .auth-brand-caret { position: absolute; left: calc(100% + 2px); bottom: 0.12em; width: 0.5em; height: 0.85em; background: var(--brand); animation: auth-blink 1s steps(1) infinite; }
 .auth-brand-caret.at-start { left: 0; }
 .auth-brand-todo .auth-brand-caret { visibility: visible; }
+/* 开了「减弱动态」直接是打好的样子：服务端按「没开」出页（字全藏、光标在最前），不靠 CSS 的话要等水合完才变，中间空一下 */
+@media (prefers-reduced-motion: reduce) { .auth-brand-todo { visibility: visible; } .auth-brand-caret { display: none; } }
 @keyframes auth-blink { 50% { opacity: 0; } }
 .auth-claim { margin: 0; max-width: 16em; font-family: var(--font-display); font-weight: var(--fw-display); font-size: var(--fs-title); line-height: 1.4; color: var(--ink); text-wrap: balance; }
 .auth-fine { margin: 0; max-width: 30em; font-size: var(--fs-min); line-height: 1.7; color: var(--text-muted); }
@@ -1785,6 +1787,8 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 /* 点完成之后留位 600ms 再消失：立刻抽走的话下面的行会跳上来顶替，眼睛得重新找位置 */
 .plan-row-done { opacity: 0.45; transition: opacity var(--t) var(--ease); }
 .plan-row-done .plan-row-t { text-decoration: line-through; }
+/* 分批时要摆、详情还在路上的那一行（2026-10-24）：占住位置，取到了就换成真的 */
+.plan-row-wait .plan-row-t { font-weight: 400; color: var(--text-muted); }
 .plan-row-m { flex: 1; min-width: 0; }
 .plan-row-t { display: block; font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-row-s { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: var(--fs-note); color: var(--text-muted); }
@@ -1839,6 +1843,8 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 /* 列宽固定以后底行放不下金额 + 负责人：金额一行写完，负责人挤不下就折到下一行、再长就省略（title 里有全名） */
 .pipe-card-a { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pipe-card-o { font-size: var(--fs-note); color: var(--text-muted); min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 每列先摆 50 张（2026-10-24），底下接着翻；列最窄 184，放不下就折行，不撑宽列 */
+.pipe-more.ant-btn { height: auto; min-height: 28px; white-space: normal; color: var(--brand); gap: 6px; }
 
 /* ---------- 「数据」页上的问数据 ----------
    框是和首页同一个（components/AskBox），这里只管它周围那点间距和答案区。 */
@@ -2529,4 +2535,16 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .team-dept-members, .team-dept-scopes { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--s2); }
 .team-dept-members li, .team-dept-scopes li { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
 .team-dept-members li > b { min-width: 72px; }
+.org-field-perm { border-collapse: collapse; }
+.org-field-perm th, .org-field-perm td { padding: 4px 6px; text-align: left; white-space: nowrap; }
+.org-field-perm thead th { font-weight: 600; }
+.org-field-perm tbody th { font-weight: 500; }
+.org-field-perm tbody th .muted { font-size: 12px; font-weight: 400; }
+/* 线索分配那一屏：长名字截断，悬停看全名；窄窗口靠外层横向滚动 */
+.org-lead-assign-name { display: inline-block; max-width: 160px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+/* 批量自动分配的结果：一条一行，线索名太长省略，别把弹窗撑开 */
+.lead-auto-assign-list { margin: 8px 0 0; padding: 0; list-style: none; max-height: 360px; overflow-y: auto; }
+.lead-auto-assign-list li { display: flex; gap: 8px; padding: 4px 0; min-width: 0; }
+.lead-auto-assign-name { flex: 0 0 auto; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.lead-auto-assign-list li > span:last-child { min-width: 0; overflow-wrap: anywhere; }
 .team-dept-role { min-width: 72px; }

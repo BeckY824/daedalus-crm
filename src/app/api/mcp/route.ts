@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { version } from "../../../../package.json";
 import { 处理, type 请求 } from "@/lib/mcp/rpc";
 import { 认令牌 } from "@/lib/mcp/token";
+import { 以谁的身份 } from "@/lib/enterprise/visibility";
 import { multiTenant } from "@/lib/tenant/context";
 
 export const dynamic = "force-dynamic";
@@ -54,7 +55,8 @@ export async function POST(req: Request) {
       回应们.push({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "不是合法的 JSON-RPC 消息" } });
       continue;
     }
-    const r = await 处理(m, who, version);
+    // 企业版按组织看客户：令牌不走 cookie，这里告诉限定层是谁（别处这一句没作用）
+    const r = await 以谁的身份(who.id, () => 处理(m, who, version));
     if (r) 回应们.push(r);
   }
 
