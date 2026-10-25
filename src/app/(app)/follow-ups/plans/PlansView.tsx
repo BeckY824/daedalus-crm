@@ -190,7 +190,7 @@ export default function PlansView({
   const 补 = 补到.源 === 带来的 ? 补到 : null;
   const 详 = useMemo(() => (补?.行.size ? new Map([...带来的, ...补.行]) : 带来的), [带来的, 补]);
   /** 全部未完成的事项（分批时只有 key、时间、负责人）：条数、分组都在它上面算 */
-  const 全部: 轻事项[] = useMemo(
+  const 全部: readonly 轻事项[] = useMemo(
     () => (紧 ? 解轻(紧) : 轻 && 负责人 ? 轻.map(([key, 时间, i]) => ({ key, 时间, ownerId: 负责人[i] })) : [...带来的.values()]),
     [紧, 轻, 负责人, 带来的],
   );

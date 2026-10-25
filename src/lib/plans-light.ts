@@ -61,8 +61,29 @@ function 现压(轻: readonly 轻行[], 负责人: readonly string[]): 紧轻 | 
   return { 键: 键.join(","), 时, 单位, 人: 轻.map(([, , i]) => i), 负责人: [...负责人] };
 }
 
+type 解出来 = readonly { key: string; 时间: string | null; ownerId: string }[];
+
+/**
+ * 上一次解的那份（2026-10-25 企业版压测）：服务端渲染时每个请求拿到的 紧 都是新解析出来的对象，内容却常常一样
+ * （不限定的人共用缓存里同一份轻列表，库没提交就一字不差）。1.5 万条时还原一次约 6 ms，逐项比一遍约 0.2 ms。
+ * 每一项都相同才用上一次的结果，比的是自己拷下来的一份；给出去的数组页面只读（PlansView 只 filter / every / 分组），别改
+ */
+let 上次: { 紧: 紧轻; 解: 解出来 } | null = null;
+
+function 一样(a: 紧轻, b: 紧轻): boolean {
+  const 同列 = <T>(x: readonly T[], y: readonly T[]) => x.length === y.length && x.every((v, i) => v === y[i]);
+  return a.键 === b.键 && a.单位 === b.单位 && 同列(a.人, b.人) && 同列(a.时, b.时) && 同列(a.负责人, b.负责人);
+}
+
 /** 还原成 PlansView 用的 { key, 时间, ownerId }，和直接拿轻列表展开的一样 */
-export function 解轻(紧: 紧轻): { key: string; 时间: string | null; ownerId: string }[] {
+export function 解轻(紧: 紧轻): 解出来 {
+  if (上次 && 一样(上次.紧, 紧)) return 上次.解;
+  const 解 = 现解(紧);
+  上次 = { 紧: { 键: 紧.键, 时: [...紧.时], 单位: 紧.单位, 人: [...紧.人], 负责人: [...紧.负责人] }, 解 };
+  return 解;
+}
+
+function 现解(紧: 紧轻): 解出来 {
   if (紧.人.length === 0) return [];
   const 键 = 紧.键.split(",");
   let 上一个 = 0;
