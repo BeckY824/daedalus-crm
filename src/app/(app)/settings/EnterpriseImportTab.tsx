@@ -5,6 +5,7 @@ import { App, Alert, Button, Card, Empty, Popconfirm, Select, Space, Spin, Switc
 import { InboxOutlined } from "@ant-design/icons";
 import { smartTime } from "@/lib/utils";
 import { 来源名, 字段中文 } from "@/lib/enterprise-import/types";
+import { 单个请求最长毫秒 } from "@/lib/enterprise-import/net";
 import type { 试跑报告 } from "@/lib/enterprise-import/report";
 import {
   企业版导入概况,
@@ -73,6 +74,14 @@ export default function EnterpriseImportTab() {
   useEffect(() => {
     void 载入();
   }, [载入]);
+
+  // 有来源正在同步（定时那次、别人点的）：每 5 秒看一眼，拉完自动刷新「上次」
+  const 有在同步 = !!概况?.同步.some((s) => s.在同步);
+  useEffect(() => {
+    if (!有在同步) return;
+    const t = setInterval(() => void 载入(), 5000);
+    return () => clearInterval(t);
+  }, [有在同步, 载入]);
 
   if (出错 && !概况) {
     return <Alert type="error" showIcon title="企业版导入没打开" description={出错} action={<Button size="small" onClick={() => void 载入()}>重试</Button>} />;
@@ -504,97 +513,119 @@ function SyncPane({ 概况, on变了, on出报告 }: { 概况: 企业版概况; 
 
   return (
     <Space orientation="vertical" size={14} style={{ display: "flex" }}>
-      {概况.同步.map(({ 来源: 源, 名, 能同步, 设置 }) => (
-        <Card key={源} size="small" title={名} extra={设置.切换 ? <Tag>已在 {设置.切换.时间.slice(0, 10)} 切换</Tag> : 设置.开 ? <Tag color="green">自动同步开着</Tag> : null}>
-          <Space orientation="vertical" size={10} style={{ display: "flex" }}>
-            {能同步 && !设置.切换 && (
-              <>
-                <Space wrap size={8}>
-                  <Switch
-                    checked={设置.开}
-                    loading={忙 === `开-${源}`}
-                    onChange={(v) => void 做(`开-${源}`, () => 改同步(源, { 开: v }))}
-                  />
-                  自动同步
-                  <Select
-                    size="small"
-                    style={{ width: 100 }}
-                    value={设置.频率}
-                    options={[{ value: "每小时", label: "每小时" }, { value: "每晚", label: "每晚" }]}
-                    onChange={(v) => void 做(`频-${源}`, () => 改同步(源, { 频率: v }))}
-                  />
-                  {设置.频率 === "每晚" && (
-                    <Select
-                      size="small"
-                      style={{ width: 150 }}
-                      value={设置.几点}
-                      options={Array.from({ length: 24 }, (_, h) => ({ value: h, label: `${h}:00（服务器时间）` }))}
-                      onChange={(v) => void 做(`点-${源}`, () => 改同步(源, { 几点: v }))}
+      {概况.同步.map(({ 来源: 源, 名, 能同步, 设置, 在同步 }) => {
+        // 这边刚点的还没进概况，也算在同步
+        const 拉着 = 在同步 ?? (忙 === `同步-${源}` ? { 开始: null, 谁: "你" } : null);
+        return (
+          <Card
+            key={源}
+            size="small"
+            title={名}
+            extra={
+              拉着 ? <Tag color="processing">正在同步</Tag>
+              : 设置.切换 ? <Tag>已在 {设置.切换.时间.slice(0, 10)} 切换</Tag>
+              : 设置.开 ? <Tag color="green">自动同步开着</Tag>
+              : null
+            }
+          >
+            <Space orientation="vertical" size={10} style={{ display: "flex" }}>
+              {能同步 && !设置.切换 && (
+                <>
+                  {拉着 && (
+                    <Alert
+                      type="info"
+                      showIcon
+                      title={`正在从${名}同步（${拉着.谁}${拉着.开始 ? ` ${smartTime(拉着.开始)}` : "刚才"}点的）`}
+                      description={`对方慢或断网时，每个请求最长等约 ${Math.round(单个请求最长毫秒 / 1000)} 秒，整次可能要几分钟；拉完这里会自动刷新，不用重复点。`}
                     />
                   )}
-                </Space>
-                <Space wrap size={8}>
-                  <Button
-                    size="small"
-                    loading={忙 === `同步-${源}`}
-                    disabled={!!忙}
-                    onClick={async () => {
-                      const r = await 做(`同步-${源}`, () => 立即同步(源));
-                      if (r) message[r.结果 === "出错" ? "error" : r.结果 === "成功" ? "success" : "info"](r.话);
+                  <Space wrap size={8}>
+                    <Switch
+                      checked={设置.开}
+                      loading={忙 === `开-${源}`}
+                      onChange={(v) => void 做(`开-${源}`, () => 改同步(源, { 开: v }))}
+                    />
+                    自动同步
+                    <Select
+                      size="small"
+                      style={{ width: 100 }}
+                      value={设置.频率}
+                      options={[{ value: "每小时", label: "每小时" }, { value: "每晚", label: "每晚" }]}
+                      onChange={(v) => void 做(`频-${源}`, () => 改同步(源, { 频率: v }))}
+                    />
+                    {设置.频率 === "每晚" && (
+                      <Select
+                        size="small"
+                        style={{ width: 150 }}
+                        value={设置.几点}
+                        options={Array.from({ length: 24 }, (_, h) => ({ value: h, label: `${h}:00（服务器时间）` }))}
+                        onChange={(v) => void 做(`点-${源}`, () => 改同步(源, { 几点: v }))}
+                      />
+                    )}
+                  </Space>
+                  <Space wrap size={8}>
+                    <Button
+                      size="small"
+                      loading={!!拉着}
+                      disabled={!!忙 || !!拉着}
+                      onClick={async () => {
+                        const r = await 做(`同步-${源}`, () => 立即同步(源));
+                        if (r) message[r.结果 === "出错" ? "error" : r.结果 === "成功" ? "success" : "info"](r.话);
+                      }}
+                    >
+                      立即同步
+                    </Button>
+                    <Button
+                      size="small"
+                      loading={忙 === `全量-${源}`}
+                      disabled={!!忙 || !!拉着}
+                      onClick={async () => {
+                        const r = await 做(`全量-${源}`, () => 从接口拉全量(源));
+                        if (r) on出报告(r.批次Id, r.报告);
+                      }}
+                    >
+                      从{名}拉全量试跑
+                    </Button>
+                  </Space>
+                  {设置.上次 && (
+                    <Typography.Text type="secondary">
+                      上次 {smartTime(设置.上次.时间)}：<Tag color={结果色[设置.上次.结果]}>{设置.上次.结果}</Tag>
+                      {设置.上次.话}
+                    </Typography.Text>
+                  )}
+                </>
+              )}
+              {!能同步 && <Typography.Text type="secondary">Excel 没有自动同步：把新导出的文件再传一次，按原系统 ID 只更新变了的。</Typography.Text>}
+              {!设置.切换 && (
+                <div>
+                  <Popconfirm
+                    title={`确认切换${名}？`}
+                    description={
+                      <div style={{ maxWidth: 320 }}>
+                        切换后{名}的同步永久关掉、不能再开；那一刻所有对照（原系统 ID ↔ 我们的记录）留一份快照可下载。已导的批次还能撤回，待定的冲突还能定。
+                      </div>
+                    }
+                    okText="切换"
+                    okButtonProps={{ danger: true }}
+                    onConfirm={async () => {
+                      const r = await 做(`切换-${源}`, () => 切换这个来源(源));
+                      if (r)
+                        modal.success({
+                          title: `${名}已切换`,
+                          content: `快照留了 ${r.条数} 条对照${r.待定冲突 ? `；还有 ${r.待定冲突} 笔冲突待定，到「冲突」里处理` : ""}。`,
+                        });
                     }}
                   >
-                    立即同步
-                  </Button>
-                  <Button
-                    size="small"
-                    loading={忙 === `全量-${源}`}
-                    disabled={!!忙}
-                    onClick={async () => {
-                      const r = await 做(`全量-${源}`, () => 从接口拉全量(源));
-                      if (r) on出报告(r.批次Id, r.报告);
-                    }}
-                  >
-                    从{名}拉全量试跑
-                  </Button>
-                </Space>
-                {设置.上次 && (
-                  <Typography.Text type="secondary">
-                    上次 {smartTime(设置.上次.时间)}：<Tag color={结果色[设置.上次.结果]}>{设置.上次.结果}</Tag>
-                    {设置.上次.话}
-                  </Typography.Text>
-                )}
-              </>
-            )}
-            {!能同步 && <Typography.Text type="secondary">Excel 没有自动同步：把新导出的文件再传一次，按原系统 ID 只更新变了的。</Typography.Text>}
-            {!设置.切换 && (
-              <div>
-                <Popconfirm
-                  title={`确认切换${名}？`}
-                  description={
-                    <div style={{ maxWidth: 320 }}>
-                      切换后{名}的同步永久关掉、不能再开；那一刻所有对照（原系统 ID ↔ 我们的记录）留一份快照可下载。已导的批次还能撤回，待定的冲突还能定。
-                    </div>
-                  }
-                  okText="切换"
-                  okButtonProps={{ danger: true }}
-                  onConfirm={async () => {
-                    const r = await 做(`切换-${源}`, () => 切换这个来源(源));
-                    if (r)
-                      modal.success({
-                        title: `${名}已切换`,
-                        content: `快照留了 ${r.条数} 条对照${r.待定冲突 ? `；还有 ${r.待定冲突} 笔冲突待定，到「冲突」里处理` : ""}。`,
-                      });
-                  }}
-                >
-                  <Button size="small" danger disabled={!!忙} loading={忙 === `切换-${源}`}>
-                    切换（不再从{名}同步）
-                  </Button>
-                </Popconfirm>
-              </div>
-            )}
-          </Space>
-        </Card>
-      ))}
+                    <Button size="small" danger disabled={!!忙} loading={忙 === `切换-${源}`}>
+                      切换（不再从{名}同步）
+                    </Button>
+                  </Popconfirm>
+                </div>
+              )}
+            </Space>
+          </Card>
+        );
+      })}
 
       <Card size="small" title="切换快照">
         {概况.快照们.length ? (
