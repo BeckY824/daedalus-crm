@@ -508,6 +508,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
   /**
    * 本步的结论：单独问一次 JSON（查 没交出来时，以及最后那一步）。前缀和 查 一样，缓存照样命中。
    * 回的不是合法 JSON、被截断了就再要一次：那是模型的毛病，不该让整次背调停在这一步
+   * （llm.ts / gateway-model.ts 修过还坏时报的是「AI 返回格式不对，请重试」，10-24 起不再带「不是合法 JSON」原文）
    */
   const 结论 = async (stage: 阶段号, 要什么: string, 模型名?: string, 推理?: ChatOpts["reasoningEffort"]): Promise<Record<string, unknown>> => {
     const 问 = () =>
@@ -522,7 +523,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     try {
       raw = await 问();
     } catch (e) {
-      if (signal?.aborted || !(e instanceof SyntaxError || e instanceof 截断了 || (e instanceof Error && /不是合法 JSON/.test(e.message)))) throw e;
+      if (signal?.aborted || !(e instanceof SyntaxError || e instanceof 截断了 || (e instanceof Error && /不是合法 JSON|返回格式不对/.test(e.message)))) throw e;
       raw = await 问();
     }
     return raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
