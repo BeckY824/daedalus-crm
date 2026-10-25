@@ -1,6 +1,7 @@
 import { dayjs } from "@/lib/utils";
 import { businessValueOf } from "@/lib/business-clock";
-import { 逾期判定 } from "@/lib/overdue";
+import { 逾期判定, 今天零点 } from "@/lib/overdue";
+import { calendarDay } from "@/lib/schedule-date";
 
 /**
  * 跟进计划页的「每组摆几条」（页面和服务端都用，不碰库；取数在 lib/plans-page.ts）。
@@ -30,6 +31,14 @@ export function 写每组(每组: readonly number[]): string {
  * 浏览器和服务器时区不同时两边分出来会差几条，差的那几条页面再去取（plan-rows.ts）。
  * tests/plans-view-group.test.ts 拿 PlansView 原来自己分的那一段对拍。
  */
+/**
+ * 分组只看 now 的这四样：今天零点、今天结束、本周结束（分组自己用）和今天的日历日（逾期判定用）。
+ * 同一个键分出来的一定一样，lib/plans-page.ts 按它把分好的组记在共用的轻列表上。
+ */
+export function 分组日键(now = dayjs()): string {
+  return `${今天零点(now.toDate()).getTime()}|${now.endOf("day").valueOf()}|${now.endOf("week").valueOf()}|${calendarDay(now.toDate())}`;
+}
+
 export function 分组<T extends { 时间: string | null }>(行: readonly T[], now = dayjs()): Record<组, T[]> {
   // 几千条时每条只解析一次时间（2026-10-25 企业版压测：原来排序时每比一次就新建两个 dayjs，占了服务端 CPU 一成多）。
   // isBefore 不带单位就是比毫秒，和原来一样；排序仍是稳定排序、同一时刻按传进来的先后
