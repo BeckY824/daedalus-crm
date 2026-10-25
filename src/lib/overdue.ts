@@ -28,10 +28,21 @@ export function 今天零点(now: Date = new Date()): Date {
 
 /** 这一条算不算逾期：有时间、早于今天零点。没定时间的不算逾期（计划页把它放在「以后」） */
 export function 是逾期(时间: Date | string | null | undefined, now: Date = new Date()): boolean {
-  if (!时间) return false;
-  if (typeof 时间 === "string" && isCalendarDate(时间)) return 时间 < calendarDay(now);
-  const t = typeof 时间 === "string" ? new Date(时间) : 时间;
-  return t.getTime() < 今天零点(now).getTime();
+  return 逾期判定(now)(时间);
+}
+
+/**
+ * 同一个口径、先把「今天」算好：一次判几千条时用它（计划页分组，2026-10-25 企业版压测），
+ * 不必每条都重算一遍今天零点和日历日
+ */
+export function 逾期判定(now: Date = new Date()): (时间: Date | string | null | undefined) => boolean {
+  let 今天: string | undefined, 零点: number | undefined;
+  return (时间) => {
+    if (!时间) return false;
+    if (typeof 时间 === "string" && isCalendarDate(时间)) return 时间 < (今天 ??= calendarDay(now));
+    const t = typeof 时间 === "string" ? new Date(时间) : 时间;
+    return t.getTime() < (零点 ??= 今天零点(now).getTime());
+  };
 }
 
 /** 算谁的：给 ownerId 就是「我的」，不给就是全团队 */

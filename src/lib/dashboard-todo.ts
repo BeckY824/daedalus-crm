@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@/generated/prisma";
-import { scheduleValue, scheduleOrder } from "@/lib/schedule-date";
+import { scheduleValue, scheduleOrder, isCalendarDate } from "@/lib/schedule-date";
 
 /**
  * 首页「近期跟进任务」那张卡：未完成的任务 + 跟进计划按时间合并，取最近几条。
@@ -72,15 +72,58 @@ export async function 全取待办(db: 库, 条数 = 5): Promise<待办条[]> {
   ]).slice(0, 条数);
 }
 
+/**
+ * 和 scheduleOrder(scheduleValue(at, on)) 一样的数，但几千行时不必每行都走一遍日期解析（2026-10-25 企业版压测：首页 CPU 两成在这）：
+ * 只排日期的按日期串记一次（同一天的成百上千条只解析一回）；带钟点的 scheduleValue 是 toISOString，
+ * 4 位年份的 ISO 串解析回来就是原来那个毫秒数，直接用 getTime；年份出了 1–9999 照原样走一遍。
+ */
+export function 排序键(): (at: Date | null, on: string | null) => number {
+  const 日期键 = new Map<string, number | null>();
+  return (at, on) => {
+    if (on) {
+      let k = 日期键.get(on);
+      if (k === undefined) 日期键.set(on, (k = isCalendarDate(on) ? scheduleOrder(on) : null));
+      if (k !== null) return k;
+    }
+    if (!at) return Infinity;
+    const y = at.getUTCFullYear();
+    return y >= 1 && y <= 9999 ? at.getTime() : scheduleOrder(scheduleValue(at, null));
+  };
+}
+
+/**
+ * 按 按先后排 的次序取前 n 条，不排全部：一遍扫过去只留前 n 名（n 是首页那 5 条）。
+ * 比较和 按先后排 是同一个；后来的和前面的一样大时排在它后面，等于稳定排序，所以和 按先后排(行).slice(0, n) 一模一样
+ */
+export function 前几名<T extends { id: string; k: number }>(行: readonly T[], n: number): T[] {
+  const 比 = (a: T, b: T) => a.k - b.k || a.id.localeCompare(b.id);
+  if (n * 8 >= 行.length) return [...行].sort(比).slice(0, n);
+  const 留: T[] = [];
+  if (n <= 0) return 留;
+  for (const x of 行) {
+    if (留.length === n && 比(留[n - 1], x) <= 0) continue;
+    let i = 留.length;
+    while (i > 0 && 比(留[i - 1], x) > 0) i--;
+    留.splice(i, 0, x);
+    if (留.length > n) 留.pop();
+  }
+  return 留;
+}
+
 export async function 近期待办(db: 库, 条数 = 5): Promise<待办条[]> {
   const [tasks, plans] = await Promise.all([
     db.task.findMany({ where: { done: false }, orderBy: 任务序, select: { id: true, dueAt: true, dueOn: true } }),
     db.followPlan.findMany({ where: { done: false }, orderBy: 计划序, select: { id: true, plannedAt: true, plannedOn: true } }),
   ]);
-  const 前几 = 按先后排([
-    ...tasks.map((t) => ({ id: `task:${t.id}`, 原: t.id, dueAt: scheduleValue(t.dueAt, t.dueOn), kind: "任务" as const })),
-    ...plans.map((p) => ({ id: `plan:${p.id}`, 原: p.id, dueAt: scheduleValue(p.plannedAt, p.plannedOn)!, kind: "计划" as const })),
-  ]).slice(0, 条数);
+  const 键 = 排序键();
+  // 只给排进前几名的算 scheduleValue（toISOString），其余几千条只要一个数
+  const 前几 = 前几名(
+    [
+      ...tasks.map((t) => ({ id: `task:${t.id}`, 原: t.id, at: t.dueAt, on: t.dueOn, k: 键(t.dueAt, t.dueOn), kind: "任务" as const })),
+      ...plans.map((p) => ({ id: `plan:${p.id}`, 原: p.id, at: p.plannedAt, on: p.plannedOn, k: 键(p.plannedAt, p.plannedOn), kind: "计划" as const })),
+    ],
+    条数,
+  ).map((x) => ({ id: x.id, 原: x.原, kind: x.kind, dueAt: scheduleValue(x.at, x.on) }));
   const 任务们 = 前几.filter((x) => x.kind === "任务").map((x) => x.原);
   const 计划们 = 前几.filter((x) => x.kind === "计划").map((x) => x.原);
   const [任务详, 计划详] = await Promise.all([
