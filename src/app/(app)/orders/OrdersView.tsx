@@ -5,10 +5,11 @@ import { RowLink, PageHead, CustomerLink } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import { useUrlFilters } from "@/lib/url-filters";
 import { 成员选项, fmtDate, type 可选成员 } from "@/lib/utils";
-import { 金额, 合计文字, 按币种合计 } from "@/lib/currency";
-import { 节点名们, 节点灯 } from "@/lib/order";
+import { 金额, 合计文字 } from "@/lib/currency";
+import { 节点灯 } from "@/lib/order";
 import type { 订单行 } from "@/lib/order-db";
 import { 订单节点 } from "@/lib/features";
+import { 订单比较, 一览顺序, 算汇总, type 订单分页 } from "@/lib/orders-paging";
 
 /** 行名（登记给 AI 面板的那个）用客户名：问「Acme 那单」时 list_orders 按 customerName 查得到 */
 type Row = 订单行;
@@ -17,17 +18,19 @@ type Row = 订单行;
  * 订单一览：行是单，列是 12 个节点，格子按颜色说话——红 = 超期或卡住，黄 = 3 天内到期，绿 = 完成，灰 = 不适用。
  * 顶上一行按节点数「停在这一步几单、其中超期几单」：老板一眼看出卡在哪（外贸CRM模版.md 4.1 / 4.2）。
  * 点格子进订单、直接打开那一步。
+ *
+ * 给了 分页（企业版单子多时，lib/orders-paging.ts）：rows 只是服务端排好的这一页，合计用服务端在全部上算的那份，
+ * 翻页、排序走网址。没给：rows 是全部，照原来在浏览器里排、分页、算合计。
  */
-export default function OrdersView({ rows, users, filters }: { rows: 订单行[]; users: 可选成员[]; filters: { ownerId: string } }) {
-  const { f, apply } = useUrlFilters("/orders", filters);
+export default function OrdersView({ rows, users, filters, 分页 }: { rows: 订单行[]; users: 可选成员[]; filters: { ownerId: string }; 分页?: 订单分页 }) {
+  const { f, apply, 翻页, pending } = useUrlFilters("/orders", { ...filters, sort: 分页?.sort ?? "" }, 分页?.每页);
   const 行: Row[] = rows;
 
-  /** 每个节点停了几单（当前节点是它）、其中几单超期 */
-  const 停 = 节点名们.map((name, i) => {
-    const 在这 = rows.filter((r) => r.当前?.idx === i + 1);
-    return { idx: i + 1, name, 单: 在这.length, 超期: 在这.filter((r) => r.超期 > 0).length };
-  }).filter((x) => x.单 > 0);
-  const 结了 = rows.filter((r) => !r.当前).length;
+  const 汇总 = 分页?.汇总 ?? 算汇总(rows);
+  const { 停, 结了 } = 汇总;
+  /** 能排序的列：不分页时照原来在浏览器里排；分页时交给服务端，表头只显示现在按什么排 */
+  const 排 = (k: keyof typeof 订单比较): Pick<列<Row>, "sorter" | "sortOrder"> =>
+    分页 ? { sorter: true, sortOrder: 分页.sort === `${k}-asc` ? "ascend" : 分页.sort === `${k}-desc` ? "descend" : null } : { sorter: 订单比较[k] };
 
   /*
     轻量的订单一览（2026-10-05 外贸客户建议，节点关着时）：客户要的列就是这几样——
@@ -44,7 +47,7 @@ export default function OrdersView({ rows, users, filters }: { rows: 订单行[]
     { title: "供应商", key: "supplier", dataIndex: "supplier", width: 160, render: (v: string | null) => v ?? <span className="muted">—</span> },
     {
       title: "订单确认时间", key: "confirmedAt", dataIndex: "confirmedAt", width: 130,
-      sorter: (a, b) => a.confirmedAt.localeCompare(b.confirmedAt),
+      ...排("confirmed"),
       render: (v: string) => <span className="nowrap">{fmtDate(v)}</span>,
     },
     { title: "业务员", key: "ownerName", dataIndex: "ownerName", width: 100, 默认: users.length > 1 },
@@ -78,7 +81,7 @@ export default function OrdersView({ rows, users, filters }: { rows: 订单行[]
     },
     {
       title: "超期", key: "超期", dataIndex: "超期", width: 70,
-      sorter: (a, b) => a.超期 - b.超期,
+      ...排("late"),
       render: (v: number) => (v > 0 ? <span className="ord-late">{v}</span> : <span className="muted">—</span>),
     },
     { title: <Tooltip title="订单金额减去定金实收和尾款实收，最低为0；按订单币种计算">未收</Tooltip>, 列名: "未收", key: "未收", dataIndex: "未收", width: 120, render: (v: number, r) => (v > 0 ? 金额(v, r.currency) : <span className="muted">收齐了</span>) },
@@ -95,10 +98,10 @@ export default function OrdersView({ rows, users, filters }: { rows: 订单行[]
       <DataList<Row>
         页="orders"
         列={订单节点 ? 列表 : 轻列}
-        行={订单节点 ? 行 : [...行].sort((a, b) => b.confirmedAt.localeCompare(a.confirmedAt))}
+        行={分页 ? 行 : 一览顺序(行, 订单节点)}
         行链接={(r) => `/orders/${r.id}`}
         横向={订单节点 ? 1100 : undefined}
-        空库={rows.length === 0 && !f.ownerId}
+        空库={汇总.单 === 0 && !f.ownerId}
         空态={{
           title: "还没有订单",
           hint: 订单节点
@@ -121,9 +124,9 @@ export default function OrdersView({ rows, users, filters }: { rows: 订单行[]
           ) : undefined
         }
         汇总={
-          rows.length > 0 ? (
+          汇总.单 > 0 ? (
             <>
-            <div className="list-sum">全部筛选结果 · 共 {rows.length} 单 · {合计文字(按币种合计(rows, (r) => r.amount, (r) => r.currency))}{订单节点 && <> · 未收 {合计文字(按币种合计(rows, (r) => r.未收, (r) => r.currency))}</>}</div>
+            <div className="list-sum">全部筛选结果 · 共 {汇总.单} 单 · {合计文字(汇总.金额)}{订单节点 && <> · 未收 {合计文字(汇总.未收)}</>}</div>
             {订单节点 && (
             <div className="ord-stuck">
               {停.map((x) => (
@@ -138,6 +141,14 @@ export default function OrdersView({ rows, users, filters }: { rows: 订单行[]
             </>
           ) : undefined
         }
+        {...(分页 ? {
+          分页: { 当前页: 分页.页, 每页: 分页.每页, 总数: 分页.总数, 翻页 },
+          排序: (key: string, order: "ascend" | "descend" | null) => {
+            const k = key === "confirmedAt" ? "confirmed" : key === "超期" ? "late" : "";
+            if (k) apply({ sort: order === "ascend" ? `${k}-asc` : order === "descend" ? `${k}-desc` : "" });
+          },
+          加载中: pending,
+        } : {})}
       />
     </>
   );
