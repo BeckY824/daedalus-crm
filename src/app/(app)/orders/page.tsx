@@ -5,6 +5,9 @@ import { 订单列表 } from "@/lib/order-db";
 import { 负责人候选 } from "@/lib/owners";
 import { 企业版 } from "@/lib/enterprise/switch";
 import { 分页起, 切订单页 } from "@/lib/orders-paging";
+import { defaultClient } from "@/lib/prisma";
+import { 限定的我 } from "@/lib/team-scope";
+import { 缓存着 } from "@/lib/home-cache";
 import OrdersView from "./OrdersView";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +22,11 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
   if (!订单) notFound();
   await requireUser();
   const sp = await searchParams;
-  const [rows, users] = await Promise.all([订单列表(sp.ownerId ? { ownerId: sp.ownerId } : {}), 负责人候选()]);
+  const [rows, users] = await Promise.all([
+    // 不限定（老板、个人版、企业版没开按组织看）时原始行走短时缓存（lib/order-db.ts）
+    (async () => 订单列表(sp.ownerId ? { ownerId: sp.ownerId } : {}, new Date(), (await 限定的我(defaultClient)) ? undefined : 缓存着))(),
+    负责人候选(),
+  ]);
   if (企业版() && rows.length > 分页起) {
     const 这页 = 切订单页(rows, { 节点: 订单节点, sort: sp.sort, page: sp.page, pageSize: sp.pageSize });
     return <OrdersView rows={这页.rows} users={users} filters={{ ownerId: sp.ownerId ?? "" }} 分页={这页.分页} />;
