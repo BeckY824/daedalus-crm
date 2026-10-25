@@ -68,10 +68,13 @@ export function 定了时刻(t: Date, 明确钟点?: boolean | null): boolean {
   return 明确钟点 ?? (local.hour() !== 0 || local.minute() !== 0);
 }
 
+/** 「今天」的边界：逾期 / 今天按它分。算提醒() 和库里直接数的 数提醒()（lib/reminders-db.ts）共用，口径不分家 */
+export function 今天界线(now = new Date()): { 今天开始: Date; 明天开始: Date; 今天串: string } {
+  return { 今天开始: 零点(now), 明天开始: businessDayjs(now).add(1, "day").startOf("day").toDate(), 今天串: calendarDay(now) };
+}
+
 export function 算提醒(项: 提醒项[], now = new Date(), 订单项: 订单提醒项[] = []): 提醒摘要 {
-  const 今天开始 = 零点(now);
-  const 明天开始 = businessDayjs(now).add(1, "day").startOf("day").toDate();
-  const 今天串 = calendarDay(now);
+  const { 今天开始, 明天开始, 今天串 } = 今天界线(now);
   let 逾期 = 0;
   let 今天 = 0;
   let 最早逾期: 提醒项 | null = null;

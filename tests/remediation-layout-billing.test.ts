@@ -4,7 +4,7 @@ vi.mock("@/lib/auth", () => ({ getCurrentUser: async () => ({ id: "qa", name: "Q
 vi.mock("@/lib/prisma", () => ({ prisma: { customer: { count: async () => {state.queries.push("customer");return 1} }, opportunity: { count: async () => {state.queries.push("opportunity");return 1} } } }));
 vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
 vi.mock("@/lib/favorites", () => ({ 读收藏: async () => {state.queries.push("favorites");return []} }));
-vi.mock("@/lib/reminders-db", () => ({ 取提醒项: async () => [], 取订单提醒项: async () => [] }));
+vi.mock("@/lib/reminders-db", () => ({ 取提醒项: async () => [], 数提醒: async () => ({ 逾期: 0, 今天: 0 }), 取订单提醒项: async () => [] }));
 vi.mock("@/lib/business", () => ({ getBusiness: async () => ({}) }));
 vi.mock("@/lib/desktop/cloud", () => ({ 本地模式: () => false, 归属对不上: () => false, 读: () => null }));
 vi.mock("@/lib/tenant/context", () => ({ multiTenant: () => state.hosted }));
