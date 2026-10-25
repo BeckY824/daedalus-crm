@@ -61,47 +61,56 @@ async function 取订单原始(where: Prisma.TradeOrderWhereInput) {
   return { rows, 人 };
 }
 
+/** 原始行拼成订单行（不看日子）。超期依赖 现在，这里先占 0，订单列表 每次现算再填（键的顺序不变） */
+function 拼行({ rows, 人 }: Awaited<ReturnType<typeof 取订单原始>>): 订单行[] {
+  return rows.map((o) => {
+    const nodes = o.nodes.map(节点出);
+    const 当 = 当前节点(nodes);
+    return {
+      id: o.id,
+      no: o.no,
+      customerId: o.customerId,
+      customerName: o.customer.name,
+      customerCompany: o.customer.school,
+      ownerId: o.ownerId,
+      ownerName: 人.get(o.ownerId) ?? "（已删除的成员）",
+      // 有签约的以签约为准（2026-10-05 复查）：订单上那两格只是抄的，切过模版再改签约金额时会对不上
+      amount: o.contract ? 签约金额(o.contract) : o.amount,
+      currency: o.contract ? 签约币种(o.contract) : 规整币种(o.currency),
+      incoterm: o.incoterm,
+      payment: o.payment,
+      supplier: o.purchase?.supplier?.name ?? null,
+      confirmedAt: (o.contract?.signedAt ?? o.createdAt).toISOString(),
+      createdAt: o.createdAt.toISOString(),
+      nodes,
+      当前: 当 ? { idx: 当.idx, name: 当.name } : null,
+      超期: 0,
+      进度: 进度(nodes),
+      // 未收也按签约金额算（二审：和这一行展示的金额同一个口径）
+      未收: 订单的钱({ ...o, amount: o.contract ? 签约金额(o.contract) : o.amount }).未收,
+    };
+  });
+}
+
 /**
  * 订单一览：每行一单，带 12 个节点。超期多的排上面，其次新的在前（和 Excel 总表同一个看法）。
  *
  * `共用`：不限定（lib/team-scope 的 限定的我 是 null：老板、个人版、企业版没开按组织看）时页面传 lib/home-cache.ts 的
- * 缓存着 进来——同一个筛选下各人取回的原始行一样，库一有提交就重取，企业版才开。超期依赖 现在，仍每次现算。
- * 2026-10-25 企业版压测：2000 单时两批带 include 的查询约 36 ms，全占着读连接，拼行不到 1 ms。
- * 共用的原始行只读（下面只取值、展开成新对象），别改
+ * 缓存着 进来——同一个筛选下各人看到的行一样，库一有提交就重取，企业版才开。缓存里放的是拼好的行，超期依赖 现在，仍每次现算。
+ * 2026-10-25 企业版压测：2000 单时两批带 include 的查询约 36 ms，全占着读连接；拼行在单人时约 1 ms，
+ * 压测时各页抢 CPU，每次要 6 ms 左右，所以连拼好的一起缓存。
+ * 共用的行只读：下面每次给出去的是新的行、新的节点和当前节点，调用方改了不影响缓存里那份
  */
 export async function 订单列表(
   where: Prisma.TradeOrderWhereInput = {},
   现在: Date = new Date(),
   共用?: <T>(key: string, 算: () => Promise<T>) => Promise<T>,
 ): Promise<订单行[]> {
-  const { rows, 人 } = 共用 ? await 共用(`订单列表:${JSON.stringify(where)}`, () => 取订单原始(where)) : await 取订单原始(where);
-  return rows
-    .map((o) => {
-      const nodes = o.nodes.map(节点出);
-      const 当 = 当前节点(nodes);
-      return {
-        id: o.id,
-        no: o.no,
-        customerId: o.customerId,
-        customerName: o.customer.name,
-        customerCompany: o.customer.school,
-        ownerId: o.ownerId,
-        ownerName: 人.get(o.ownerId) ?? "（已删除的成员）",
-        // 有签约的以签约为准（2026-10-05 复查）：订单上那两格只是抄的，切过模版再改签约金额时会对不上
-        amount: o.contract ? 签约金额(o.contract) : o.amount,
-        currency: o.contract ? 签约币种(o.contract) : 规整币种(o.currency),
-        incoterm: o.incoterm,
-        payment: o.payment,
-        supplier: o.purchase?.supplier?.name ?? null,
-        confirmedAt: (o.contract?.signedAt ?? o.createdAt).toISOString(),
-        createdAt: o.createdAt.toISOString(),
-        nodes,
-        当前: 当 ? { idx: 当.idx, name: 当.name } : null,
-        超期: 超期数(nodes, 现在),
-        进度: 进度(nodes),
-        // 未收也按签约金额算（二审：和这一行展示的金额同一个口径）
-        未收: 订单的钱({ ...o, amount: o.contract ? 签约金额(o.contract) : o.amount }).未收,
-      };
+  const 行 = 共用 ? await 共用(`订单列表:${JSON.stringify(where)}`, async () => 拼行(await 取订单原始(where))) : 拼行(await 取订单原始(where));
+  return 行
+    .map((r) => {
+      const nodes = r.nodes.map((n) => ({ ...n }));
+      return { ...r, nodes, 当前: r.当前 && { ...r.当前 }, 超期: 超期数(nodes, 现在) };
     })
     .sort((a, b) => b.超期 - a.超期 || b.createdAt.localeCompare(a.createdAt) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
 }
