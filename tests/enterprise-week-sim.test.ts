@@ -467,9 +467,9 @@ async function 剧本开() {
   await 查("D7-自动分配", async () => {
     const 自动 = await 要("app/(app)/leads/assign-actions", "自动分配线索", "D-38");
     const r = 得(await 作为("市场经理", () => 自动(线索id["L4"])), "自动分配 L4") as { toUserId: string };
-    // 2 月刚清零：除了上面手动分了 L5 的内销1，能接的人都是 0 条，并列给进池最早的——
-    // 销售、销售管理里建号最早的是内贸经理（老板、总管理是 director，不接线索）
-    expect(公.名[r.toUserId]).toBe("内贸经理");
+    // 没填配额的不参与自动分配（10-25）：D1 只给内销1（2）、内销4（1）、外销1（1）填了配额。
+    // 2 月刚清零，内销1 手动分了 L5 已是 1 条；内销4、外销1 都是 0 条，并列给进池早的那个
+    expect(["内销4", "外销1"]).toContain(公.名[r.toUserId]);
   });
   await 查("D7-两人同时领只一个", async () => {
     const 两人 = ["外销2", "外销3"] as const;
