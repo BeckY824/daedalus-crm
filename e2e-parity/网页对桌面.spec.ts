@@ -17,7 +17,7 @@
  * 只是不判红；某条一整轮都一样了，输出里提示「可以从清单删掉」。
  * 报告写进 E2E_SHOT_DIR（默认 test-results/parity）：报告.md、报告.json，差了的块存「网页 / 桌面 / 差」三张图
  */
-import { test, expect, devices, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { test, expect, devices, errors, type Browser, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
@@ -246,14 +246,28 @@ async function 等布局稳(page: Page) {
  * 每个元素的位置和带子在时一样（净高 0），排版不动
  */
 const 拍时藏 = ".main::before, .drag-strip { display: none !important; }";
-const 拍法 = { animations: "disabled", caret: "hide", style: 拍时藏 } as const;
+/**
+ * 每次元素截图最多等 30 秒（10-25 main 上 1280 那一片卡在截图上四十多分钟，重跑就过）。超时的块记一条红、接着拍下一块，
+ * 整条照样判红，只是不会一卡就卡到用例超时；别的错照旧直接抛
+ */
+const 截图限时 = 30_000;
+const 拍法 = { animations: "disabled", caret: "hide", style: 拍时藏, timeout: 截图限时 } as const;
 
-/** 一个身份这一页的所有块：键 → 截图 */
-async function 拍(page: Page): Promise<Map<string, Buffer>> {
+/** 一个身份这一页的所有块：图 是 键 → 截图，没拍下 是 键 → 超时那句话 */
+async function 拍(page: Page): Promise<{ 图: Map<string, Buffer>; 没拍下: Map<string, string> }> {
   const 图 = new Map<string, Buffer>();
+  const 没拍下 = new Map<string, string>();
+  const 截 = async (键: string, el: Locator) => {
+    try {
+      图.set(键, await el.screenshot(拍法));
+    } catch (e) {
+      if (!(e instanceof errors.TimeoutError)) throw e;
+      没拍下.set(键, e.message.split("\n")[0]);
+    }
+  };
   for (const 选 of 左栏) {
     const el = page.locator(选).first();
-    if (await el.isVisible().catch(() => false)) 图.set(选, await el.screenshot(拍法));
+    if (await el.isVisible().catch(() => false)) await 截(选, el);
   }
   const 子 = page.locator(正文);
   const n = await 子.count();
@@ -262,9 +276,9 @@ async function 拍(page: Page): Promise<Map<string, Buffer>> {
     if (!(await el.isVisible().catch(() => false))) continue;
     const box = await el.boundingBox();
     if (!box || box.width < 1 || box.height < 1) continue;
-    图.set(`${正文}:nth(${i})`, await el.screenshot(拍法));
+    await 截(`${正文}:nth(${i})`, el);
   }
-  return 图;
+  return { 图, 没拍下 };
 }
 
 /** 亮度（YIQ 的 Y），pixelmatch 判毛边用的就是它 */
@@ -357,8 +371,16 @@ test("网页对桌面", async () => {
         await 去(甲页, 页.址);
         await 去(乙页, 页.址);
         const [甲, 乙] = [await 拍(甲页), await 拍(乙页)];
-        const 键们 = new Set([...甲.keys(), ...乙.keys()]);
+        const 键们 = new Set([...甲.图.keys(), ...乙.图.keys(), ...甲.没拍下.keys(), ...乙.没拍下.keys()]);
         for (const 块 of 键们) {
+          // 截图超时：有意的差别也判红，块不比了
+          const 卡 = [[网.名, 甲.没拍下.get(块)], [桌.名, 乙.没拍下.get(块)]].filter(([, 话]) => 话).map(([谁, 话]) => `${谁} ${话}`);
+          if (卡.length) {
+            const 说明 = `截图 ${截图限时 / 1000} 秒没拍下来：${卡.join("；")}`;
+            结果们.push({ 宽, 页: 页.名, 对, 块, 差: 1, 说明 });
+            红.push(`${页.名} ${对} ${块}：${说明}`);
+            continue;
+          }
           const 类 = 块.startsWith(正文) ? 正文 : 块;
           const 原因 = 有意.get(类);
           const 记 = (r: Omit<结果, "宽" | "页" | "对" | "块">) => {
@@ -367,8 +389,8 @@ test("网页对桌面", async () => {
             if (原因 && (r.差 > 阈值 || r.说明)) 见过的有意.add(类);
             if (!原因 && (r.差 > 阈值 || r.说明)) 红.push(`${页.名} ${对} ${块}：${r.说明 ?? `像素差 ${(r.差 * 100).toFixed(2)}%`}`);
           };
-          const a = 甲.get(块);
-          const b = 乙.get(块);
+          const a = 甲.图.get(块);
+          const b = 乙.图.get(块);
           if (!a || !b) {
             记({ 差: 1, 说明: a ? "桌面端没有这一块" : "网页没有这一块" });
             continue;
