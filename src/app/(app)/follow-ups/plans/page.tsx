@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/auth";
 import PlansView from "./PlansView";
 import { 带过来的客户 } from "@/lib/options";
 import { 取计划页 } from "@/lib/plans-page";
+import { 压轻 } from "@/lib/plans-light";
 import { 读每组 } from "@/lib/plans-groups";
 import { 补计划详情 } from "./plan-rows";
 
@@ -38,6 +39,9 @@ export default async function PlansPage({
     带过来的客户(sp.customer),
   ]);
 
+  // 轻列表按列压紧再给页面（lib/plans-light.ts）：企业版 1.5 万条时页面小一半；压不了的照原样给
+  const 紧 = 轻 && 负责人 ? 压轻(轻, 负责人) : null;
+
   return (
     <PlansView
       meId={me.id}
@@ -46,7 +50,7 @@ export default async function PlansPage({
       全员={sp.scope === "all"}
       plans={plans}
       tasks={tasks}
-      {...(轻 ? { 轻, 负责人, 每组, 补详情: 补计划详情 } : {})}
+      {...(轻 ? { ...(紧 ? { 紧 } : { 轻, 负责人 }), 每组, 补详情: 补计划详情 } : {})}
       done={[
         ...[...new Map([...teamPlans, ...myPlans].map(p => [p.id, p])).values()].map((p) => ({
           key: `plan:${p.id}`,
