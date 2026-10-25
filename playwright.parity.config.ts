@@ -22,7 +22,9 @@ export default defineConfig({
   testIgnore: [],
   globalSetup: "./e2e-parity/global-setup.ts",
   timeout: 20 * 60_000,
-  use: { ...网页.use, baseURL: `http://localhost:${PORT}` },
+  // 关子像素抗锯齿：Linux CI 上 Windows 桌面端那批按钮 / 链接的字是灰度抗锯齿、网页是彩色（LCD）抗锯齿，
+  // 同一个字差出 0.5–0.7% 像素（10-25 客户记录页三宽都红）。这是排版合成层的差别，不是界面差别；全用灰度只比长相
+  use: { ...网页.use, baseURL: `http://localhost:${PORT}`, launchOptions: { args: ["--disable-lcd-text"] } },
   webServer: {
     ...(网页.webServer as object),
     command: process.env.E2E_PROD === "1" ? `npx next build && npx next start --port ${PORT}` : `npx next dev --port ${PORT}`,
