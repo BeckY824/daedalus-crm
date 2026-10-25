@@ -7,6 +7,7 @@ import { multiTenant } from "@/lib/tenant/context";
 import { recordAudit } from "@/lib/audit";
 import { 灌演示数据 } from "@/lib/shared-ws/dataset";
 import { 本地模式 } from "@/lib/desktop/cloud";
+import { 企业版 } from "@/lib/enterprise/switch";
 
 /**
  * 「灌一套演示数据」——给自己架一套网页版的团队看这东西装满之后长什么样。
@@ -20,6 +21,9 @@ import { 本地模式 } from "@/lib/desktop/cloud";
  *   - **桌面端也不给**（2026-09-18）。桌面端是一个人自己的库，装完就该录自己的第一位客户；
  *     一屏之内摆一颗「灌一套假数据」只会让人分不清哪些是真的。网页版留着——那边常常是
  *     一个团队先拿它看看长什么样，再决定要不要用
+ *   - **企业版也不给**（2026-10-25 总控定）。企业版是私有部署到客户自己服务器上的正式库，
+ *     一键往里写一套假客户只会污染真实数据；企业版只走真实导入（设置 → 企业版导入）。
+ *     接口本身拒绝（status 403），不只是藏按钮
  *   - 只有管理员能点
  *   - **只往空库里灌**。库里已经有任何业务数据就拒绝——宁可让人手动删，也不能有任何一条路径
  *     会覆盖掉真实客户
@@ -34,7 +38,7 @@ const 标记 = "demoDataSeededAt";
 export type 演示数据状态 = {
   /** 这个部署形态允不允许演示数据这件事（托管版不允许）。清除这条路由它管 */
   可用: boolean;
-  /** 能不能**灌**。桌面端只能清、不能灌：已经灌过的老用户还得有路把它清掉 */
+  /** 能不能**灌**。桌面端、企业版只能清、不能灌：已经灌过的老用户还得有路把它清掉 */
   可灌: boolean;
   /** 管理员才能动 */
   有权限: boolean;
@@ -62,13 +66,15 @@ export async function 查演示数据状态(): Promise<演示数据状态> {
     业务数据条数(),
     prisma.setting.findUnique({ where: { key: 标记 }, select: { value: true } }),
   ]);
-  return { 可用: true, 可灌: !本地模式(), 有权限: me.role === "ADMIN", 空库: 条数 === 0, 已灌: !!记号 };
+  return { 可用: true, 可灌: !本地模式() && !企业版(), 有权限: me.role === "ADMIN", 空库: 条数 === 0, 已灌: !!记号 };
 }
 
-export async function 灌一套演示数据(): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function 灌一套演示数据(): Promise<{ ok: true } | { ok: false; error: string; status?: 403 }> {
   const me = await requireUser();
   if (multiTenant()) return { ok: false, error: "托管版不支持从界面灌演示数据" };
   if (本地模式()) return { ok: false, error: "桌面端不提供演示数据" };
+  // 企业版：客户的正式库，管理员也不给灌。这是服务端动作，没有 HTTP 状态码可回，拒绝原因用 status 标出来
+  if (企业版()) return { ok: false, status: 403, error: "企业版不提供演示数据，请在「设置 → 企业版导入」导入真实数据" };
   if (me.role !== "ADMIN") return { ok: false, error: "只有管理员能灌演示数据" };
   // 空库才灌。这条是这个功能唯一的安全保证，别为了「方便」放宽
   if ((await 业务数据条数()) > 0) return { ok: false, error: "库里已经有数据了。演示数据只能灌进一个全空的库——要重来请先手动清空" };

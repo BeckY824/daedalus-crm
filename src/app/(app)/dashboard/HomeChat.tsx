@@ -30,7 +30,7 @@ export type Suggestion = { label: string; question: string; kind?: "ask" | "prep
 /** 本月签约按币种分开（2026-10-03，不换汇）；空数组 = 这个月还没签 */
 export type 首页信号 = { 逾期: number; 高意向: number; 本月签约: { 币种: string; 合计: number }[]; 高意向标签: string };
 
-export default function HomeChat({ 会话, userName, suggestions, context, models, 空库, 信号, 模式 = "宽", 上下文提示, 上下文范围, scope = 首页屏, 标题前缀, 自己服务器 = false }: {
+export default function HomeChat({ 会话, userName, suggestions, context, models, 空库, 信号, 模式 = "宽", 上下文提示, 上下文范围, scope = 首页屏, 标题前缀, 自己服务器 = false, 去导入 = false }: {
   /** 地址上 ?c= 指的那条对话，服务端读好传进来。null = 一屏新对话 */
   会话: { id: string; title: string; messages: 历史消息[] } | null;
   userName: string;
@@ -64,6 +64,8 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   标题前缀?: string;
   /** 空库那张「开始」卡用：跑在客户自己部署的服务器上（见 StartCard） */
   自己服务器?: boolean;
+  /** 空库那张「开始」卡用：企业版管理员，主按钮去企业版导入（见 StartCard） */
+  去导入?: boolean;
 }) {
   const b = useBusiness();
   const model = useModel(models);
@@ -109,7 +111,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
         ) : empty && 空库 ? (
           /* 一条业务数据都没有：不摆信号、不摆建议问题，只有一张「开始」卡 */
           <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
-            <StartCard 自己服务器={自己服务器} />
+            <StartCard 自己服务器={自己服务器} 去导入={去导入} />
           </motion.div>
         ) : empty ? (
           <Welcome userName={userName} 信号={信号} context={context} />

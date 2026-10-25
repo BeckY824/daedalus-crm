@@ -171,3 +171,45 @@ describe("空库的「开始」卡：跑在客户自己的服务器上不说「�
     expect(服务器那句).not.toMatch(/AI 次数|团队版同步|你的电脑/);
   });
 });
+
+describe("企业版空库的「开始」卡：管理员主按钮去导入，不摆演示数据（2026-10-25 总控定）", () => {
+  afterAll(() => { vi.unstubAllEnvs(); });
+  const 卡props = async () => ((await DashboardPage({ searchParams: Promise.resolve({}) })) as unknown as 元素).props;
+
+  it("企业版、管理员：没配 AI、配了 AI 两条路都告诉卡片「去导入」；普通成员不给", async () => {
+    vi.stubEnv("DESKTOP_LOCAL", "");
+    vi.stubEnv("MULTI_TENANT", "");
+    vi.stubEnv("CRM_ENTERPRISE", "1");
+    mocks.user = { ...mocks.user, role: "ADMIN" };
+    expect((await 卡props()).去导入).toBe(true);
+    mocks.ai = true;
+    const p = await 卡props();
+    expect(p.空库).toBe(true);
+    expect(p.去导入).toBe(true);
+    mocks.user = { ...mocks.user, role: "SALES" };
+    expect((await 卡props()).去导入).toBe(false);
+    mocks.ai = false;
+    expect((await 卡props()).去导入).toBe(false);
+    mocks.user = { ...mocks.user, role: "ADMIN" };
+  });
+
+  it("开关关（自部署网页版、桌面端）：去导入 = false，卡片照旧", async () => {
+    vi.stubEnv("MULTI_TENANT", "");
+    vi.stubEnv("CRM_ENTERPRISE", "");
+    mocks.user = { ...mocks.user, role: "ADMIN" };
+    for (const 桌面 of ["", "1"]) {
+      vi.stubEnv("DESKTOP_LOCAL", 桌面);
+      mocks.ai = false;
+      expect((await 卡props()).去导入).toBe(false);
+      mocks.ai = true;
+      expect((await 卡props()).去导入).toBe(false);
+    }
+  });
+
+  it("卡片：去导入时主按钮是导入、去设置里的企业版导入，「粘一段聊天」退成次按钮；灌演示数据只认服务端的 可灌", () => {
+    const 卡 = readFileSync("src/app/(app)/dashboard/StartCard.tsx", "utf8");
+    expect(卡).toMatch(/去导入 && \(\s*<Button type="primary"[^\n]*router\.push\("\/settings\?tab=enterprise"\)/);
+    expect(卡).toContain('type={能灌演示 || 去导入 ? "default" : "primary"}');
+    expect(卡).toMatch(/能灌演示 = Boolean\(状态\?\.可灌 && /);
+  });
+});
