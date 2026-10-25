@@ -134,6 +134,8 @@ type Props = {
   };
   /** 团队有两个以上一级部门时的部门下拉（带缩进）；空 = 不摆 */
   部门选项?: { value: string; label: string }[];
+  /** 企业版虚线下属的客户（这一页里的）：只能看——不摆编辑 / 删除、不让勾批量（10-25 实测 F4）。团队版一律空 */
+  只读ids?: string[];
 };
 
 /**
@@ -152,9 +154,10 @@ type Props = {
 const 无订阅 = () => () => {};
 
 export default function CustomersView({
-  rows, total, page, requestedPage, pageSize, users, 能分配公海 = false, channels, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, 公海数 = null, 客户数 = null, 客户页签 = "我的", 公海里匹配 = 0, aiEnabled, 旧职位 = [], 国家们 = [], 部门选项 = [], 金额排序 = "", 等级排序 = "", 排序币种,
+  rows, total, page, requestedPage, pageSize, users, 能分配公海 = false, channels, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, 公海数 = null, 客户数 = null, 客户页签 = "我的", 公海里匹配 = 0, aiEnabled, 旧职位 = [], 国家们 = [], 部门选项 = [], 只读ids = [], 金额排序 = "", 等级排序 = "", 排序币种,
 }: Props) {
   const router = useRouter();
+  const 只读的 = new Set(只读ids);
   // 服务端已取有效页的数据；只修正地址，避免二次请求与开发模式流式重定向错误。
   useEffect(() => {
     if (requestedPage === undefined || requestedPage === String(page)) return;
@@ -455,14 +458,21 @@ export default function CustomersView({
               <Button aria-label={`分配 ${r.name} 给…`} title="分配给…：从公海直接分给一位同事" type="text" size="small" icon={<UserSwitchOutlined />} />
             </Dropdown>
           )}
-          <Button aria-label={`编辑 ${r.name}`} title="编辑"
-            type="text" size="small" icon={<EditOutlined />} onClick={() => { setEditing(r); setFormOpen(true); }} />
-          <Button
-            aria-label={`删除 ${r.name}`} title="删除"
-            type="text" size="small" danger icon={<DeleteOutlined />}
-            // 先数清会一起删掉什么再问（排查 B1，见 useDeleteCustomers）
-            onClick={() => void 问删除([{ id: r.id, name: r.name }])}
-          />
+          {只读的.has(r.id) ? (
+            // 虚线下属的客户：编辑、删除点了也会被拦，不摆按钮，直接说只能看
+            <span className="muted nowrap" title="这是虚线下属的客户：只能看，不能改、不能转">只能看</span>
+          ) : (
+            <>
+              <Button aria-label={`编辑 ${r.name}`} title="编辑"
+                type="text" size="small" icon={<EditOutlined />} onClick={() => { setEditing(r); setFormOpen(true); }} />
+              <Button
+                aria-label={`删除 ${r.name}`} title="删除"
+                type="text" size="small" danger icon={<DeleteOutlined />}
+                // 先数清会一起删掉什么再问（排查 B1，见 useDeleteCustomers）
+                onClick={() => void 问删除([{ id: r.id, name: r.name }])}
+              />
+            </>
+          )}
         </Space>
       ),
     },
@@ -532,6 +542,7 @@ export default function CustomersView({
 
       <DataList<CustomerRow>
         页="customers"
+        不可勾={只读的.size ? (r) => 只读的.has(r.id) : undefined}
         空库={空库}
         没对上={
           公海里匹配 > 0 ? (
