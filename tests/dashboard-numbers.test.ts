@@ -141,3 +141,33 @@ describe("J-123 配了 AI 的首页：建议问题 4–6 条", () => {
     expect(s.length).toBeLessThanOrEqual(6);
   });
 });
+
+describe("空库的「开始」卡：跑在客户自己的服务器上不说「数据只在你的电脑上」（2026-10-25 企业版核对）", () => {
+  afterAll(() => { vi.unstubAllEnvs(); });
+
+  it("自部署 / 企业版（不是桌面端、不是托管版）：没配 AI、配了 AI 两条路都告诉卡片「自己服务器」", async () => {
+    vi.stubEnv("DESKTOP_LOCAL", "");
+    vi.stubEnv("MULTI_TENANT", "");
+    vi.stubEnv("CRM_ENTERPRISE", "1");
+    expect(((await DashboardPage({ searchParams: Promise.resolve({}) })) as unknown as 元素).props.自己服务器).toBe(true);
+    mocks.ai = true;
+    const el = (await DashboardPage({ searchParams: Promise.resolve({}) })) as unknown as 元素;
+    expect(el.props.空库).toBe(true);
+    expect(el.props.自己服务器).toBe(true);
+  });
+
+  it("桌面端：照旧是「数据只在你的电脑上」那句", async () => {
+    vi.stubEnv("DESKTOP_LOCAL", "1");
+    vi.stubEnv("MULTI_TENANT", "");
+    expect(((await DashboardPage({ searchParams: Promise.resolve({}) })) as unknown as 元素).props.自己服务器).toBe(false);
+    mocks.ai = true;
+    expect(((await DashboardPage({ searchParams: Promise.resolve({}) })) as unknown as 元素).props.自己服务器).toBe(false);
+  });
+
+  it("卡片里两句都在，按 自己服务器 选；服务器那句不提 AI 次数和团队同步", () => {
+    const 卡 = readFileSync("src/app/(app)/dashboard/StartCard.tsx", "utf8");
+    const 服务器那句 = 卡.slice(卡.indexOf("自己服务器 ? ("), 卡.indexOf(") : ("));
+    expect(服务器那句).toContain("数据在你们自己的服务器上");
+    expect(服务器那句).not.toMatch(/AI 次数|团队版同步|你的电脑/);
+  });
+});
