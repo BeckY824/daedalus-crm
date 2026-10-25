@@ -6,6 +6,7 @@ import { 补来源 } from "@/lib/customer-extra-db";
 import { 钉住老签约 } from "@/lib/contract-owner";
 import { 转项目 } from "@/lib/carry-over-db";
 import { 企业版 } from "@/lib/enterprise/switch";
+import { 读组织, 直属上级of } from "@/lib/enterprise/org";
 import { 停用分拣, 停用方式们, 停用进公海理由, 停用项目进公海理由, type 停用方式 } from "@/lib/offboard-db";
 import { 记换负责人 } from "@/lib/owner-log-db";
 import { 转让痕 } from "@/lib/project/db";
@@ -72,6 +73,20 @@ async function requireAdmin() {
   const { 当前是共享区 } = await import("@/lib/shared-ws/current");
   if (await 当前是共享区()) throw new Error("FORBIDDEN");
   return me;
+}
+
+/**
+ * 谁能给这个人办离职（停用、停用前清点）：管理员；企业版再加上他的直属上级（D-36）。
+ * 上级不能停用管理员。不是企业版和原来一样，只认管理员
+ */
+async function 能办离职(id: string) {
+  if (!企业版()) return requireAdmin();
+  const me = await requireUser();
+  if (me.role === "ADMIN") return requireAdmin();
+  if (await 是共享区()) throw new Error("FORBIDDEN");
+  const 他 = typeof id === "string" && id ? await prisma.user.findUnique({ where: { id }, select: { role: true } }) : null;
+  if (他 && 他.role !== "ADMIN" && 直属上级of(await 读组织(), id) === me.id) return me;
+  throw new Error("FORBIDDEN");
 }
 
 /**
@@ -282,7 +297,7 @@ export async function saveUser(input: {
  * 不知道为什么。撤掉成员资格之后，登录那一步会明确说这个账号没有工作区。
  */
 export async function deactivateUser(id: string, transferToId: string, 方式: 停用方式 = "转交") {
-  const me = await requireAdmin();
+  const me = await 能办离职(id);
   if (!停用方式们.includes(方式)) return { ok: false as const, error: "交接方式不对，刷新再试" };
   if (方式 === "公海" && !企业版()) return { ok: false as const, error: "放进公海交接是企业版的功能" };
   // 必须在业务库转交、停用之前拒绝，不能写到一半才发现永久 OWNER 身份丢失。
@@ -392,12 +407,40 @@ export async function deactivateUser(id: string, transferToId: string, 方式: �
   return { ok: true as const };
 }
 
+/** 一次最多停用多少人：和离职交接「200 条一次做完」同一个量 */
+const 批量停用上限 = 200;
+
+/**
+ * 批量离职（企业版 D-36）：同一个接手人、同一种交接方式，一个个停用，各自一笔事务。
+ * 先看每个人都办得了再动手，不会停到一半才发现有人没权限；单个人失败（比如接手人刚好在里面）记下来接着办别人
+ */
+export async function 批量停用(ids: string[], transferToId: string, 方式: 停用方式 = "转交") {
+  if (!企业版()) {
+    await requireAdmin();
+    return { ok: false as const, error: "批量离职是企业版的功能" };
+  }
+  const 们 = Array.isArray(ids) ? [...new Set(ids.filter((x) => typeof x === "string" && x))] : [];
+  if (!们.length) return { ok: false as const, error: "先选要停用的成员" };
+  if (们.length > 批量停用上限) return { ok: false as const, error: `一次最多停用 ${批量停用上限} 人` };
+  if (们.includes(transferToId)) return { ok: false as const, error: "接手人不能在要停用的人里" };
+  for (const id of 们) await 能办离职(id);
+  const 失败: { id: string; error: string }[] = [];
+  for (const id of 们) {
+    const r = await deactivateUser(id, transferToId, 方式).catch((e) => {
+      console.error("批量停用失败：", id, e);
+      return { ok: false as const, error: "停用没成功，刷新再试" };
+    });
+    if (!r.ok) 失败.push({ id, error: r.error });
+  }
+  return { ok: true as const, 停了: 们.length - 失败.length, 失败 };
+}
+
 /**
  * 停用前清点（离职交接对话框用，企业版才有）：两种方式各会转走、放进公海多少，和停用时同一套分法（停用分拣）。
  * 只是数个数，真停用时在事务里重新分。不是企业版对话框照原来的说，不来清点
  */
 export async function 停用清点(id: string) {
-  await requireAdmin();
+  await 能办离职(id);
   if (typeof id !== "string" || !id) return { ok: false as const, error: "这个成员已不存在，请刷新重试" };
   if (!企业版()) return { ok: false as const, error: "离职交接是企业版的功能" };
   const 数 = (分: Awaited<ReturnType<typeof 停用分拣>>) => ({
