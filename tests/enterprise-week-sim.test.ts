@@ -106,6 +106,19 @@ const 检查点: Record<string, string> = {
   "D7-两人同时领只一个": "D-35 外销2、外销3 同时领 P3：只一个领到，另一个看到「已被领走」",
   "D7-收回都有提醒": "D-34 收回的 P1 P2 P3 P5 P6 原负责人各有一条提醒任务",
   "D7-订单一个没进公海": "D-34/35 订单阶段的项目一个都不在公海",
+  // —— 补：一周剧本以外多查的（剧本走完 2/1 起接着跑，不碰开关关那组和金样）——
+  "补-组织规则只有老板能改": "D-34/35 组长、总管理员改组织规则都被拒，老板能改",
+  "补-自己建项目不算上限": "D-35 外销6 已到上限 2，自己建给自己照样能建",
+  "补-必填节点销售推不动": "D-37 配了必填的节点，销售本人往前推被拒（找直属上级）",
+  "补-必填填齐自动推": "D-37 销售填齐「需求」保存，项目自动推到下一节点并记一行",
+  "补-直属上级缺必填也能推": "D-37 直属上级推过缺「国家」的节点",
+  "补-总管理员能推": "D-37/39 总管理员推不是自己下属的项目，和老板一样",
+  "补-扫描留痕带项目": "D-34 自动收回的操作日志里带着收回的项目",
+  "补-停用的人领不了": "D-35/36 已离职的人领公海项目被拒",
+  "补-公海离职三分": "D-36 离职进公海：有订单的客户连项目给接手人；其余客户进客户公海、项目留在客户上；别人客户上的线索项目进项目公海",
+  "补-扫描不动客户公海里的项目": "D-34 客户在客户公海里，项目过了时长也不收",
+  "补-领客户带走项目": "D-35/36 谁从客户公海领了客户，客户上的项目归谁，留转移记录",
+  "补-周末全库一致": "D-34~36 收尾：公海里没有订单项目、没有在职项目挂在离职人名下、进公海的都有记录",
 };
 
 const 未定: string[] = [
@@ -487,6 +500,90 @@ async function 剧本开() {
   });
   await 查("D7-订单一个没进公海", async () =>
     expect(await 作为("老板", () => prisma.project.count({ where: { phase: "订单", pooledAt: { not: null } } }))).toBe(0));
+
+  await 补查();
+}
+
+/** 补：剧本走完接着查第四节里剧本没碰到的几条（2/1 起；只在开关开那组跑） */
+async function 补查() {
+  const 改规则 = await 要("app/(app)/projects/actions", "改组织规则", "D-34");
+  const 领客户 = await 要("app/(app)/customers/pool-actions", "领取", "D-36");
+  拨到("2026-02-01 09:30");
+  await 查("补-组织规则只有老板能改", async () => {
+    const 改 = { 节点推进: { 开: true, 必填: { 潜客培育: ["需求"], 线索验证: ["国家"] } } };
+    拒(await 作为("组长", () => 改规则(改)), /只有老板/);
+    拒(await 作为("总管理", () => 改规则(改)), /只有老板/);
+    得(await 作为("老板", () => 改规则(改)), "老板开必填");
+  });
+  await 查("补-自己建项目不算上限", async () => { 得(await 建项目("外销6", "P21", "2026-02-20"), "外销6 自己建 P21"); });
+
+  得(await 建项目("内销2", "P20", "2026-02-20"), "建 P20");
+  await 查("补-必填节点销售推不动", async () =>
+    拒(await 作为("内销2", () => 改项目节点(项目id["P20"], { phase: "线索", node: "线索验证" })), /直属上级/));
+  await 查("补-必填填齐自动推", async () => {
+    const r = 得(await 作为("内销2", () => 编辑项目(项目id["P20"], { name: "P20", amount: 10000, currency: "CNY", remark: "要 200 套" } as Parameters<typeof 编辑项目>[1])), "内销2 填需求") as { 自动推到?: string[] };
+    expect(r.自动推到).toEqual(["线索验证"]);
+    expect((await 项目("P20")).node).toBe("线索验证");
+    const l = await 作为("老板", () => prisma.projectNodeLog.findFirstOrThrow({ where: { projectId: 项目id["P20"], kind: "node", toNode: "线索验证" } }));
+    expect(公.名[l.userId ?? ""]).toBe("内销2");
+  });
+  await 查("补-直属上级缺必填也能推", async () => {
+    得(await 作为("组长", () => 改项目节点(项目id["P20"], { phase: "线索", node: "线索推进" })), "组长推 P20");
+    expect((await 项目("P20")).node).toBe("线索推进");
+  });
+  await 查("补-总管理员能推", async () => {
+    得(await 作为("总管理", () => 改项目节点(项目id["P8"], { phase: "线索", node: "线索验证" })), "总管理推 P8");
+    expect((await 项目("P8")).node).toBe("线索验证");
+  });
+  await 查("补-扫描留痕带项目", async () => {
+    const 们 = await 作为("老板", () => prisma.auditLog.findMany({ where: { action: "pool", entity: "Project" }, orderBy: { at: "asc" } }));
+    const 带着 = 们.flatMap((a) => ((a.detail ? JSON.parse(a.detail) : {}) as { ids?: string[] }).ids ?? []);
+    expect(带着).toEqual(expect.arrayContaining([项目id["P1"], 项目id["P2"], 项目id["P5"], 项目id["P6"]]));
+  });
+  await 查("补-停用的人领不了", async () => 拒(await 作为("内销3", () => 领取项目(项目id["P5"])), /停用/));
+
+  // 内销5 离职进公海：P30 有订单、P31 普通客户、P32 是他负责但客户是内销6 的
+  拨到("2026-02-01 10:00");
+  得(await 建项目("内销5", "P30", "2026-02-20"), "建 P30");
+  得(await 建项目("内销5", "P31", "2026-02-02"), "建 P31");
+  得(await 建项目("内销6", "P32", "2026-02-20"), "建 P32");
+  await 作为("老板", async () => {
+    await prisma.project.update({ where: { id: 项目id["P30"] }, data: { phase: "订单", node: "生产备货" } });
+    await prisma.project.update({ where: { id: 项目id["P32"] }, data: { ownerId: 公.id["内销5"] } });
+  });
+  await 查("补-公海离职三分", async () => {
+    得(await 作为("老板", () => 停用(公.id["内销5"], 公.id["内销4"], "公海")), "内销5 公海方式离职");
+    const [p30, p31, p32] = [await 项目("P30"), await 项目("P31"), await 项目("P32")];
+    const 客 = (n: string) => 作为("老板", () => prisma.customer.findUniqueOrThrow({ where: { id: 客户id[n] }, include: { pool: true } }));
+    const [c30, c31] = [await 客("P30"), await 客("P31")];
+    expect({
+      P30: [公.名[p30.ownerId], p30.pooledAt, 公.名[c30.salesOwnerId ?? ""], !!c30.pool],
+      P31: [公.名[p31.ownerId], p31.pooledAt, !!c31.pool],
+      P32: [p32.pooledAt !== null],
+    }).toEqual({ P30: ["内销4", null, "内销4", false], P31: ["内销5", null, true], P32: [true] });
+  });
+  await 扫("2026-02-05 08:00");
+  await 查("补-扫描不动客户公海里的项目", async () => expect(await 在公海("P31")).toBe(false));
+  拨到("2026-02-05 09:00");
+  await 查("补-领客户带走项目", async () => {
+    得(await 作为("内销6", () => 领客户([客户id["P31"]])), "内销6 领客户P31");
+    expect(公.名[(await 项目("P31")).ownerId]).toBe("内销6");
+    const l = await 作为("老板", () => prisma.projectNodeLog.findFirstOrThrow({ where: { projectId: 项目id["P31"], kind: "transfer" }, orderBy: { at: "desc" } }));
+    expect([公.名[l.fromOwnerId ?? ""], 公.名[l.toOwnerId ?? ""]]).toEqual(["内销5", "内销6"]);
+  });
+  await 查("补-周末全库一致", async () => {
+    await 作为("老板", async () => {
+      expect(await prisma.project.count({ where: { phase: "订单", pooledAt: { not: null } } }), "公海里的订单项目").toBe(0);
+      const 离职 = (await prisma.user.findMany({ where: { active: false }, select: { id: true } })).map((u) => u.id);
+      const 挂着 = await prisma.project.findMany({ where: { pooledAt: null, result: null, ownerId: { in: 离职 }, customer: { pool: { is: null } } }, select: { name: true } });
+      expect(挂着.map((p) => p.name), "在职项目挂在离职人名下").toEqual([]);
+      const 公海里 = await prisma.project.findMany({ where: { pooledAt: { not: null } }, select: { id: true, name: true } });
+      for (const p of 公海里) {
+        const 有 = await prisma.projectNodeLog.count({ where: { projectId: p.id, kind: "pool-release" } });
+        expect(有, `${p.name} 进公海没记录`).toBeGreaterThan(0);
+      }
+    });
+  });
 }
 
 /** 开关关：只调 main 上就有的接口，观测写进金样 */
