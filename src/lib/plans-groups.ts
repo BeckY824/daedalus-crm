@@ -1,4 +1,5 @@
 import { dayjs } from "@/lib/utils";
+import { businessValueOf } from "@/lib/business-clock";
 import { 逾期判定 } from "@/lib/overdue";
 
 /**
@@ -39,7 +40,7 @@ export function 分组<T extends { 时间: string | null }>(行: readonly T[], n
   for (const x of 行) {
     if (!x.时间) 分.以后.push({ x, ms: Infinity });
     else {
-      const ms = dayjs(x.时间).valueOf();
+      const ms = businessValueOf(x.时间); // 和 dayjs(x.时间).valueOf() 一样，不逐条建 Dayjs
       const e = { x, ms };
       if (逾期(x.时间)) 分.逾期.push(e);
       else if (ms < 今天结束) 分.今天.push(e);
