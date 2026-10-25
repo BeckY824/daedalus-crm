@@ -110,7 +110,7 @@ async function 不参与名单(): Promise<string[]> {
 }
 
 /**
- * 自动分配（D-38）：在职、能接这条线、参与自动分配、本月没分满的人里，挑本月已分最少的；并列给最早进池的。
+ * 自动分配（D-38）：在职、能接这条线、参与自动分配、填了配额（不是 0）、本月没分满的人里，挑本月已分最少的；并列给最早进池的。
  * 挑中以后走 分给()，配额、留痕和手动分一样；挑完到落库之间他被别人分满了，就顺延到下一个人。
  * 成了带上接手人、分完以后本月已分几条、配额、为什么挑他，界面直接拿去提示
  */
@@ -154,11 +154,16 @@ async function 自动分给(me: SessionUser, org: 组织, leadId: string, line: 
   for (;;) {
     const 谁 = 挑接手人(候选, 跳过, 查满);
     if (!谁) {
-      // 还有参与的人、只是都分满了 →「都已满额」，提醒去调配额；一个参与的都没有是另一回事
-      const 有人参与 = 候选.some((c) => !不参与.includes(c.userId));
+      // 参与的人里有填了配额的（含 0）、只是都分满了 →「都已满额」，提醒去调配额；
+      // 参与的人都没填配额、一个参与的都没有，各是另一回事
+      const 参与的 = 候选.filter((c) => !不参与.includes(c.userId));
       return {
         ok: false,
-        error: 有人参与 ? "都已满额，没有能接的人：线索留在原处，找他们的上级调配额，或者手动分" : "没有能接的人：都不参与自动分配，或者业务线对不上",
+        error: 参与的.some((c) => c.配额 !== null)
+          ? "都已满额，没有能接的人：线索留在原处，找他们的上级调配额，或者手动分"
+          : 参与的.length
+            ? "没有能接的人：没填配额，不参与自动分配。找他们的上级填配额，或者手动分"
+            : "没有能接的人：都不参与自动分配，或者业务线对不上",
       };
     }
     const 为什么 = 挑的理由(候选, 跳过, 查满, 谁);
@@ -241,11 +246,11 @@ export async function 设自动分配参与(userId: string, 参与: boolean): Pr
   }
 }
 
-/** 设每月配额；quota = null 是取消配额（不限） */
+/** 设每月配额；quota = null 是清空配额（手动分不限，自动分配不再挑他） */
 export async function 设配额(userId: string, quota: number | null): Promise<结果> {
   const me = await 进门();
   if (!me) return 没开;
-  if (quota !== null && (!Number.isInteger(quota) || quota < 0 || quota > 10000)) return { ok: false, error: "配额填 0 到 10000 的整数；不限就清空" };
+  if (quota !== null && (!Number.isInteger(quota) || quota < 0 || quota > 10000)) return { ok: false, error: "配额填 0 到 10000 的整数；不设就清空" };
   try {
     const org = await 读组织();
     if (!org.成员.has(userId)) return { ok: false, error: "这个人不在组织里，或者已经停用" };
