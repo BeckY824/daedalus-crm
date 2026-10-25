@@ -12,7 +12,7 @@ import { dayjs, fmtDateTime } from "@/lib/utils";
 import { 跟进类型们 } from "@/lib/constants";
 import { 外贸精简 } from "@/lib/business-config";
 import { 金额 } from "@/lib/currency";
-import { 阶段们, 节点们, 出口们, 交付还差, 下一步, 节点序号, 节点总数, 原因上限, type 位置 } from "@/lib/project/nodes";
+import { 阶段们, 节点们, 出口们, 交付还差, 下一步, 节点序号, 节点总数, 原因上限, 要写原因, type 位置 } from "@/lib/project/nodes";
 import { 超时理由 } from "@/lib/project/timeout";
 import { 改项目节点, 勾项目交付, 删除项目, 放回项目公海, 领取项目, 记项目沟通Action } from "../actions";
 import type { 可选成员 } from "@/lib/utils";
@@ -136,6 +136,7 @@ export default function ProjectDetail({
   const b = useBusiness();
   const [忙, set忙] = useState(false);
   const [异常框, set异常框] = useState<位置 | null>(null);
+  const [没成框, set没成框] = useState<位置 | null>(null);
   const [原因, set原因] = useState("");
   const [类别, set类别] = useState<string | null>(null);
   const [编辑开着, set编辑开着] = useState(false);
@@ -174,6 +175,11 @@ export default function ProjectDetail({
       set原因("");
       set类别(null);
       set异常框(到);
+      return;
+    }
+    if (p.企业版 && 要写原因(到.result)) {
+      set原因("");
+      set没成框(到);
       return;
     }
     if (到.result === "成功交付" && 差.length) {
@@ -397,6 +403,22 @@ export default function ProjectDetail({
           aria-label="异常类别"
         />
         <Input.TextArea rows={4} maxLength={原因上限} showCount value={原因} onChange={(e) => set原因(e.target.value)} placeholder="备注（可不写）" />
+      </Modal>
+
+      <Modal
+        open={!!没成框}
+        title={没成框 ? `定结果：${没成框.result}` : ""}
+        okText="确定"
+        okButtonProps={{ danger: true, disabled: !原因.trim(), loading: 忙 }}
+        onCancel={() => set没成框(null)}
+        onOk={async () => {
+          if (!没成框 || !原因.trim()) return;
+          const ok = await 跑(() => 改项目节点(p.id, 没成框, { 备注: 原因 }), `已改到 ${位置文字(没成框)}`);
+          if (ok) set没成框(null);
+        }}
+      >
+        <div style={{ marginBottom: 8, color: "var(--text-muted)" }}>写一句为什么没成，会记在节点变更里；以后捡回来把节点改回去就行。</div>
+        <Input.TextArea rows={4} maxLength={原因上限} showCount value={原因} onChange={(e) => set原因(e.target.value)} placeholder="原因（必填）" aria-label="原因" />
       </Modal>
     </div>
   );

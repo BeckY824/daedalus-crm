@@ -5,7 +5,7 @@
 import type { Prisma } from "@/generated/prisma";
 import { prisma } from "../prisma";
 import { 查完再写 } from "../check-then-write";
-import { 改节点问题, 原因上限, 下一步, 节点序号, type 位置 } from "./nodes";
+import { 改节点问题, 原因上限, 要写原因, 下一步, 节点序号, type 位置 } from "./nodes";
 import { 还差, 必填叫法, 节点推进生效, 按必填走, 节点必填, type 必填数据 } from "./required";
 import { 规整项目, 规整沟通, type 向导项目, type 向导跟进 } from "./wizard";
 import { 持有上限of, type 组织规则 } from "./org-rules";
@@ -203,7 +203,8 @@ const 带推进 = (到: string[]) => (到.length ? { 自动推到: 到 } : {});
 /**
  * 改节点：往前只能一步一步走，往后随便退（nodes.ts 改节点问题），点结局也走这里。每改一次记一行 ProjectNodeLog。
  * 有结局记下 closedAt，回到进行中（= 从异常状态恢复、从丢单捡回来）清掉。
- * 进异常状态要选一个在用的异常类别，备注可空；类别和备注只在异常状态时留在项目上，节点变更里永远留着
+ * 进异常状态要选一个在用的异常类别，备注可空；类别和备注只在异常状态时留在项目上，节点变更里永远留着。
+ * 企业版点线索流失、丢单要写原因（第四个参数的 备注），只记在节点变更里
  */
 export async function 改节点(
   me: 谁, projectId: string, 到: 位置, 异常?: { categoryId?: string | null; 备注?: string | null },
@@ -215,7 +216,7 @@ export async function 改节点(
     if (!p) return { ok: false as const, error: "这个项目已经不在了，刷新看看" };
     if (!能改节点(me, p, org)) return { ok: false as const, error: p.pooledAt ? "这个项目在公海里，先领取再改" : "只有项目负责人、老板或主管能改节点" };
     const result = 到.result || null;
-    const 问题 = 改节点问题({ ...到, result }, p, 异常);
+    const 问题 = 改节点问题({ ...到, result }, p, 异常, 企业版());
     if (问题) return { ok: false as const, error: 问题 };
     const 往前 = !result && !p.result && 节点序号(到) > 节点序号(p);
     const 不给 = 往前 ? 往前推不给(me, p.ownerId, org) : null;
@@ -242,6 +243,8 @@ export async function 改节点(
       }
       备注 = (异常?.备注 ?? "").trim().slice(0, 原因上限) || null;
     }
+    // 线索流失、丢单的原因只记在节点变更里，项目上的 exceptionReason 是异常状态专用
+    const 原因 = 企业版() && 要写原因(result) ? (异常?.备注 ?? "").trim().slice(0, 原因上限) || null : 备注;
     if (p.phase === 到.phase && p.node === 到.node && p.result === result && p.exceptionCategoryId === 类别 && (p.exceptionReason ?? null) === 备注) {
       return { ok: true as const, 变了: false };
     }
@@ -256,7 +259,7 @@ export async function 改节点(
       data: {
         projectId: p.id, userId: me.id,
         fromPhase: p.phase, fromNode: p.node, fromResult: p.result,
-        toPhase: 到.phase, toNode: 到.node, toResult: result, categoryId: 类别, reason: 备注,
+        toPhase: 到.phase, toNode: 到.node, toResult: result, categoryId: 类别, reason: 原因,
       },
     });
     // 老板、主管往前推到的节点也配了、也齐了：接着推

@@ -129,7 +129,7 @@ describe("节点必填自动推进", () => {
     const 主管 = await 人("mgr", "MANAGER");
     expect(await 改节点(主管, p.id, { phase: "线索", node: "线索推进" })).toMatchObject({ ok: true });
     // 结局不算往前，照旧能点
-    expect(await 改节点(乙, p.id, { phase: "线索", node: "线索推进", result: "线索流失" })).toMatchObject({ ok: true });
+    expect(await 改节点(乙, p.id, { phase: "线索", node: "线索推进", result: "线索流失" }, { 备注: "联系不上" })).toMatchObject({ ok: true });
   });
 
   it("没配的节点：销售照样手动推，不自动推", async () => {

@@ -17,7 +17,7 @@ import { 读组织规则, 生效组织规则, 存组织规则 } from "@/lib/proj
 import { 企业版 } from "@/lib/enterprise/switch";
 import { 记这个项目的自动推进, 客户存了推项目 } from "@/lib/project/auto-advance";
 import { 读团队 } from "@/lib/sync/client";
-import type { 位置 } from "@/lib/project/nodes";
+import { 要写原因, type 位置 } from "@/lib/project/nodes";
 import { saveCustomer, type CustomerInput } from "../customers/actions";
 
 const 没开 = { ok: false as const, error: "项目模式没开：请老板在「设置 → 业务配置」里打开" };
@@ -73,7 +73,7 @@ export async function 建档向导(input: 建档向导输入) {
   } catch (e) { return 不在了(e); }
 }
 
-/** 改节点。进异常状态时带上异常类别（必选）和备注（可空） */
+/** 改节点。进异常状态时带上异常类别（必选）和备注（可空）；企业版点线索流失、丢单时 备注 = 原因（必填） */
 export async function 改项目节点(projectId: string, 到: 位置, 异常?: { categoryId?: string | null; 备注?: string | null } | null) {
   try {
     const me = await requireUser();
@@ -87,7 +87,7 @@ export async function 改项目节点(projectId: string, 到: 位置, 异常?: {
       await recordAudit({
         user: me, action: "update", entity: "Project", entityId: projectId,
         summary: `项目「${p?.name ?? ""}」改到 ${到.phase}·${到.node}${到.result ? `（${到.result}${类别 ? `：${类别}` : ""}）` : ""}`,
-        detail: { 阶段: 到.phase, 节点: 到.node, 结局: 到.result ?? null, 异常类别: 类别, 备注: 类别 ? 异?.备注?.trim() || null : null },
+        detail: { 阶段: 到.phase, 节点: 到.node, 结局: 到.result ?? null, 异常类别: 类别, 备注: 类别 || (企业版() && 要写原因(到.result)) ? 异?.备注?.trim() || null : null },
       });
       await 记这个项目的自动推进(me, projectId, r.自动推到);
       刷新项目(projectId, p?.customerId);
