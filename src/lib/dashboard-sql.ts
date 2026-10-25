@@ -2,6 +2,7 @@ import type { Dayjs } from "dayjs";
 import type { PrismaClient } from "@/generated/prisma";
 import { dayjs } from "@/lib/utils";
 import { 近90天趋势, 最近8周, 每周新增, type 趋势点 } from "@/lib/dashboard-trend";
+import { 带币种 } from "@/lib/money-db";
 
 /**
  * 看板上「数客户」的那几样（近 90 天两条线、本月 / 上月新增、每周新增），在库里按天先数好再取回来。
@@ -31,6 +32,15 @@ export type 客户数 = {
  */
 export const 毫秒 = (列: string) =>
   `CASE WHEN typeof(${列}) IN ('integer','real') THEN ${列} ELSE CAST(round((julianday(${列}) - 2440587.5) * 86400000) AS INTEGER) END`;
+
+/**
+ * 同一个 f(毫秒(列))，把 typeof 判断提到外面：`CASE WHEN 是数 THEN f(列) ELSE f(换算后的列) END`。
+ * f 里同一个 t 要比好几次（第几天的嵌套 CASE 约 7 次），SQLite 会把子查询里的 t 原样展开，
+ * 每比一次就重算一遍 typeof + CASE；提到外面后整数行只判一次类型，20 万条跟进省三四十毫秒。
+ * 值和 f(毫秒(列)) 一模一样：两支就是 毫秒 的两支
+ */
+export const 按毫秒 = (列: string, f: (t: string) => string) =>
+  `CASE WHEN typeof(${列}) IN ('integer','real') THEN ${f(列)} ELSE ${f(`CAST(round((julianday(${列}) - 2440587.5) * 86400000) AS INTEGER)`)} END`;
 
 /**
  * 「t 落在第几天」：零点[j] ≤ t < 零点[j+1] 是第 j 天；早于第一个零点是 -1，晚于最后一个是最后一个的下标。
@@ -121,18 +131,18 @@ async function 库里数(db: PrismaClient, 计: 计划): Promise<客户数> {
   const [建档, 活跃] = await Promise.all([
     db.$queryRawUnsafe<{ k: bigint | number; e: bigint | number; n: bigint | number }[]>(
       `SELECT k, e, count(*) AS n FROM (
-         SELECT ${第几天或负一("t", 零点)} AS k, (t IN (${周起})) AS e
-         FROM (SELECT ${毫秒("createdAt")} AS t FROM Customer)
+         SELECT ${按毫秒("createdAt", (t) => 第几天或负一(t, 零点))} AS k, ${按毫秒("createdAt", (t) => `(${t} IN (${周起}))`)} AS e
+         FROM Customer
        ) GROUP BY k, e`,
     ),
-    db.$queryRawUnsafe<{ k: bigint | number; v: bigint | number }[]>(
-      `WITH f AS (SELECT ${毫秒("occurredAt")} AS t, customerId AS c FROM FollowUp WHERE occurredAt >= ?),
-       p AS (SELECT DISTINCT c, ${不早于起点的第几天("t", 零点)} AS d FROM f WHERE t >= ${零点[0]}),
+    // 每个客户把活跃的那几天拼成不重叠的段 [起, 止)：起处 +1、止处 −1。
+    // 回的是「(起, 止) 各有几段」，不在库里再 UNION 一遍按天合计（那样要多排 20 万行）
+    db.$queryRawUnsafe<{ k: bigint | number; e: bigint | number; n: bigint | number }[]>(
+      `WITH p AS (SELECT DISTINCT customerId AS c, ${按毫秒("occurredAt", (t) => 不早于起点的第几天(t, 零点))} AS d
+         FROM FollowUp WHERE occurredAt >= ? AND ${按毫秒("occurredAt", (t) => `${t} >= ${零点[0]}`)}),
        q AS (SELECT d, LAG(d) OVER (PARTITION BY c ORDER BY d) AS pr FROM p)
-       SELECT k, sum(v) AS v FROM (
-         SELECT CASE WHEN pr IS NULL OR pr + ${窗口} < d THEN d ELSE pr + ${窗口} END AS k, 1 AS v FROM q
-         UNION ALL SELECT d + ${窗口}, -1 FROM q
-       ) GROUP BY k`,
+       SELECT CASE WHEN pr IS NULL OR pr + ${窗口} < d THEN d ELSE pr + ${窗口} END AS k, d + ${窗口} AS e, count(*) AS n
+       FROM q GROUP BY k, e`,
       计.跟进起.getTime(),
     ),
   ]);
@@ -153,7 +163,11 @@ async function 库里数(db: PrismaClient, 计: 计划): Promise<客户数> {
   const 总 = 累计[累计.length - 1];
 
   const 变化 = new Map<number, number>();
-  for (const r of 活跃) 变化.set(数(r.k), 数(r.v));
+  for (const r of 活跃) {
+    const n = 数(r.n);
+    变化.set(数(r.k), (变化.get(数(r.k)) ?? 0) + n);
+    变化.set(数(r.e), (变化.get(数(r.e)) ?? 0) - n);
+  }
   // 最大的当天之前的前缀和就够了
   const 活跃至: number[] = [];
   let s = 0;
@@ -199,5 +213,50 @@ export async function 客户数(db: PrismaClient, now: Dayjs, 不限定: boolean
   return 计 ? 库里数(db, 计) : 取行数(db, now);
 }
 
+/** 首页那一份「全部商机」要的列：赢单窗口、漏斗、两条小曲线都从这一份里挑 */
+const 商机列 = { createdAt: true, updatedAt: true, amount: true, stage: true, status: true, closed: { select: { closedAt: true } }, ...带币种.商机 } as const;
+
+export type 商机行 = {
+  createdAt: Date;
+  updatedAt: Date;
+  amount: number;
+  stage: string;
+  status: string;
+  closed: { closedAt: Date } | null;
+  money: { currency: string } | null;
+};
+
+/**
+ * 首页的全部商机（2026-10-25）。原来是 Prisma 带两个一对一关联（赢单时刻、币种）整表取：
+ * 企业版 1 万商机时，关联要另发查询、再在 Node 里一行行拼对象，单次 60 多毫秒，几乎全是 CPU。
+ * 不限定时改成一句 LEFT JOIN 取回来再拼成原来的形状，约 18 毫秒；行、值、顺序和原来一样。
+ *
+ * - 「有没有这一行关联」看关联表的主键是不是 NULL，不看值：和 Prisma 的 closed / money 是不是 null 一个口径
+ * - 日期列裸 SQL 也按列类型（DATETIME）换成 Date：整数毫秒、ISO 文本、「YYYY-MM-DD HH:MM:SS」老数据和 Prisma 换算得一样
+ * - 顺序：两边都是不排序的整表扫，按 rowid 出；金额是浮点，合计的先后顺序要和原来一样，ORDER BY rowid 钉住
+ *
+ * 业务员（限定的我 不为 null）照旧走 Prisma：裸 SQL 不过 lib/team-scope 的那层 where。
+ * tests/dashboard-opps.test.ts 拿 Prisma 那一路对拍
+ */
+export async function 全部商机(db: PrismaClient, 不限定: boolean): Promise<商机行[]> {
+  if (!不限定) return db.opportunity.findMany({ select: 商机列 });
+  const 行 = await db.$queryRawUnsafe<
+    { createdAt: Date; updatedAt: Date; amount: number; stage: string; status: string; cid: string | null; closedAt: Date | null; mid: string | null; currency: string | null }[]
+  >(
+    `SELECT o.createdAt, o.updatedAt, o.amount, o.stage, o.status, c.opportunityId AS cid, c.closedAt, m.opportunityId AS mid, m.currency
+     FROM Opportunity o LEFT JOIN OpportunityClose c ON c.opportunityId = o.id LEFT JOIN OpportunityMoney m ON m.opportunityId = o.id
+     ORDER BY o.rowid`,
+  );
+  return 行.map((r) => ({
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+    amount: r.amount,
+    stage: r.stage,
+    status: r.status,
+    closed: r.cid === null ? null : { closedAt: r.closedAt as Date },
+    money: r.mid === null ? null : { currency: r.currency as string },
+  }));
+}
+
 /** 测试用 */
-export const _内部 = { 排边界, 库里数, 第几天, 除出第几天 };
+export const _内部 = { 排边界, 库里数, 第几天, 除出第几天, 商机列 };
