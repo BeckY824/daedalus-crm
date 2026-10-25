@@ -22,6 +22,8 @@ import { ShortcutProvider } from "@/components/Shortcut";
 import MobileAuthPrompt from "@/components/MobileAuthPrompt";
 import TeamConnectPrompt from "@/components/TeamConnectPrompt";
 import { 要问待授权手机 } from "@/lib/sync/mobile-desktop";
+import { 背调有入口 } from "@/lib/research/channel";
+import { ResearchEntryProvider } from "@/components/research/ResearchEntry";
 
 export default async function AppLayout({
   children,
@@ -99,6 +101,7 @@ export default async function AppLayout({
     <BusinessProvider value={business} timeZone={multiTenant() ? "Asia/Shanghai" : null}>
       {/* 反馈：托管版和桌面端有我们这个云可发，自部署的开源版没有，按钮改去 GitHub issues；企业版不放反馈键 */}
       <AiMeterProvider 初值={AI计次}>
+      <ResearchEntryProvider value={背调有入口()}>
       <AppShell
         user={user}
         workspace={workspace ? { name: workspace.name, multiple: workspaces.length > 1, billing: multiTenant() && workspace.role === "OWNER" && !是共享工作区(workspace.slug) } : undefined}
@@ -118,6 +121,7 @@ export default async function AppLayout({
       {本地模式() && 要问待授权手机() && <MobileAuthPrompt />}
       {/* 新电脑登录了团队成员的账号、还没连上：打开就弹框发申请，另一台电脑 / 手机马上弹「允许」（多设备同步） */}
       {本地模式() && <TeamConnectPrompt />}
+      </ResearchEntryProvider>
       </AiMeterProvider>
     </BusinessProvider>
     </ShortcutProvider>

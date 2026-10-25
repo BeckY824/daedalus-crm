@@ -12,10 +12,20 @@ vi.mock("@/lib/tenant/workspace-access", () => ({ accessibleWorkspacesFor: async
 vi.mock("@/lib/llm", () => ({ llmEnabled: async () => false, listModelOptions: async () => [] }));
 vi.mock("@/lib/ai-meter", () => ({ 读AI计次: async () => ({}), 不计次: {} }));
 vi.mock("@/lib/phone-dedupe", () => ({ 记下分机留存起: async () => {} }));
-vi.mock("@/components/AppShell", () => ({ default: () => null }));
+const AppShell = vi.hoisted(() => () => null);
+vi.mock("@/components/AppShell", () => ({ default: AppShell }));
 vi.mock("@/components/AiCost", () => ({ AiMeterProvider: () => null }));
 vi.mock("@/lib/business-client", () => ({ BusinessProvider: () => null }));
 import AppLayout from "@/app/(app)/layout";
+/** 按类型找 AppShell，不按层数：layout 外面多包一层 Provider 不该让这条测试红（10-24 背调入口那层） */
+type 节点 = { type?: unknown; props?: { children?: unknown; [k: string]: unknown } };
+function 找壳(n: unknown): Record<string, unknown> | null {
+  if (!n || typeof n !== "object") return null;
+  if (Array.isArray(n)) { for (const c of n) { const r = 找壳(c); if (r) return r; } return null; }
+  const e = n as 节点;
+  if (e.type === AppShell) return e.props ?? null;
+  return 找壳(e.props?.children);
+}
 afterEach(() => { vi.unstubAllEnvs(); });
 it.each([
   [true, "OWNER", "qa-private", true],
@@ -27,12 +37,12 @@ it.each([
   state.hosted = hosted; state.workspaces = [{ id: "qa-ws", name: "QA", slug, role }]; vi.stubEnv("SHARED_WORKSPACE", "qa-shared");
   const layout = await AppLayout({ children: null, pane: null, modal: null });
   expect(layout.props.children.props.timeZone).toBe(hosted ? "Asia/Shanghai" : null);
-  expect(layout.props.children.props.children.props.children[0].props.workspace).toMatchObject({ name: "QA", billing });
+  expect(找壳(layout)?.workspace).toMatchObject({ name: "QA", billing });
 });
 
 it.each([true,false])("L-112 hosted=%s 每次布局只加载一次实际用于侧栏的计数与收藏",async hosted=>{
  state.hosted=hosted;state.queries=[];const layout=await AppLayout({children:null,pane:null,modal:null});
  expect(state.queries.sort()).toEqual(["customer","favorites","opportunity"]);
- const props=layout.props.children.props.children.props.children[0].props;
+ const props=找壳(layout)!;
  expect(props.计数).toMatchObject({"/customers":1,"/opportunities":1});expect(props.收藏).toEqual([]);
 });

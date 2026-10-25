@@ -14,8 +14,10 @@ import type { 背调价目 } from "@/lib/research/actions";
 import type { 邮件信号 } from "@/lib/research/verify/mail";
 import type { Suggestion } from "./HomeChat";
 
-export function ComposerTools({ 宽, 背调模式, on切背调, files, setFiles, 在跑, 邮件, on开邮件, 摆粘贴键, on粘贴, on预载 }: {
+export function ComposerTools({ 宽, 摆背调键, 背调模式, on切背调, files, setFiles, 在跑, 邮件, on开邮件, 摆粘贴键, on粘贴, on预载 }: {
   宽: boolean;
+  /** 这台机器摆不摆背调（自部署 / 企业版网页不摆） */
+  摆背调键: boolean;
   背调模式: boolean;
   on切背调: () => void;
   files: 附件[];
@@ -31,17 +33,19 @@ export function ComposerTools({ 宽, 背调模式, on切背调, files, setFiles,
   return (
     <>
       {/* 背调模式开关：和普通问答并列切换，选中有明显的状态（.cli-tool-on） */}
-      <button
-        type="button"
-        className={`cli-tool${宽 ? " cli-tool-t" : ""}${背调模式 ? " cli-tool-on" : ""}`}
-        aria-pressed={背调模式}
-        aria-label="背调"
-        onClick={on切背调}
-        title={背调模式 ? "退出背调，回到普通问答" : "背调模式：输入公司名或一句需求，直接上网背调"}
-      >
-        <GlobalOutlined />
-        {宽 && <span>背调</span>}
-      </button>
+      {摆背调键 && (
+        <button
+          type="button"
+          className={`cli-tool${宽 ? " cli-tool-t" : ""}${背调模式 ? " cli-tool-on" : ""}`}
+          aria-pressed={背调模式}
+          aria-label="背调"
+          onClick={on切背调}
+          title={背调模式 ? "退出背调，回到普通问答" : "背调模式：输入公司名或一句需求，直接上网背调"}
+        >
+          <GlobalOutlined />
+          {宽 && <span>背调</span>}
+        </button>
+      )}
       {!背调模式 && <AskFiles files={files} onChange={setFiles} disabled={在跑} />}
       {背调模式 && (
         <button
