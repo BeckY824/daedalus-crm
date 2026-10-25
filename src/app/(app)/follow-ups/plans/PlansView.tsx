@@ -11,6 +11,7 @@ import { dayjs, fmtDateTime } from "@/lib/utils";
 import { 是逾期 } from "@/lib/overdue";
 import { 每批, 组名, 写每组 } from "@/lib/plans-groups";
 import type { 轻行 as 轻列表行 } from "@/lib/plans-page";
+import { 解轻, type 紧轻 } from "@/lib/plans-light";
 import { toggleTask, completePlan, deletePlan, deleteTask } from "../../customers/[id]/actions";
 import TaskForm from "../../customers/[id]/TaskForm";
 import InlineConfirm from "@/components/InlineConfirm";
@@ -118,6 +119,7 @@ export default function PlansView({
   全员 = false,
   轻,
   负责人,
+  紧,
   每组,
   补详情,
 }: {
@@ -141,6 +143,8 @@ export default function PlansView({
    */
   轻?: 轻列表行[];
   负责人?: string[];
+  /** 同一份轻列表的紧凑写法（lib/plans-light.ts），页面用的是它；给了它就不看 轻 / 负责人 */
+  紧?: 紧轻;
   /** 每组摆几条（逾期、今天、本周、以后），「再看 50 条」加一批 */
   每组?: number[];
   /** 要摆、手里却没详情的那几条去取（plan-rows.ts）：刚新建的、浏览器和服务器时区不同分组差了的 */
@@ -188,8 +192,8 @@ export default function PlansView({
   const 详 = useMemo(() => (补?.行.size ? new Map([...带来的, ...补.行]) : 带来的), [带来的, 补]);
   /** 全部未完成的事项（分批时只有 key、时间、负责人）：条数、分组都在它上面算 */
   const 全部: 轻事项[] = useMemo(
-    () => (轻 && 负责人 ? 轻.map(([key, 时间, i]) => ({ key, 时间, ownerId: 负责人[i] })) : [...带来的.values()]),
-    [轻, 负责人, 带来的],
+    () => (紧 ? 解轻(紧) : 轻 && 负责人 ? 轻.map(([key, 时间, i]) => ({ key, 时间, ownerId: 负责人[i] })) : [...带来的.values()]),
+    [紧, 轻, 负责人, 带来的],
   );
 
   /**
