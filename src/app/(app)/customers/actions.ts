@@ -801,20 +801,25 @@ export async function assignSalesOwner(ids: string[], salesOwnerId: string): Pro
     where: { id: { in: ids }, salesOwnerId: { not: salesOwnerId } },
     data: { salesOwnerId },
   });
-  const { 数: 带走, 记下: 带过来 } = await 带走并记下(换人的.map((c) => ({ customerId: c.id, 旧: c.salesOwnerId })), salesOwnerId, me.id);
+  // 限定着改（企业版虚线上级只能看、团队版同事互看）：看得到的客户里有改不动的，那几位没换人，下面的项目和活也不能跟着走
+  const 换成了 = res.count === 换人的.length ? 换人的 : await 看全部(async () => {
+    const 已换 = new Set((await prisma.customer.findMany({ where: { id: { in: 换人的.map((c) => c.id) }, salesOwnerId }, select: { id: true } })).map((c) => c.id));
+    return 换人的.filter((c) => 已换.has(c.id));
+  });
+  const { 数: 带走, 记下: 带过来 } = await 带走并记下(换成了.map((c) => ({ customerId: c.id, 旧: c.salesOwnerId })), salesOwnerId, me.id);
 
   if (res.count) {
     await recordAudit({
       user: me, action: "assign", entity: "Customer",
       summary: `把 ${res.count} 名${b.customer}的销售负责人改为「${(await prisma.user.findUnique({ where: { id: salesOwnerId }, select: { name: true } }))?.name ?? salesOwnerId}」`,
       // 原值也记下：撤销提示条过了 6 秒，还能照着这里手工改回去（排查 D1）
-      detail: { ids, salesOwnerId, 原负责人: 换人的.map((c) => ({ id: c.id, salesOwnerId: c.salesOwnerId })) },
+      detail: { ids, salesOwnerId, 原负责人: 换成了.map((c) => ({ id: c.id, salesOwnerId: c.salesOwnerId })) },
     });
   }
   revalidateCustomer();
   return {
     ok: true, updated: res.count, unchanged: already, missing: ids.length - res.count - already, 带走, 带过来,
-    原值: 换人的.map((c) => ({ id: c.id, 值: c.salesOwnerId })),
+    原值: 换成了.map((c) => ({ id: c.id, 值: c.salesOwnerId })),
   };
 }
 
