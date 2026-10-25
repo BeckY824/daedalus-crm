@@ -6,6 +6,7 @@
  *   - 边界：每天零点、零点前后 1 毫秒；月初；周起点那一刻；30 天窗口两头；现在这一刻
  *   - 时区：Asia/Shanghai、Europe/London、America/New_York（夏令时那几天）；本机时钟和北京业务钟各一遍
  *   - 空库
+ *   - 文本日期（ISO Z / +08:00 / 「YYYY-MM-DD HH:MM:SS」）：和先换成整数毫秒再数的结果一样（2026-10-25 按毫秒）
  * 库拷自测试库到临时目录，不碰共用的测试库。
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
@@ -15,7 +16,7 @@ import path from "node:path";
 import type { Dayjs } from "dayjs";
 import { PrismaClient } from "@/generated/prisma";
 import { dayjs } from "@/lib/utils";
-import { 客户数, 取行数, _内部 } from "@/lib/dashboard-sql";
+import { 客户数, 取行数, 毫秒, 按毫秒, _内部 } from "@/lib/dashboard-sql";
 import { 最近8周 } from "@/lib/dashboard-trend";
 
 const 测试库 = path.resolve(__dirname, "../prisma/test.db");
@@ -191,4 +192,63 @@ describe("第几天：能除时直接除，和嵌套 CASE 一样", () => {
     设环境("Asia/Shanghai", undefined);
     expect(_内部.除出第几天("t", _内部.排边界(dayjs(new Date("2026-10-20T03:15:00Z")))!.零点)).not.toBeNull();
   });
+});
+
+/** 文本日期的几种写法（同步 / 老数据里见过的） */
+function 文本日期(ms: number, k: number): string {
+  const iso = new Date(ms).toISOString();
+  if (k === 0) return iso;
+  if (k === 1) return new Date(ms + 8 * 3_600_000).toISOString().replace("Z", "+08:00");
+  return iso.slice(0, 19).replace("T", " ");
+}
+
+describe("按毫秒：把类型判断提到外面，值和 f(毫秒(列)) 一样", () => {
+  it("整数、小数、三种文本、认不得的文本、NULL × 第几天 / IN / 比大小", async () => {
+    const z0 = Date.parse("2026-06-01T16:00:00Z");
+    const 零点 = Array.from({ length: 130 }, (_, i) => z0 + i * 天);
+    const 值们: string[] = ["NULL", "'abc'", "''", String(z0), String(z0 - 1), `${z0}.5`, `${z0 + 天 - 0.25}`];
+    for (let i = 0; i < 120; i++) {
+      const ms = z0 + Math.floor((i - 10) * 1.13 * 天) + (i % 3) - 1;
+      值们.push(String(ms), `'${文本日期(ms, i % 3)}'`);
+    }
+    const 表 = 值们.map((v) => `(${v})`).join(",");
+    const 函数们: [string, (t: string) => string][] = [
+      ["第几天", (t) => _内部.第几天(t, 零点)],
+      ["除出第几天", (t) => _内部.除出第几天(t, 零点)!],
+      ["IN", (t) => `(${t} IN (${零点[3]}, ${零点[40]}, ${零点[41] - 1}))`],
+      ["比大小", (t) => `${t} >= ${零点[0]}`],
+    ];
+    for (const [名, f] of 函数们) {
+      const 行 = await db.$queryRawUnsafe<{ a: unknown; b: unknown }[]>(
+        `SELECT ${按毫秒("x", f)} AS a, ${f(毫秒("x"))} AS b FROM (SELECT column1 AS x FROM (VALUES ${表}))`,
+      );
+      expect(行.length, 名).toBe(值们.length);
+      expect(new Set(行.map((r) => String(r.a))).size, 名).toBeGreaterThan(1);
+      for (const [i, r] of 行.entries()) expect(r.a === null ? null : Number(r.a), `${名} · ${值们[i]}`).toBe(r.b === null ? null : Number(r.b));
+    }
+  });
+
+  it("库里有文本日期时，和先换成整数毫秒再数的一样（三个时区 × 两个现在）", async () => {
+    for (const tz of 时区们) {
+      设环境(tz, undefined);
+      for (const iso of ["2026-10-20T03:15:00Z", "2026-11-01T06:30:00Z"]) {
+        const now = dayjs(new Date(iso));
+        await 灌(now, 3000, 150);
+        const r = 随机(7);
+        // 三成的建档、跟进时间改成文本
+        for (const [表, 列] of [["Customer", "createdAt"], ["FollowUp", "occurredAt"]] as const) {
+          const 行 = await db.$queryRawUnsafe<{ id: string; t: bigint | number }[]>(`SELECT id, ${列} AS t FROM "${表}"`);
+          for (const x of 行) if (r() < 0.3) await db.$executeRawUnsafe(`UPDATE "${表}" SET ${列} = ? WHERE id = ?`, 文本日期(Number(x.t), Math.floor(r() * 3)), x.id);
+        }
+        const 文本 = await db.$queryRawUnsafe<{ n: bigint }[]>(`SELECT (SELECT count(*) FROM "Customer" WHERE typeof(createdAt) = 'text') + (SELECT count(*) FROM "FollowUp" WHERE typeof(occurredAt) = 'text') AS n`);
+        expect(Number(文本[0].n)).toBeGreaterThan(100);
+        const 计 = _内部.排边界(now)!;
+        const 有文本 = await _内部.库里数(db, 计);
+        await db.$executeRawUnsafe(`UPDATE "Customer" SET createdAt = ${毫秒("createdAt")}`);
+        await db.$executeRawUnsafe(`UPDATE "FollowUp" SET occurredAt = ${毫秒("occurredAt")}`);
+        expect(有文本, `${tz} · 现在=${iso}`).toEqual(await _内部.库里数(db, 计));
+        expect(有文本).toEqual(await 取行数(db, now));
+      }
+    }
+  }, 60_000);
 });
