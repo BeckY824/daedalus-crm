@@ -69,3 +69,17 @@ export const businessDayjs = Object.assign((...args: Parameters<typeof nativeDay
   (result as unknown as Internal).$x[businessMarker] = true;
   return result;
 }, nativeDayjs) as typeof nativeDayjs;
+
+/**
+ * 等于 businessDayjs(value).valueOf()，最常见的两种串不建 Dayjs：带 Z 的 ISO 瞬间、YYYY-MM-DD 日历日
+ * （计划页一次分几千条，2026-10-25 企业版压测：逐条 businessDayjs 占了服务端忙时 CPU 近两成）。
+ * 别的格式照旧走 businessDayjs。tests/business-value-of.test.ts 拿 businessDayjs 对拍。
+ */
+export function businessValueOf(value: string): number {
+  // Dayjs 遇到 Z 结尾的串直接 new Date(串)；业务钟只把墙钟挪 8 小时、valueOf 再减回来，瞬间不变
+  if (/Z$/i.test(value)) return Date.parse(value);
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!day) return businessDayjs(value).valueOf();
+  // 业务钟：和 businessDayjs 拼同一个 UTC 串再减 8 小时 = 北京零点；本机钟：和 Dayjs 解析同一个写法 = 本机零点
+  return businessTimeZone() ? Date.parse(`${value}T00:00:00Z`) - offsetMs : new Date(+day[1], +day[2] - 1, +day[3], 0, 0, 0, 0).getTime();
+}
