@@ -295,6 +295,7 @@ Key 只保存在贵司服务器上。
 | 忘了管理员密码 | 见下方「重置管理员密码」 |
 | 磁盘快满 | `sudo docker images` 看旧版本镜像，`sudo docker rmi ghcr.io/becky824/daedalus-crm:<旧版本>` 删掉（**保留当前和上一版**，回滚要用）；减小 `BACKUP_KEEP`；附件多就扩容硬盘 |
 | 自动备份没在跑 | `cat /var/log/crm-backup.log` 看报错；`ls /etc/cron.d/crm-backup` 不存在就重跑 `install.sh` |
+| 页面偶尔报「数据库忙」、或想排查是不是多连接引起的 | `.env` 里加一行 `CRM_READ_POOL=0`，`sudo docker compose up -d`：查询回到单连接（会慢一些，功能不变）。查完删掉这行再 `up -d` 恢复 |
 
 **重置管理员密码**（会把 `admin` 的密码改成你指定的值）：
 
