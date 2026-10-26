@@ -11,6 +11,7 @@
 import { getSetting, invalidateSettingsCache } from "@/lib/settings";
 import { 查完再写 } from "@/lib/check-then-write";
 import { 管理员类别of, type 组织 } from "./org-core";
+import { 企业版 } from "./switch";
 
 export type 满额提醒 = { id: string; at: string; 条数: number; 线索: string[]; 谁点的: string };
 
@@ -41,8 +42,9 @@ export async function 读满额提醒(userId: string): Promise<满额提醒[]> {
   return 认列表(await getSetting<unknown>(键(userId)));
 }
 
-/** 发一条：线索名是这一次点击里因都已满额没分出去的那几条；空的不发 */
+/** 发一条：线索名是这一次点击里因都已满额没分出去的那几条；空的不发，不是企业版不发 */
 export async function 发满额提醒(org: 组织, 线索: string[], 谁点的: string, 今 = new Date()): Promise<void> {
+  if (!企业版()) return;
   const 收件人 = 满额提醒收件人(org);
   if (!线索.length || !收件人.length) return;
   const 条: 满额提醒 = { id: `${今.getTime().toString(36)}${Math.random().toString(36).slice(2, 8)}`, at: 今.toISOString(), 条数: 线索.length, 线索, 谁点的 };

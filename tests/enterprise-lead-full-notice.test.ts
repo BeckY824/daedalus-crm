@@ -19,7 +19,8 @@ import { prisma } from "@/lib/prisma";
 import { setSetting } from "@/lib/settings";
 import { resetDb } from "./reset";
 import { 自动分配线索, 批量自动分配, 我的满额提醒, 关满额提醒 } from "@/app/(app)/leads/assign-actions";
-import { 读满额提醒 } from "@/lib/enterprise/lead-full-notice";
+import { 读满额提醒, 发满额提醒 } from "@/lib/enterprise/lead-full-notice";
+import { 读组织 } from "@/lib/enterprise/org";
 import { 规则 } from "@/lib/enterprise/rules";
 
 let 老板: string, 总管: string, 市场: string, 销售经理: string, 甲: string, 乙: string;
@@ -126,5 +127,16 @@ describe("都已满额 → 提醒市场管理、总管理员", () => {
     await 自动分配线索(await 建线索("L6"));
     mocks.企业版 = false;
     expect(await 我的满额提醒()).toEqual([]);
+  });
+
+  it("开关关闭时不变：自动分配照旧拒、不发提醒，直接调发提醒也不写库", async () => {
+    await 配(甲, 0);
+    await 配(乙, 0);
+    mocks.企业版 = false;
+    const L = await 建线索("L6");
+    expect(await 自动分配线索(L)).toMatchObject({ ok: false });
+    expect(await 批量自动分配([L])).toMatchObject({ ok: false });
+    await 发满额提醒(await 读组织(), ["L6"], "市场小李");
+    expect(await prisma.setting.count({ where: { key: { startsWith: "entLeadFullNotice:" } } })).toBe(0);
   });
 });

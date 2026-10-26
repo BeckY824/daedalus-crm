@@ -63,6 +63,21 @@ describe("企业版服务器：低权限先触发，也是全公司扫", () => {
   });
 });
 
+describe("开关关闭时不变（个人版、团队版）", () => {
+  it("库里存着开的超时规则也不收、不记扫过的号", async () => {
+    vi.stubEnv("CRM_ENTERPRISE", "");
+    const p乙 = await 项目(乙.id, "2026-10-01 10:00");
+    for (const 配置 of [null, { teamId: "t1", key: "k", device: "d" }]) {
+      团队.配置 = 配置;
+      expect(await 公海超时收回(乙, 时("2026-10-25 09:00"))).toBe(0);
+    }
+    expect(await 夜里扫超时(时("2026-10-25 00:05"))).toBe(0);
+    expect(await 在公海(p乙.id)).toBe(false);
+    expect(await prisma.projectNodeLog.count({ where: { kind: "pool-release" } })).toBe(0);
+    expect(await prisma.setting.count({ where: { key: { startsWith: "projectTimeoutSweptOn" } } })).toBe(0);
+  });
+});
+
 describe("团队模式：只扫自己名下的那次不记全公司的号", () => {
   beforeEach(() => {
     团队.配置 = { teamId: "t1", key: "k", device: "d" };
