@@ -10,6 +10,8 @@ import { 规则开着 } from "@/lib/enterprise/rules";
 import { 读组织 } from "@/lib/enterprise/org";
 import { 能分配 } from "@/lib/enterprise/lead-assign";
 import { 企业版 } from "@/lib/enterprise/switch";
+import { 读满额提醒 } from "@/lib/enterprise/lead-full-notice";
+import LeadFullNotices from "./LeadFullNotices";
 
 export const dynamic = "force-dynamic";
 
@@ -60,7 +62,11 @@ export default async function LeadsPage({
   // 企业版「线索分配和配额」开着、我能分配（老板、总管理员、市场管理）才摆「分配」「自动分配」；服务端还会再查一遍
   const 线索分配开着 = (await 规则开着("线索分配")) && !(await 当前是共享区());
   const 能自动分配 = 线索分配开着 && 能分配(await 读组织(), me);
+  // 企业版自动分配因都已满额没分出去的提醒（只发给市场管理、总管理员，见 lib/enterprise/lead-full-notice.ts）
+  const 满额提醒们 = 企业版() ? await 读满额提醒(me.id) : [];
   return (
+    <>
+    <LeadFullNotices 提醒={满额提醒们} />
     <LeadsView
       总数={总数}
       me={me.id}
@@ -88,5 +94,6 @@ export default async function LeadsPage({
         updatedAt: l.updatedAt.toISOString(),
       }))}
     />
+    </>
   );
 }

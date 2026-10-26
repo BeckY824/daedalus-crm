@@ -19,7 +19,6 @@ const 开着 = (节点天数: Record<string, number>): 组织规则 => ({ ...默
 /** 服务器本地时间 */
 const 时 = (s: string) => new Date(`${s.replace(" ", "T")}:00`);
 
-let 老板: { id: string; name: string };
 let 经理: { id: string; name: string };
 let 乙: { id: string; name: string };
 let 丙: { id: string; name: string };
@@ -39,7 +38,8 @@ beforeEach(async () => {
   invalidateSettingsCache();
   vi.stubEnv("CRM_ENTERPRISE", "1");
   团队.配置 = null;
-  老板 = await 人("boss", "老板", "ADMIN");
+  // 库里有个老板（管理员），全公司扫的口径和线上一样
+  await 人("boss", "老板", "ADMIN");
   经理 = await 人("mkt", "市场经理", "MANAGER");
   乙 = await 人("yi", "乙", "SALES");
   丙 = await 人("bing", "丙", "SALES");
