@@ -227,7 +227,9 @@ export default function EnterpriseImportReport({
                 <Select<实体>
                   size="small"
                   style={{ width: 170 }}
-                  disabled={只读}
+                  // 从客户表里拆出来的联系人：跟着那张表走，改那张表的类别就行
+                  disabled={只读 || !!f.拆自}
+                  title={f.拆自 ? `从「${f.拆自}」里拆出来的，改那张表的类别` : undefined}
                   status={!f.实体 && !改.文件实体?.[f.名] ? "warning" : undefined}
                   placeholder="认不出，请选"
                   value={改.文件实体?.[f.名] ?? f.实体 ?? undefined}

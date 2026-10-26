@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { zipSync, strToU8 } from "fflate";
-import { 拆联系人, 读文件们, type 读出的表 } from "@/lib/enterprise-import/excel";
+import { 拆人格, 拆联系人, 读文件们, type 读出的表 } from "@/lib/enterprise-import/excel";
 import { 拆多人, 规则对负责人, 进备注, type 成员 } from "@/lib/enterprise-import/mapping";
 import { 清洗 } from "@/lib/enterprise-import/clean";
 import { 导出对照表, 读回对照表, 对照表头 } from "@/lib/enterprise-import/template";
@@ -138,13 +138,53 @@ describe("客户表里带联系人：拆成两张", () => {
     expect(全空[0].表头).toEqual(["客户名称"]);
   });
 
-  it("读文件们：CSV 客户表也走拆表", () => {
+  it("读文件们只读、只猜类别，不拆；拆是类别定了之后的事（试跑里拆）", () => {
     const csv = "﻿客户名称,联系人姓名,联系人手机\r\n甲公司,张三,13800000001\r\n";
     const 表们 = 读文件们({ 名: "客户.csv", bytes: strToU8(csv) });
-    expect(表们.map((t) => [t.名, t.实体])).toEqual([
-      ["客户.csv", "customer"],
-      ["客户.csv（联系人）", "contact"],
+    expect(表们.map((t) => [t.名, t.实体])).toEqual([["客户.csv", "customer"]]);
+    expect(表们.flatMap(拆联系人).map((t) => [t.名, t.实体, t.拆自 ?? null])).toEqual([
+      ["客户.csv", "customer", null],
+      ["客户.csv（联系人）", "contact", "客户.csv"],
     ]);
+  });
+
+  it("拆人格：分人只按；;、换行，名字旁的电话 / 邮箱 / 标签取出来，只有号码的一段算前一个人", () => {
+    expect(拆人格("张三")).toEqual([{ 名: "张三", 电话: [], 邮箱: [] }]);
+    expect(拆人格("张三 138-0000-0001")).toEqual([{ 名: "张三", 电话: ["13800000001"], 邮箱: [] }]);
+    expect(拆人格("李四（手机：13900000002）；王五 wangwu@x.com")).toEqual([
+      { 名: "李四", 电话: ["13900000002"], 邮箱: [] },
+      { 名: "王五", 电话: [], 邮箱: ["wangwu@x.com"] },
+    ]);
+    expect(拆人格("赵六；021-12345678")).toEqual([{ 名: "赵六", 电话: ["02112345678"], 邮箱: [] }]);
+    // 逗号、斜杠不分：英文名、带分隔的名字照留
+    expect(拆人格("Smith, John")).toEqual([{ 名: "Smith, John", 电话: [], 邮箱: [] }]);
+    // 位数不够的不算电话（工号、分机）
+    expect(拆人格("孙七 8023")).toEqual([{ 名: "孙七 8023", 电话: [], 邮箱: [] }]);
+  });
+
+  it("名字格里分出来的电话落到已有的联系人电话列（空着才填），撞了的进备注，不丢", () => {
+    const t: 读出的表 = {
+      名: "客户",
+      实体: "customer",
+      表头: ["客户名称", "联系人", "联系人手机", "联系人职位"],
+      行: [
+        ["甲公司", "张三 13800000001", "", "经理"],
+        ["乙公司", "李四 13900000002", "13900000009", ""],
+        ["丙公司", "王五、钱八", "", "采购"],
+      ],
+      行号: [2, 3, 4],
+      提醒: [],
+    };
+    const [, 人] = 拆联系人(t);
+    expect(人.表头).toEqual(["所属客户", "姓名", "手机", "职位", "备注"]);
+    expect(人.行).toEqual([
+      ["甲公司", "张三", "13800000001", "经理", ""],
+      ["乙公司", "李四", "13900000009", "", "另有：13900000002"],
+      ["丙公司", "王五", "", "采购", ""],
+      ["丙公司", "钱八", "", "", ""],
+    ]);
+    expect(人.行号).toEqual([2, 3, 4, 4]);
+    expect(人.提醒.join("")).toMatch(/3 格/);
   });
 });
 

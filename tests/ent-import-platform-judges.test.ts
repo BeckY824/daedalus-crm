@@ -22,7 +22,7 @@ import { 试跑, 重新试跑, type 试跑报告 } from "@/lib/enterprise-import
 import { 写一批 } from "@/lib/enterprise-import/apply";
 import { 撤回一批 } from "@/lib/enterprise-import/revert";
 import { 已认映射 } from "@/lib/enterprise-import/sync";
-import { 读文件们, type 读出的表 } from "@/lib/enterprise-import/excel";
+import { 拆联系人, 读文件们, type 读出的表 } from "@/lib/enterprise-import/excel";
 import { 导出对照表, 读回对照表, 对照表头 } from "@/lib/enterprise-import/template";
 import { 解析CSV带行号, 解码CSV } from "@/lib/import/parse";
 import { 实体顺序, type 实体 } from "@/lib/enterprise-import/types";
@@ -144,7 +144,8 @@ describe.each(样例们)("裁判 · $目录", (样) => {
     成员们 = (await prisma.user.findMany({ select: { id: true, name: true, email: true } })).map((u) => ({ ...u, email: u.email ?? "" }));
 
     表们 = 样.文件们.flatMap((n) => 读文件们({ 名: n, bytes: new Uint8Array(readFileSync(join(目录, n))) }));
-    expect(表们.map((t) => [t.名, t.实体, t.行.length])).toEqual(样.表);
+    // 读出来是没拆的；试跑按定了的类别拆，拆完的样子对上样例
+    expect(表们.flatMap(拆联系人).map((t) => [t.名, t.实体, t.行.length])).toEqual(样.表);
     导入前 = await 拍();
   });
 
