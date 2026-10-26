@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { 看得到的客户数, 最近跟进的客户 } from "@/lib/scope-sql";
 import { scheduleValue, scheduleOrder, earliestScheduled } from "@/lib/schedule-date";
 import { requireUser } from "@/lib/auth";
 import CustomerRoster from "@/components/CustomerRoster";
@@ -41,22 +42,24 @@ import { FOLLOW_TYPE_MAP } from "@/lib/constants";
  */
 export async function 学员名单() {
   const me = await requireUser();
-  const [total, rows] = await Promise.all([
-    prisma.customer.count(),
-    prisma.customer.findMany({
-      orderBy: [{ lastFollowAt: "desc" }, { createdAt: "desc" }],
-      take: 50,
-      select: {
-        id: true, name: true, followStatus: true, lastFollowAt: true, salesOwnerId: true,
-        salesOwner: { select: { name: true } },
-        channel: { select: { name: true } },
-        referrerCustomerId: true,
-        followUps: { orderBy: { occurredAt: "desc" }, take: 1, select: { content: true, type: true } },
-        // 最近一条还没做的计划：「本周要跟」那个页签和右下角的圆点都看它
-        plans: { where: { done: false }, orderBy: [{ plannedAt: "asc" }, { id: "asc" }], select: { plannedAt: true, plannedOn: true } },
-      },
-    }),
-  ]);
+  // 业务员（带范围）先用裸 SQL 挑出那 50 位的编号再按编号取，免得范围那句 OR 把客户表整张扫两遍（lib/scope-sql.ts）
+  const [total, ids] = await Promise.all([看得到的客户数(), 最近跟进的客户(50)]);
+  const 取 = await prisma.customer.findMany({
+    where: ids ? { id: { in: ids } } : undefined,
+    orderBy: ids ? undefined : [{ lastFollowAt: "desc" }, { createdAt: "desc" }],
+    take: ids ? undefined : 50,
+    select: {
+      id: true, name: true, followStatus: true, lastFollowAt: true, salesOwnerId: true,
+      salesOwner: { select: { name: true } },
+      channel: { select: { name: true } },
+      referrerCustomerId: true,
+      followUps: { orderBy: { occurredAt: "desc" }, take: 1, select: { content: true, type: true } },
+      // 最近一条还没做的计划：「本周要跟」那个页签和右下角的圆点都看它
+      plans: { where: { done: false }, orderBy: [{ plannedAt: "asc" }, { id: "asc" }], select: { plannedAt: true, plannedOn: true } },
+    },
+  });
+  const 位 = new Map(ids?.map((id, i) => [id, i]));
+  const rows = ids ? 取.sort((a, b) => 位.get(a.id)! - 位.get(b.id)!) : 取;
   return (
     <CustomerRoster
       data={{
