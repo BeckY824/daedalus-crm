@@ -29,15 +29,15 @@ export async function 判MQL(
   if (dayjs(日).format("YYYY-MM-DD") < dayjs(now).format("YYYY-MM-DD")) return { ok: false, error: "下一次培育跟进不能早于今天" };
   const r = await 改节点(me, p.id, { phase: "线索", node: MQL不合格去 });
   if (!r.ok) return r;
-  await prisma.$transaction([
-    prisma.project.update({ where: { id: p.id }, data: { nextStepAt: 日 } }),
-    prisma.followPlan.create({
+  await prisma.$transaction(async (tx) => {
+    await tx.project.update({ where: { id: p.id }, data: { nextStepAt: 日 } });
+    await tx.followPlan.create({
       data: {
         subject: `潜客培育：项目「${p.name}」MQL 不合格，按计划再跟进`,
         plannedAt: 日, plannedOn: dayjs(日).format("YYYY-MM-DD"), plannedHasTime: false,
         customerId: p.customerId, ownerId: p.ownerId,
       },
-    }),
-  ]);
+    });
+  });
   return { ok: true };
 }
