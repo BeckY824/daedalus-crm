@@ -29,6 +29,9 @@ trap 'rm -rf "$STAGE"' EXIT
 mkdir -p "$STAGE/crm-enterprise/certs"
 cp "$HERE/docker-compose.yml" "$HERE/Caddyfile" "$HERE/.env.example" "$HERE/README.md" "$STAGE/crm-enterprise/"
 cp -R "$HERE/scripts" "$STAGE/crm-enterprise/"
+# 装好后的冒烟检查也带上（客户 IT 和我方上门都能跑）；其它 tools/ 是我方演练用，不进包
+mkdir -p "$STAGE/crm-enterprise/tools"
+cp "$HERE/tools/smoke.sh" "$STAGE/crm-enterprise/tools/"
 echo "$VER" > "$STAGE/crm-enterprise/VERSION"
 touch "$STAGE/crm-enterprise/certs/.keep"
 # 打包机是 Mac 时别带上 ._ 资源文件和扩展属性

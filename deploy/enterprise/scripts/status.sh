@@ -29,7 +29,12 @@ else
   warn "还没有成功的备份"
 fi
 [ -f /etc/cron.d/crm-backup ] && echo "定时备份：已安装（/etc/cron.d/crm-backup）" || warn "定时备份没有安装（重跑 install.sh 会装上）"
-[ -s certs/tls.caddy ] && echo "HTTPS 证书：贵司自有证书" || echo "HTTPS 证书：自动申请（Let's Encrypt）"
+TLS_MODE="$(tls_mode)"
+case "$TLS_MODE" in
+  own)      echo "HTTPS 证书：贵司自有证书" ;;
+  internal) echo "HTTPS 证书：Caddy 内部 CA 签发（浏览器默认不信任；员工电脑装根证书见 scripts/export-root-cert.sh）" ;;
+  *)        echo "HTTPS 证书：自动申请（Let's Encrypt）" ;;
+esac
 
 echo "磁盘："
 # 部署目录和 Docker 数据目录可能不在同一块盘，两块都看；用到 85% 或剩不到 5G 就提示（盘满了数据库写不进、备份也做不了）
@@ -45,9 +50,12 @@ done
 docker system df 2>/dev/null | sed 's/^/  /'
 
 # 证书：正在用的那张还有多久过期。自动申请的证书 Caddy 会提前续，剩不到 14 天说明续不上了（80/443 被挡、域名解析改了）
+# 内部 CA 签的证书本来就只有约 12 小时、Caddy 自动续，不按 14 天查
 DOMAIN="$(env_get DOMAIN)"
-if [ -n "$DOMAIN" ] && [ "$DOMAIN" != localhost ] && command -v openssl >/dev/null; then
-  CERT="$(echo | openssl s_client -connect 127.0.0.1:443 -servername "$DOMAIN" 2>/dev/null | openssl x509 2>/dev/null)"
+if [ -n "$DOMAIN" ] && [ "$TLS_MODE" != internal ] && command -v openssl >/dev/null; then
+  SNI=(-servername "$DOMAIN")
+  is_ipv4 "$DOMAIN" && SNI=()   # 用 IP 访问时浏览器不带 SNI，这里也不带
+  CERT="$(echo | openssl s_client -connect 127.0.0.1:443 "${SNI[@]}" 2>/dev/null | openssl x509 2>/dev/null)"
   if [ -z "$CERT" ]; then
     warn "读不到 https://$DOMAIN 的证书（Caddy 没起来？）"
   else

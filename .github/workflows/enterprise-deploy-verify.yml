@@ -7,11 +7,16 @@ name: Enterprise deploy verify
 #   upgrade-drill  ×3：先装 GHCR 上最新发布的版本（客户现在跑的）→ tools/verify-upgrade.sh 用离线包
 #                  升级 → 回滚 → 再升级，每步经 HTTPS 核版本、核数据表一张没少 → 升到一个起不来的版本号，
 #                  核 upgrade.sh 自动退回
-#   restore-drill  ×3：解开部署包，计时跑 install.sh（一条命令装好，超过 30 分钟算失败）→
+#   restore-drill  ×3：解开部署包，计时跑 install.sh（一条命令装好，超过 30 分钟算失败）。
+#                  三遍访问地址各不同：localhost / 127.0.0.1 / runner 内网 IP——后两遍走「用 IP 装」，
+#                  HTTPS 由 Caddy 内部 CA 自签：导出根证书后 curl 不带 -k 也要验得过 →
+#                  tools/smoke.sh：管理员登录 → 加成员 → 成员登录 → 健康检查 →
+#                  每日备份的 /etc/cron.d/crm-backup 已装、手动 scripts/backup.sh 能出备份文件 →
 #                  tools/restore-drill.sh --fill：灌数据 → 备份 → 5 种坏备份必须被拒 → 清空 →
 #                  只拿异地备份恢复 → 逐表逐文件比对指纹 → 启动、HTTPS 检查
 # 升级、恢复各跑三遍，三遍都绿才算过（matrix 不 fail-fast，哪一遍红了都看得到）。
-# DOMAIN=localhost 时 Caddy 用自带 CA 发证书，不去 Let's Encrypt，所以 curl 带 -k。
+# DOMAIN=localhost 或 IP 时 Caddy 用自带 CA 发证书，不去 Let's Encrypt，所以 curl 带 -k。
+# 安装输出里的初始密码、备份密码先 ::add-mask:: 再打印，日志里看不到。
 # 只读：只从 GHCR 拉公开镜像，不推镜像、不碰任何服务器。正式机上的实跑在测试机（tools/UPGRADE-RUNBOOK.md）。
 
 on:
@@ -38,6 +43,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
+      - name: lib.sh 小测试（IP 判断、地址整理、证书模式）
+        run: bash deploy/enterprise/tools/drill/test-lib.sh
       - name: 定版本号
         id: ver
         run: |
@@ -153,17 +160,26 @@ jobs:
         run: docker compose down -v --remove-orphans || true
 
   restore-drill:
-    name: 安装 + 恢复演练 第 ${{ matrix.round }} 遍
+    name: 安装 + 恢复演练 第 ${{ matrix.round }} 遍（${{ matrix.addr }}）
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        round: [1, 2, 3]
+        include:
+          - round: 1
+            addr: localhost
+          - round: 2
+            addr: 127.0.0.1
+          - round: 3
+            addr: 内网IP
     env:
       CIV: ${{ needs.build.outputs.civ }}
       CRM_DIR: /opt/crm-enterprise
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -175,17 +191,82 @@ jobs:
           ls -lh "$RUNNER_TEMP/pkg"
           sudo tar -xzf "$RUNNER_TEMP/pkg/crm-enterprise-$CIV.tar.gz" -C /opt
           test -x "$CRM_DIR/scripts/install.sh"
+          test -x "$CRM_DIR/tools/smoke.sh"
+
+      - name: 定访问地址
+        run: |
+          ADDR="${{ matrix.addr }}"
+          if [ "$ADDR" = 内网IP ]; then ADDR="$(hostname -I | awk '{print $1}')"; fi
+          echo "访问地址：$ADDR"
+          [ -n "$ADDR" ] || { echo "::error::取不到 runner 内网 IP"; exit 1; }
+          echo "ADDR=$ADDR" >> "$GITHUB_ENV"
+          # localhost 走 --resolve 打本机；IP 直接连这个 IP（内网 IP 那遍走的是真网卡，不是回环）
+          if [ "$ADDR" = localhost ]; then echo "RESOLVE=--resolve localhost:443:127.0.0.1" >> "$GITHUB_ENV"; else echo "RESOLVE=" >> "$GITHUB_ENV"; fi
 
       - name: 一条命令装好（计时，超过 30 分钟算失败）
         working-directory: /opt/crm-enterprise
         run: |
+          OUT="$RUNNER_TEMP/install.out"
           T0=$(date +%s)
-          sudo ./scripts/install.sh --domain localhost --load "$RUNNER_TEMP/pkg/crm-images-$CIV.tar.gz" < /dev/null
+          # 输出先进文件、打码后再打印：里面有初始密码和备份密码
+          set +e
+          sudo ./scripts/install.sh --domain "$ADDR" --load "$RUNNER_TEMP/pkg/crm-images-$CIV.tar.gz" < /dev/null > "$OUT" 2>&1
+          RC=$?
+          set -e
           S=$(( $(date +%s) - T0 ))
+          chmod 600 "$OUT"
+          PW="$(sed -n 's/^  初始密码：  *//p' "$OUT" | head -1)"
+          [ -z "$PW" ] || echo "::add-mask::$PW"
+          BP="$(sudo cat "$CRM_DIR/secrets/backup.pass" 2>/dev/null || true)"
+          [ -z "$BP" ] || echo "::add-mask::$BP"
+          cat "$OUT"
+          [ "$RC" = 0 ] || { echo "::error::install.sh 退出码 $RC"; exit 1; }
+          [ -n "$PW" ] || { echo "::error::安装输出里没有初始密码"; exit 1; }
+          # 只给后面的 smoke 用；install.sh 已把 .env 里的明文清掉
+          umask 077; printf '%s\n' "$PW" > "$RUNNER_TEMP/admin.pass"
           echo "安装用时 ${S} 秒"
-          echo "### 安装用时 ${S} 秒（第 ${{ matrix.round }} 遍）" >> "$GITHUB_STEP_SUMMARY"
+          echo "### 安装用时 ${S} 秒（第 ${{ matrix.round }} 遍，访问地址 ${{ matrix.addr }}）" >> "$GITHUB_STEP_SUMMARY"
           [ "$S" -lt 1800 ] || { echo "::error::安装用了 ${S} 秒，超过 30 分钟"; exit 1; }
-          curl -kfsS --resolve localhost:443:127.0.0.1 https://localhost/api/health | grep -q "\"version\":\"$CIV\""
+          sudo grep -qx "DOMAIN=$ADDR" .env || { echo "::error::.env 的 DOMAIN 不是 $ADDR"; exit 1; }
+          sudo grep -q '^INIT_PASSWORD=$' .env || { echo "::error::.env 里还留着初始密码"; exit 1; }
+          curl -kfsS $RESOLVE "https://$ADDR/api/health" | grep -q "\"version\":\"$CIV\""
+
+      - name: 用 IP 装的 HTTPS：内部 CA 自签，导出根证书后不带 -k 也验得过
+        if: matrix.addr != 'localhost'
+        working-directory: /opt/crm-enterprise
+        run: |
+          sudo grep -qx 'tls internal' certs/tls.caddy || { echo "::error::certs/tls.caddy 应当是 tls internal"; exit 1; }
+          sudo ./scripts/export-root-cert.sh "$RUNNER_TEMP/crm-root-ca.crt"
+          # 不带 -k、不带 SNI（IP 访问时浏览器就不带）：证书链要验得过、证书里要有这个 IP
+          curl -fsS --cacert "$RUNNER_TEMP/crm-root-ca.crt" "https://$ADDR/api/health" | grep -q "\"version\":\"$CIV\""
+          echo | openssl s_client -connect "$ADDR:443" 2>/dev/null | openssl x509 -noout -ext subjectAltName | tee /dev/stderr | grep -q "IP Address:$ADDR"
+          # 不信任这张根证书时必须验不过（证明真是自签、不是别的什么证书）
+          if curl -fsS -o /dev/null "https://$ADDR/api/health" 2>/dev/null; then echo "::error::没装根证书也验过了，不对"; exit 1; fi
+          sudo ./scripts/status.sh | grep 'HTTPS 证书'
+
+      - name: 冒烟（tools/smoke.sh：管理员登录 → 加成员 → 成员登录 → 健康检查）
+        working-directory: /opt/crm-enterprise
+        run: |
+          sudo ./tools/smoke.sh --password-file "$RUNNER_TEMP/admin.pass" 2>&1 | tee "$RUNNER_TEMP/smoke.out"
+          # 自检：密码不能出现在冒烟输出里
+          if grep -qF -f "$RUNNER_TEMP/admin.pass" "$RUNNER_TEMP/smoke.out"; then echo "::error::冒烟输出里出现了密码"; exit 1; fi
+          rm -f "$RUNNER_TEMP/admin.pass"
+
+      - name: 每日备份已装、手动备份能出文件
+        working-directory: /opt/crm-enterprise
+        run: |
+          test -f /etc/cron.d/crm-backup || { echo "::error::没有 /etc/cron.d/crm-backup"; exit 1; }
+          cat /etc/cron.d/crm-backup
+          grep -q "cd \"$CRM_DIR\" && ./scripts/backup.sh >> /var/log/crm-backup.log" /etc/cron.d/crm-backup || { echo "::error::定时任务内容不对"; exit 1; }
+          N0="$(sudo sh -c 'ls -1 backups/crm-*.tar.gz.enc 2>/dev/null | wc -l')"
+          sudo ./scripts/backup.sh
+          N1="$(sudo sh -c 'ls -1 backups/crm-*.tar.gz.enc 2>/dev/null | wc -l')"
+          [ "$N1" -gt "$N0" ] || { echo "::error::backup.sh 跑完没有多出备份文件（前 $N0 后 $N1）"; exit 1; }
+          sudo test -s backups/LAST_OK || { echo "::error::没有 backups/LAST_OK"; exit 1; }
+          sudo ls -l backups/
+          # 和定时任务一样的方式跑一次，日志要写进 /var/log/crm-backup.log
+          sudo bash -c "cd '$CRM_DIR' && ./scripts/backup.sh >> /var/log/crm-backup.log 2>&1"
+          sudo tail -5 /var/log/crm-backup.log
 
       - name: 恢复演练（tools/restore-drill.sh，和测试机上跑的同一个）
         run: sudo CRM_DIR="$CRM_DIR" deploy/enterprise/tools/restore-drill.sh --fill

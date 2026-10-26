@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # 第一次安装。重复执行是安全的：已有的 .env、备份密码、数据都不会被覆盖。
 #
-#   sudo ./scripts/install.sh                                   # 在线安装，会问域名
+#   sudo ./scripts/install.sh                                   # 在线安装，会问域名或 IP
 #   sudo ./scripts/install.sh --domain crm.example.com
+#   sudo ./scripts/install.sh --domain 10.0.0.8                 # 没有域名：用服务器 IP，证书由内置 CA 自签
 #   sudo ./scripts/install.sh --load crm-images-0.47.0.tar.gz   # 离线：先导入我们发的镜像包
 #
 # 做的事：检查服务器 → （离线时）导入镜像 → 生成 .env 和管理员密码 → 生成备份密码
-#        → 启动 → 等健康检查 → 装每日备份定时任务 → 打印管理员密码（只显示一次）
+#        → （用 IP 时）改用内置 CA 证书 → 启动 → 等健康检查 → 装每日备份定时任务
+#        → 打印管理员密码（只显示一次）
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
@@ -16,7 +18,7 @@ while [ $# -gt 0 ]; do
     --domain)  DOMAIN_ARG="${2:-}"; shift 2 ;;
     --load)    BUNDLE="${2:-}"; shift 2 ;;
     --version) VERSION_ARG="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "不认识的参数 $1（--help 看用法）" ;;
   esac
 done
@@ -67,11 +69,13 @@ if [ ! -f .env ]; then
   [ -n "$VERSION" ] || die "不知道装哪个版本：用 --version 指定，或用我们发的部署包（里面有 VERSION 文件）"
   DOMAIN="$DOMAIN_ARG"
   if [ -z "$DOMAIN" ]; then
-    printf '贵司给 CRM 用的域名（如 crm.example.com，需已解析到本机公网 IP）：'
+    echo '贵司给 CRM 用的域名或 IP：'
+    echo '  有域名：填域名，如 crm.example.com（要先解析到本机公网 IP），自动申请正式证书'
+    echo '  没域名：填这台服务器的 IP，如 10.0.0.8（员工从哪个地址访问就填哪个），证书由内置 CA 自签'
+    printf '域名或 IP：'
     read -r DOMAIN
   fi
-  DOMAIN="$(printf '%s' "$DOMAIN" | sed -e 's|^https\{0,1\}://||' -e 's|/.*$||')"
-  [ -n "$DOMAIN" ] || die "域名不能为空"
+  DOMAIN="$(normalize_host "$DOMAIN")" || exit 1
 
   umask 077
   cp .env.example .env
@@ -86,6 +90,14 @@ else
 fi
 mkdir -p certs secrets backups
 chmod 700 secrets backups
+
+# 用 IP 访问：公网证书机构不给 IP 发证书，改由 Caddy 内置 CA 签发（见 Caddyfile）。
+# 已经有 tls.caddy（换过自有证书）就不动
+if is_ipv4 "$(env_get DOMAIN)" && [ ! -s certs/tls.caddy ]; then
+  echo 'tls internal' > certs/tls.caddy
+  chmod 644 certs/tls.caddy
+  ok "用 IP 访问：HTTPS 证书由内置 CA 签发（浏览器会提示不受信任，见手册「四、HTTPS 证书」）"
+fi
 
 # ── 4. 备份密码 ───────────────────────────────────────
 if [ ! -s "$(backup_pass_file)" ]; then
@@ -128,6 +140,12 @@ if [ -n "$PASS" ]; then
   echo "  管理员账号：admin"
   echo "  初始密码：  $PASS"
   echo "  登录后请马上到「设置管理 → 修改密码」改掉。这段只显示这一次。"
+fi
+if [ "$(tls_mode)" = internal ] && [ "$DOMAIN" != localhost ]; then
+  echo
+  echo "  证书是内置 CA 自签的：浏览器第一次打开会提示「不安全 / 证书不受信任」。"
+  echo "  员工电脑装一次根证书就不再提示：sudo ./scripts/export-root-cert.sh（手册「四」）"
+  echo "  或者换成贵司自己的证书：sudo ./scripts/use-own-cert.sh"
 fi
 echo "=================================================="
 # 库已建好，初始密码不再起作用；不把明文密码留在磁盘上

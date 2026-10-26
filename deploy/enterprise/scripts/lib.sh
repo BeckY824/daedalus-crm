@@ -81,3 +81,40 @@ sha256_check() {
   local f="$1"
   ( cd "$(dirname "$f")" && if command -v sha256sum >/dev/null; then sha256sum -c "$(basename "$f")"; else shasum -a 256 -c "$(basename "$f")"; fi ) >/dev/null
 }
+
+# 是不是 IPv4 地址（四段、每段 0–255）。用 IP 访问时 HTTPS 证书走 Caddy 内部 CA，见 Caddyfile
+is_ipv4() {
+  local o='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
+  printf '%s' "$1" | grep -Eq "^($o\.){3}$o\$"
+}
+
+# 把填的访问地址整理成 .env 的 DOMAIN：去掉 http(s)://、路径、端口（只走 443），统一小写。
+# 不合法就报错退出（在 $(...) 里调用，调用方要 || exit 1）
+normalize_host() {
+  local h
+  h="$(printf '%s' "$1" | tr -d '[:space:]' | sed -e 's|^[Hh][Tt][Tt][Pp][Ss]\{0,1\}://||' -e 's|/.*$||' | tr 'A-Z' 'a-z')"
+  case "$h" in
+    \[*|*:*:*) die "暂不支持 IPv6 地址，请填 IPv4 地址或域名" ;;
+    *:*) h="${h%%:*}" ;;
+  esac
+  [ -n "$h" ] || die "域名或 IP 不能为空"
+  if printf '%s' "$h" | grep -Eq '^[0-9.]+$' && ! is_ipv4 "$h"; then
+    die "$h 不是正确的 IP 地址（要四段、每段 0–255，如 10.0.0.8）"
+  fi
+  printf '%s' "$h"
+}
+
+# 现在 HTTPS 证书是哪一种：
+#   own       贵司自己的证书（use-own-cert.sh 写的 certs/tls.caddy）
+#   internal  Caddy 内部 CA 签的（用 IP 访问、localhost、或手动写了 tls internal）——浏览器默认不信任
+#   auto      自动向 Let's Encrypt 申请
+tls_mode() {
+  if grep -qs '^tls internal' certs/tls.caddy; then echo internal
+  elif [ -s certs/tls.caddy ]; then echo own
+  elif [ "$(env_get DOMAIN)" = localhost ]; then echo internal
+  else echo auto
+  fi
+}
+
+# Caddy 内部 CA 的根证书在 caddy 容器里的位置（第一次签证书时生成，跟着 caddy-data 卷走）
+CADDY_ROOT_CRT=/data/caddy/pki/authorities/local/root.crt

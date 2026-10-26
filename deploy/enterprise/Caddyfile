@@ -1,11 +1,23 @@
-# 企业版 HTTPS 入口。域名取 .env 的 DOMAIN。
+# 企业版 HTTPS 入口。访问地址取 .env 的 DOMAIN，可以是域名，也可以是服务器 IP。
 #
-# 证书两种来源，二选一：
-#   1. 默认：Caddy 自动向 Let's Encrypt 申请并续期。要求域名已解析到本机、80 和 443 对外可达
-#   2. 贵司自己的证书：把 cert.pem（含中间证书链）和 key.pem 放进 certs/，
+# 证书三种来源，install.sh / use-own-cert.sh 会自动选好，不用改这个文件：
+#   1. 域名（默认）：Caddy 自动向 Let's Encrypt 申请并续期。要求域名已解析到本机、80 和 443 对外可达
+#   2. IP：公网证书机构不给 IP 发证书，install.sh 会写 certs/tls.caddy = 「tls internal」，
+#      由 Caddy 自带的内部 CA 签发并自动续期。浏览器默认不信任它，员工电脑要装一次根证书
+#      （scripts/export-root-cert.sh 导出），或者换成贵司自己的证书
+#   3. 贵司自己的证书：把 cert.pem（含中间证书链）和 key.pem 放进 certs/，
 #      再执行 ./scripts/use-own-cert.sh ——它会生成 certs/tls.caddy，下面那行 import 就会用上
 #
 # 这个文件升级时会随部署包换新，不要在这里改；要加东西先跟我们说。
+{
+	# 用 IP 打开时浏览器不带 SNI（TLS 握手里的「要访问哪个名字」），Caddy 按连接的本地地址挑证书，
+	# 而在 Docker 网络里本地地址是容器 IP、不是服务器 IP，会挑不到证书、握手直接失败。
+	# 没带 SNI 的连接一律按 DOMAIN 处理；用域名访问时浏览器都会带 SNI，这一行不影响
+	default_sni {$DOMAIN}
+	# 内部 CA 的根证书不往容器自己的信任库里装（装了也只是容器里信任，没用，还会刷警告日志）
+	skip_install_trust
+}
+
 {$DOMAIN} {
 	import /certs/tls*.caddy
 	encode zstd gzip

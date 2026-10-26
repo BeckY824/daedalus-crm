@@ -37,7 +37,7 @@ fi
 DOMAIN="$(env_get DOMAIN)"
 [ -n "$DOMAIN" ] || die ".env 里没有 DOMAIN"
 CURL=(curl -fsS --max-time 20 --resolve "$DOMAIN:443:127.0.0.1")
-if [ "${INSECURE:-}" = "1" ] || [ "$DOMAIN" = "localhost" ]; then CURL+=(-k); fi
+if [ "${INSECURE:-}" = "1" ] || [ "$(tls_mode)" = internal ]; then CURL+=(-k); fi
 
 # 每张表的行数，一行一张「表名 行数」，按表名排好
 table_counts() {

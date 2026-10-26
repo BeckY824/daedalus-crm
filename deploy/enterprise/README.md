@@ -9,7 +9,8 @@
 | `docker-compose.yml` | 应用 + HTTPS 入口（Caddy）。不要直接改，升级时会换新 |
 | `Caddyfile` | HTTPS 配置。不要直接改 |
 | `.env.example` | 配置样例。安装时生成 `.env`，可调的都在 `.env` 里 |
-| `scripts/` | 安装、备份、恢复、升级、回滚、状态检查脚本 |
+| `scripts/` | 安装、备份、恢复、升级、回滚、状态检查、导出根证书脚本 |
+| `tools/smoke.sh` | 装好后的冒烟检查：管理员登录 → 加成员 → 成员登录 → 健康检查 |
 | `VERSION` | 这个部署包对应的版本号 |
 
 以下命令都在部署目录里执行（推荐放在 `/opt/crm-enterprise`），都要 `sudo`。
@@ -18,14 +19,33 @@
 
 ## 一、准备服务器
 
-**配置**：2 核 CPU、4 GB 内存、40 GB 硬盘起步，Ubuntu 22.04 或 24.04（x86_64）。
-20–30 人日常使用这个配置足够；附件多的话硬盘按实际放大。
+**配置**：
+
+| | CPU | 内存 | 硬盘 | 系统 |
+| --- | --- | --- | --- | --- |
+| 建议 | 4 核 | 8 GB | 100 GB | Ubuntu 22.04 或 24.04（x86_64） |
+| 最低 | 2 核 | 4 GB | 40 GB | 同上 |
+
+最低配置够 20–30 人日常使用；附件多、要留较多备份的话硬盘按实际放大。
+
+**访问地址**（二选一）：
+
+1. **域名（推荐）**：准备一个子域名（例如 `crm.贵司域名.com`），添加一条 **A 记录** 指向服务器的 IP。
+   证书自动向 Let's Encrypt 申请，浏览器直接信任。
+2. **IP**：没有域名、只在内网用时，直接用服务器的 IPv4 地址（例如 `10.0.0.8`）。
+   证书由内置 CA 自签，浏览器第一次会提示不受信任，见「四、HTTPS 证书」。
 
 **网络**：
 
-1. 域名：准备一个子域名（例如 `crm.贵司域名.com`），添加一条 **A 记录** 指向服务器的公网 IP。
-2. 端口：在云服务器的安全组 / 防火墙里放行 **80** 和 **443**（TCP，入方向）。
+1. 端口：在安全组 / 防火墙里放行 **22**（SSH，给运维登录）、**80** 和 **443**（TCP，入方向）。
    80 端口用于自动申请证书和跳转到 HTTPS，不要关。
+2. 出网：服务器要能访问 `open.feishu.cn`（飞书同步要用）。在线安装还要能访问 `ghcr.io`；用离线镜像包就不需要。
+
+**我们上门 / 远程部署时需要的权限**：
+
+- 一个能 `sudo` 的账号，**只用 SSH 公钥登录**（不用密码）：我们把公钥发给贵司，贵司 IT 加到这个账号的 `~/.ssh/authorized_keys` 里；
+- 上面三个端口已放行；
+- 部署完成后贵司随时可以删掉这行公钥，收回权限。
 
 **安装 Docker**（服务器上执行一次）：
 
@@ -78,6 +98,14 @@ sudo ./scripts/install.sh --load /path/to/crm-images-<版本>.tar.gz --domain cr
 sudo ./scripts/install.sh --domain crm.贵司域名.com
 ```
 
+**没有域名、用 IP 访问**：`--domain` 后面直接写服务器 IP（员工从哪个地址访问就写哪个）：
+
+```bash
+sudo ./scripts/install.sh --load /path/to/crm-images-<版本>.tar.gz --domain 10.0.0.8
+```
+
+不带 `--domain` 时脚本会问「域名或 IP」，填哪种都行；带了 `https://`、端口、路径会自动去掉。暂不支持 IPv6 地址。
+
 安装脚本会依次：
 
 1. 检查服务器配置、磁盘空间、Docker；
@@ -88,7 +116,19 @@ sudo ./scripts/install.sh --domain crm.贵司域名.com
 6. 装好每天 03:30 的自动备份；
 7. 打印访问地址和管理员账号密码（**只显示一次**）。
 
+用 IP 装时，第 3 步之后还会写 `certs/tls.caddy`（`tls internal`），改由内置 CA 签发证书。
+
 安装脚本重复执行是安全的：已有的 `.env`、备份密码、数据都不会被覆盖。
+
+### 冒烟检查（装完马上跑一次）
+
+```bash
+sudo ./tools/smoke.sh
+```
+
+提示输入 admin 密码（不回显），然后依次检查：健康检查 → 管理员登录 → 加一个叫「冒烟测试」的销售成员 → 这个成员登录、打开首页 → 停用这个成员 → 再查一次健康。
+全部通过最后一行是「✅ 冒烟通过」；哪一步不通过会写明是哪一步、返回了什么，退出码非 0。
+密码不会出现在屏幕和日志里。测试成员测完即停用，名下没有数据；设置里的成员列表会多一条已停用的「冒烟测试」，不用管。
 
 ### 3. 第一次登录
 
@@ -152,12 +192,43 @@ sudo ./scripts/install.sh --domain crm.贵司域名.com
 
 ## 四、HTTPS 证书
 
-### 默认：自动申请
+证书有三种来源，`sudo ./scripts/status.sh` 的「HTTPS 证书」一行会写现在用的是哪种。
+
+### 用域名：自动申请（默认）
 
 不用做任何事。Caddy 会自动向 Let's Encrypt 申请证书，到期前自动续期。
 
 前提：域名的 A 记录已经指向本机，80 和 443 能从公网访问。
 证书申请失败时看 `sudo docker compose logs caddy`，最常见的原因是 DNS 还没生效或安全组没放行 80。
+
+内网域名（公网访问不到、申请不了 Let's Encrypt）又没有自己的证书时，可以和 IP 一样改用内置 CA：
+`echo 'tls internal' | sudo tee certs/tls.caddy && sudo docker compose restart caddy`，后面同下一节。
+
+### 用 IP：内置 CA 自签
+
+公网证书机构不给 IP 发证书，所以用 IP 装时由 Caddy 自带的 CA 签发，自动续期，不用管。三件事要知道：
+
+**1. 浏览器会提示不受信任。** 第一次打开 `https://<IP>` 时 Chrome / Edge 显示「您的连接不是私密连接」，Safari 显示「此连接非私人连接」。
+临时可以点「高级 → 继续前往」，但每台电脑、每个浏览器都会再问；正式使用请做第 2 步或第 3 步。
+
+**2. 让员工电脑信任根证书（装一次就不再提示）。** 在服务器上导出根证书：
+
+```bash
+sudo ./scripts/export-root-cert.sh
+```
+
+得到部署目录下的 `crm-root-ca.crt`（公开的根证书，不含私钥，可以发给员工），屏幕上同时打出它的 SHA-256 指纹。
+把文件和指纹一起发给员工，装之前核对指纹一致：
+
+- **Windows**：双击 `crm-root-ca.crt` →「安装证书」→ 存储位置选「本地计算机」→「将所有的证书都放入下列存储」→ 浏览选「**受信任的根证书颁发机构**」→ 完成。
+  或者用管理员身份打开命令提示符：`certutil -addstore -f Root crm-root-ca.crt`。批量下发可以用域控组策略。
+- **Mac**：双击 `crm-root-ca.crt` 加到「系统」钥匙串 → 在「钥匙串访问」里找到它（名字是 Caddy Local Authority）→ 双击 →「信任」→「使用此证书时」选「**始终信任**」，输入开机密码保存。
+  或者终端：`sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain crm-root-ca.crt`。
+- 装完**重开浏览器**。Firefox 有时用自己的证书库：设置里搜「证书」→「查看证书」→「证书颁发机构」→ 导入。
+
+注意：根证书跟着服务器上的 Caddy 数据走。**换服务器、或者 Caddy 数据被清掉后会生成新的根证书**，要重新导出、员工重新装（旧的可以删掉）。
+
+**3. 或者换成贵司自己的证书**：贵司有内部 CA、或者买了带 IP 的证书时，按下一节「用贵司自己的证书」换上，证书里要包含这个 IP。
 
 ### 用贵司自己的证书
 
@@ -172,11 +243,11 @@ sudo ./scripts/install.sh --domain crm.贵司域名.com
    sudo ./scripts/use-own-cert.sh
    ```
 
-脚本会先核对证书和私钥是否配对、是否过期、是否包含 `.env` 里的域名，通过后立即生效，不用重启。
+脚本会先核对证书和私钥是否配对、是否过期、是否包含 `.env` 里的域名（用 IP 时核对 IP），通过后立即生效，不用重启。
 
 证书续期后：覆盖这两个文件，再执行一次 `use-own-cert.sh`。
 
-改回自动申请：
+改回默认（域名 → 自动申请；IP → 内置 CA 自签）：
 
 ```bash
 sudo ./scripts/use-own-cert.sh --auto
@@ -316,12 +387,28 @@ Key 只保存在贵司服务器上。
 
 ## 八、故障排查
 
-先跑 `sudo ./scripts/status.sh`，大部分问题从这里能看出来。
+先跑 `sudo ./scripts/status.sh`，大部分问题从这里能看出来；再跑一次 `sudo ./tools/smoke.sh`，看是哪一步不通。
+
+### 去哪里看日志
+
+| 看什么 | 命令 |
+| --- | --- |
+| 整体状态：版本、健康、最近备份、证书、磁盘、时钟 | `sudo ./scripts/status.sh` |
+| 两个容器起没起来 | `sudo docker compose ps -a` |
+| 应用日志（报错、启动失败、数据库） | `sudo docker compose logs --tail 300 crm`（加 `-f` 持续看） |
+| HTTPS 入口日志（证书申请、502） | `sudo docker compose logs --tail 300 caddy` |
+| 每日备份日志 | `sudo tail -100 /var/log/crm-backup.log` |
+| 定时备份有没有装 | `cat /etc/cron.d/crm-backup` |
+
+以上命令都在部署目录（`/opt/crm-enterprise`）里执行。
+
+### 常见现象
 
 | 现象 | 排查 |
 | --- | --- |
 | 浏览器打不开 / 连接超时 | 安全组是否放行 80、443；`sudo docker compose ps` 两个容器是否都是 Up |
-| 证书错误 / 不安全提示 | `sudo docker compose logs caddy` 看证书申请日志；DNS 是否已指向本机（`ping 域名` 看 IP）；用自有证书时确认 `cert.pem` 带了中间证书链 |
+| 证书错误 / 不安全提示 | 用 IP 访问时这是正常的，见「四」装根证书；用域名时 `sudo docker compose logs caddy` 看证书申请日志，DNS 是否已指向本机（`ping 域名` 看 IP）；用自有证书时确认 `cert.pem` 带了中间证书链 |
+| 装过根证书后又提示不受信任 | 服务器换过、或 Caddy 数据被清过，根证书变了：重新 `export-root-cert.sh`，员工重新装 |
 | 页面显示 502 | 应用还在启动（首次或升级后等 1 分钟），或应用出错：`sudo docker compose logs --tail 200 crm` |
 | 忘了管理员密码 | 见下方「重置管理员密码」 |
 | 磁盘快满 | `sudo docker images` 看旧版本镜像，`sudo docker rmi ghcr.io/becky824/daedalus-crm:<旧版本>` 删掉（**保留当前和上一版**，回滚要用）；减小 `BACKUP_KEEP`；附件多就扩容硬盘 |
