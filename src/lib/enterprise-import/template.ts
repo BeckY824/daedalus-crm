@@ -25,9 +25,18 @@ export const 对照表头 = ["类别", "哪一类", "原系统写法", "我们�
 const 不用 = "不用";
 const 拼进 = (e: 实体) => (e === "followup" ? "拼进内容" : "拼进备注");
 
-/** 一格里有逗号、引号、换行的要包引号 */
+/** 以这些开头的格 Excel 会当公式算（原系统数据里混进「=HYPERLINK(...)」这种），导出时前面垫一个 '，读回去掉 */
+const 像公式 = /^[=+\-@\t\r]/;
+
+/** 一格里有逗号、引号、换行的要包引号；像公式的先垫 ' */
 function 格(s: string): string {
-  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  const v = 像公式.test(s) ? `'${s}` : s;
+  return /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+}
+
+/** 读回时去掉导出垫的 ' */
+function 去垫(s: string): string {
+  return s.startsWith("'") && 像公式.test(s.slice(1)) ? s.slice(1) : s;
 }
 
 /** 成员怎么写进表里：名字唯一写名字，重名的写邮箱（没邮箱的写名字，读回时会提醒重名） */
@@ -37,6 +46,9 @@ function 成员写法(id: string, 成员们: readonly 成员[]): string {
   const 同名 = 成员们.filter((x) => x.name.trim() === u.name.trim()).length;
   return 同名 > 1 && u.email ? u.email : u.name;
 }
+
+const 负责人写法 = (id: string, 成员们: readonly 成员[]) => (id ? 成员写法(id, 成员们) : "");
+const 默认负责人写法 = (报告: 试跑报告, 成员们: readonly 成员[]) => 成员写法(报告.映射.默认负责人.id, 成员们) || 报告.映射.默认负责人.名;
 
 /** 导出：按报告当前的映射，一行一项。返回带 BOM 的 CSV 文本（Excel 双击打开不乱码） */
 export function 导出对照表(报告: 试跑报告, 成员们: readonly 成员[]): string {
@@ -51,8 +63,8 @@ export function 导出对照表(报告: 试跑报告, 成员们: readonly 成员
     行.push([v.叫法, 实体名[值对照[v.名].实体], v.原值, v.我们的值, 合法值(v.名).map((x) => 值说法(v.名, x)).join("、")]);
   }
   const 人提示 = "成员名字或邮箱（重名的填邮箱）；空着 = 默认负责人";
-  for (const p of 报告.映射.负责人) 行.push(["负责人", "", p.写法, p.成员Id ? 成员写法(p.成员Id, 成员们) : "", 人提示]);
-  行.push(["默认负责人", "", "", 成员写法(报告.映射.默认负责人.id, 成员们) || 报告.映射.默认负责人.名, "对不上的负责人落到谁名下"]);
+  for (const p of 报告.映射.负责人) 行.push(["负责人", "", p.写法, 负责人写法(p.成员Id, 成员们), 人提示]);
+  行.push(["默认负责人", "", "", 默认负责人写法(报告, 成员们), "对不上的负责人落到谁名下"]);
   return "﻿" + 行.map((r) => r.map(格).join(",")).join("\r\n") + "\r\n";
 }
 
@@ -102,7 +114,7 @@ export function 读回对照表(文件: { 名: string; bytes: Uint8Array }, 报�
 
   rows.slice(1).forEach((r, i) => {
     const 第 = `第 ${行号[i + 1] ?? i + 2} 行`;
-    const 取 = (h: (typeof 对照表头)[number]) => (位[h] >= 0 ? (r[位[h]] ?? "").trim() : "");
+    const 取 = (h: (typeof 对照表头)[number]) => (位[h] >= 0 ? 去垫((r[位[h]] ?? "").trim()) : "");
     const 类别 = 取("类别"), 原 = 取("原系统写法"), 我们 = 取("我们这边");
     if (!类别 && !原 && !我们) return;
 
@@ -137,6 +149,8 @@ export function 读回对照表(文件: { 名: string; bytes: Uint8Array }, 报�
     if (类别 === "负责人") {
       const 现 = 报告.映射.负责人.find((p) => p.写法 === 原);
       if (!现) return void 问题.push(`${第}：这次的数据里没有负责人「${原}」（原系统写法别改）`);
+      // 和导出时写的一字不差 = 没动（成员已停用导出成空、重名没邮箱导出成名字，都不该算改了或报错）
+      if (我们 === 负责人写法(现.成员Id, 成员们)) return;
       const 人 = 认人(我们);
       if ("错" in 人) return void 问题.push(`${第}：${人.错}`);
       if (人.id === 现.成员Id) return;
@@ -146,6 +160,7 @@ export function 读回对照表(文件: { 名: string; bytes: Uint8Array }, 报�
     }
 
     if (类别 === "默认负责人") {
+      if (我们 === 默认负责人写法(报告, 成员们)) return;
       const 人 = 认人(我们);
       if ("错" in 人) return void 问题.push(`${第}：${人.错}`);
       if (!人.id) return void 问题.push(`${第}：默认负责人不能空着`);

@@ -17,7 +17,7 @@ import { 号键 } from "@/lib/phone";
 import { 不掉公海的状态, 公海截止 } from "@/lib/pool";
 import { 预演, type 预演计数 } from "./apply";
 import { 清洗, 数一数, 名键, type 本地索引, type 清洗结果 } from "./clean";
-import { 成记录, 拆联系人, type 读出的表 } from "./excel";
+import { 成记录, 拆联系人, 拆出的客户ID列, type 读出的表 } from "./excel";
 import { 猜映射, 说明键, 值对照, 值说法, 进备注, type 建议器, type 成员, type 表概要 } from "./mapping";
 import { 实体顺序, 字段中文, 实体名, type 来源, type 实体, type 映射, type 原始记录, type 问题, type 待写, type 值对照名, type 列映射 } from "./types";
 
@@ -147,7 +147,9 @@ export async function 试跑(p: 试跑参数): Promise<试跑结果> {
   const m = 猜.映射;
 
   // 2) 定下映射后再成记录：有「原系统 ID」列的这时才用上
-  const 记录 = 能用的表.length ? 能用的表.flatMap((t) => 成记录(t, t.实体, m.列[t.实体] ?? {})) : (p.记录 ?? []);
+  const 记录 = 能用的表.length
+    ? 去掉拆出的重复联系人(能用的表.flatMap((t) => 成记录(挂客户的表(t, m, 提醒), t.实体, m.列[t.实体] ?? {})), 能用的表, m, 提醒)
+    : (p.记录 ?? []);
 
   // 3) 清洗
   const 结果 = 清洗(记录, m, await 读本地索引(p.来源));
@@ -195,6 +197,51 @@ export async function 试跑(p: 试跑参数): Promise<试跑结果> {
     ? await prisma.entImportBatch.update({ where: { id: p.批次Id }, data: 存, select: { id: true } })
     : await prisma.entImportBatch.create({ data: 存, select: { id: true } });
   return { 批次Id: 批次.id, 报告 };
+}
+
+/**
+ * 客户表里拆出来的联系人，「所属客户ID」抄的是客户表那一列的原值。那一列这次没当「原系统 ID」用的话，
+ * 本批客户的外部 ID 是按字段算的，这个原值认不出本批的客户，拿去库里找还可能撞上以前导过的别的客户——清掉，按客户名称挂
+ */
+function 挂客户的表(t: 读出的表, m: 映射, 提醒: string[]): 读出的表 {
+  if (!t.拆自ID列 || m.列.customer?.[t.拆自ID列] === "id") return t;
+  const j = t.表头.indexOf(拆出的客户ID列);
+  if (j < 0 || t.行.every((r) => !(r[j] ?? "").trim())) return t;
+  提醒.push(`「${t.名}」的${拆出的客户ID列}抄自客户表的「${t.拆自ID列}」，这一列这次没当「原系统 ID」用，联系人按客户名称挂`);
+  return { ...t, 行: t.行.map((r) => r.map((v, i) => (i === j ? "" : v))) };
+}
+
+/**
+ * 一份导出里既有带联系人几列的客户表、又有单独的联系人表：同一个人两边都有，外部 ID 对不上，会导成两个。
+ * 拆出来的那条，联系人表里有同名、挂同一家客户（客户 ID 或客户名称对得上）的，就不要了，按联系人表那条导
+ */
+function 去掉拆出的重复联系人(记录: 原始记录[], 表们: 读出的表[], m: 映射, 提醒: string[]): 原始记录[] {
+  const 拆出的 = new Set(表们.filter((t) => t.拆自 && t.实体 === "contact").map((t) => t.名));
+  if (!拆出的.size) return 记录;
+  const 取 = (r: 原始记录, f: string) => {
+    const 列 = m.列[r.实体] ?? {};
+    for (const [h, v] of Object.entries(r.字段)) if (列[h] === f && v.trim()) return v.trim();
+    return "";
+  };
+  const 客户名 = new Map(记录.filter((r) => r.实体 === "customer").map((r) => [r.外部ID, 取(r, "name")]));
+  /** 这个联系人挂的客户：客户 ID、客户名称都算（只写了 ID 的按本批客户表查出名称） */
+  const 人键们 = (r: 原始记录) => {
+    const 人 = 名键(取(r, "name"));
+    if (!人) return [];
+    const ref = 取(r, "customerRef");
+    const 名 = 取(r, "customerName") || (ref ? (客户名.get(ref) ?? "") : "");
+    return [ref && `ID|${ref}|${人}`, 名 && `名|${名键(名)}|${人}`].filter((k): k is string => !!k);
+  };
+  const 联系人表有 = new Set(记录.filter((r) => r.实体 === "contact" && !拆出的.has(r.出处 ?? "")).flatMap(人键们));
+  if (!联系人表有.size) return 记录;
+  const 去掉 = new Map<string, number>();
+  const 留 = 记录.filter((r) => {
+    if (r.实体 !== "contact" || !r.出处 || !拆出的.has(r.出处) || !人键们(r).some((k) => 联系人表有.has(k))) return true;
+    去掉.set(r.出处, (去掉.get(r.出处) ?? 0) + 1);
+    return false;
+  });
+  for (const [名, n] of 去掉) 提醒.push(`「${名}」里有 ${n} 个联系人单独的联系人表里也有（同名、同一家客户），按联系人表那条导，不另导一个`);
+  return 留;
 }
 
 /** 人在报告上改的：列落到哪个字段、值换成什么、负责人对谁、默认负责人、哪个文件是哪一类 */
