@@ -7,7 +7,9 @@
  * - 首启只建 admin，名单外（界面上加的）账号不提示、不删
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { USERS, 要建的账号 } from "../prisma/seed";
 
@@ -113,6 +115,24 @@ describe("备份真能恢复（恢复演练）", () => {
     expect(演练).toMatch(/scripts\/backup\.sh/);
     expect(演练).toMatch(/scripts\/restore\.sh/);
     expect(演练).toMatch(/NO_START=1/);
+  });
+
+  it("同一秒连跑两次备份不撞名：加序号，拒绝覆盖那条兜底照留", () => {
+    const 备份 = 读("deploy/enterprise/scripts/backup.sh");
+    expect(备份).toMatch(/NAME="crm-\$STAMP-\$N"/);
+    expect(备份).toMatch(/已存在，拒绝覆盖/);
+    // 把取名那段原样抠出来，在临时目录里同一秒跑三次
+    const 段 = 备份.slice(备份.indexOf('NAME="crm-$STAMP"'), 备份.indexOf('OUT="backups/$NAME.tar.gz.enc"'));
+    const 目录 = mkdtempSync(path.join(tmpdir(), "bk-"));
+    mkdirSync(path.join(目录, "backups"));
+    const 脚本 = path.join(目录, "name.sh");
+    writeFileSync(脚本, `cd "$1"; COPY_DIR=""; for i in 1 2 3; do STAMP=20261026-120000\n${段}\ntouch "backups/$NAME.tar.gz.enc"; done\n`);
+    execFileSync("bash", [脚本, 目录]);
+    expect(readdirSync(path.join(目录, "backups")).sort()).toEqual([
+      "crm-20261026-120000-2.tar.gz.enc",
+      "crm-20261026-120000-3.tar.gz.enc",
+      "crm-20261026-120000.tar.gz.enc",
+    ]);
   });
 
   it("五种坏备份都要被拒绝、数据不动", () => {

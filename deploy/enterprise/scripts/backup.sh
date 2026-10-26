@@ -37,8 +37,17 @@ if ! mkdir "$LOCK" 2>/dev/null; then
 fi
 trap 'rmdir "$LOCK" 2>/dev/null || true; rm -f "${PART:-}"' EXIT
 
+# 文件名按秒取；同一秒里跑第二次（手动连点、升级前自动备份紧跟着手动备份）就加序号 -2、-3…，
+# 另存目录里有同名的也跳过。下面那条「拒绝覆盖」照留着，兜底
 STAMP="$(date +%Y%m%d-%H%M%S)"
-OUT="backups/crm-$STAMP.tar.gz.enc"
+NAME="crm-$STAMP"
+N=1
+while [ -e "backups/$NAME.tar.gz.enc" ] || { [ -n "$COPY_DIR" ] && [ -e "$COPY_DIR/$NAME.tar.gz.enc" ]; }; do
+  N=$((N + 1))
+  [ "$N" -gt 99 ] && break
+  NAME="crm-$STAMP-$N"
+done
+OUT="backups/$NAME.tar.gz.enc"
 PART="$OUT.part"
 [ -e "$OUT" ] && die "$OUT 已存在，拒绝覆盖"
 
