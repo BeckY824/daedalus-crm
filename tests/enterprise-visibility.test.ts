@@ -109,6 +109,18 @@ describe("组织范围of（纯函数）", () => {
     expect([...r.写].sort()).toEqual([经理, 小王].sort());
     expect([...r.读!].sort()).toEqual([经理, 小王, 小张, 小赵].sort());
   });
+  it("D-39 既是直属又是虚线上级：权限取并集，按直属算能改（小王进写，不只在读里）", () => {
+    const o = 建组织(
+      [经理, 小王, 小赵].map((id) => ({ id, role: "SALES", active: true })),
+      [
+        { userId: 小王, deptId: null, bizRole: "sales", line: null, managerId: 经理, dottedManagerId: 经理 },
+        { userId: 小赵, deptId: null, bizRole: "sales", line: null, managerId: 小王, dottedManagerId: null },
+      ],
+      [],
+    );
+    expect(组织范围of(o, "SALES", 经理)).toEqual({ 写: expect.arrayContaining([经理, 小王, 小赵]) });
+    expect(组织范围of(o, "SALES", 经理)!.读).toBeUndefined();
+  });
   it("普通销售只有自己，读和写一样就不带 读；不在组织里的人什么都没有", () => {
     expect(组织范围of(org(), "SALES", 外人)).toEqual({ 写: [外人] });
     expect(组织范围of(org(), "SALES", "nobody")).toEqual({ 写: ["__无"] });
