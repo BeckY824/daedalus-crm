@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { App, Button, Input, Select, Space, Tag } from "antd";
 import { 测试飞书连接动作, 飞书表概况, 设飞书表 } from "./org-actions";
 import type { 主表槽, 测试结果, 数据表 } from "@/lib/enterprise/feishu-connect";
@@ -14,31 +14,30 @@ import type { 主表槽, 测试结果, 数据表 } from "@/lib/enterprise/feishu
  */
 type 主表 = { 槽: 主表槽; 名: string; 表名: string; 已接: boolean };
 
-export default function FeishuConnectCard({ 草稿 }: { 草稿: Record<string, string> }) {
+type 表概况结果 = Awaited<ReturnType<typeof 飞书表概况>>;
+
+/** 已存的对表 → 下拉的初值（OrgSyncCard 和通讯录一起读好传进来） */
+function 起始(r: 表概况结果 | null) {
+  const 已有: 数据表[] = [];
+  const 选了: Partial<Record<主表槽, string | null>> = {};
+  if (!r?.ok) return { 主表们: [] as 主表[], 链接: "", 表们: 已有, 选: 选了 };
+  for (const [k, v] of Object.entries(r.概况.选) as [主表槽, 数据表 | null][]) {
+    选了[k] = v?.tableId ?? null;
+    if (v) 已有.push(v);
+  }
+  return { 主表们: r.主表们, 链接: r.概况.appToken ?? "", 表们: 已有, 选: 选了 };
+}
+
+export default function FeishuConnectCard({ 草稿, 初始 }: { 草稿: Record<string, string>; 初始: 表概况结果 | null }) {
   const { message } = App.useApp();
-  const [主表们, set主表们] = useState<主表[]>([]);
-  const [链接, set链接] = useState("");
-  const [表们, set表们] = useState<数据表[]>([]);
-  const [选, set选] = useState<Partial<Record<主表槽, string | null>>>({});
+  const [起] = useState(() => 起始(初始));
+  const [主表们] = useState<主表[]>(起.主表们);
+  const [链接, set链接] = useState(起.链接);
+  const [表们, set表们] = useState<数据表[]>(起.表们);
+  const [选, set选] = useState<Partial<Record<主表槽, string | null>>>(起.选);
   const [结果, set结果] = useState<测试结果 | null>(null);
   const [忙, set忙] = useState<"test" | "save" | null>(null);
   const [改过表, set改过表] = useState(false);
-
-  useEffect(() => {
-    void 飞书表概况().then((r) => {
-      if (!r.ok) return;
-      set主表们(r.主表们);
-      if (r.概况.appToken) set链接(r.概况.appToken);
-      const 已有: 数据表[] = [];
-      const 选了: Partial<Record<主表槽, string | null>> = {};
-      for (const [k, v] of Object.entries(r.概况.选) as [主表槽, 数据表 | null][]) {
-        选了[k] = v?.tableId ?? null;
-        if (v) 已有.push(v);
-      }
-      set选(选了);
-      set表们(已有);
-    });
-  }, []);
 
   const 测试 = async () => {
     set忙("test");

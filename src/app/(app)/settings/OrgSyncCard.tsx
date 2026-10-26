@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { App, Button, Card, Input, Select, Space, Switch, Tag } from "antd";
 import { 部门最多层数 } from "@/lib/sync/dept-policy";
-import { 通讯录概况, 设通讯录同步, 立即同步通讯录, 设职务对照, 设通讯录凭据, 设通讯录间隔, type 通讯录一栏 } from "./org-actions";
+import { 通讯录概况, 飞书表概况, 设通讯录同步, 立即同步通讯录, 设职务对照, 设通讯录凭据, 设通讯录间隔, type 通讯录一栏 } from "./org-actions";
 import FeishuConnectCard from "./FeishuConnectCard";
 
 /**
@@ -33,8 +33,13 @@ export default function OrgSyncCard() {
     } else set错(r.error);
   }, []);
   const 读 = useCallback(async () => 用上(await 通讯录概况()), [用上]);
+  // 飞书连接那块的对表也在这一次一起读：分两次读，卡片先出来、对表后冒出来，截图和用的人都看到页面跳一下
+  const [表概况, set表概况] = useState<Awaited<ReturnType<typeof 飞书表概况>> | null>(null);
   useEffect(() => {
-    void 通讯录概况().then(用上);
+    void Promise.all([通讯录概况(), 飞书表概况()]).then(([r, 表]) => {
+      set表概况(表);
+      用上(r);
+    });
   }, [用上]);
 
   const 跑 = async (键: string, f: () => Promise<{ ok: boolean; error?: string }>, 成了: string | null) => {
@@ -131,7 +136,7 @@ export default function OrgSyncCard() {
                 </div>
               </div>
 
-              {s.源 === "feishu" && <FeishuConnectCard 草稿={草稿} />}
+              {s.源 === "feishu" && <FeishuConnectCard 草稿={草稿} 初始={表概况} />}
 
               <div style={{ marginTop: 12 }}>
                 <span className="muted">职务 → 业务角色（没对上的人，业务角色不动）</span>
