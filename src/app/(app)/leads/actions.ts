@@ -26,6 +26,7 @@ import { getBusiness } from "@/lib/business";
 import { 线索转档案 } from "@/lib/lead-convert";
 import { 企业版 } from "@/lib/enterprise/switch";
 import { 线索建项目 } from "@/lib/project/from-lead";
+import { 规整沟通, type 向导跟进, type 规整好的沟通 } from "@/lib/project/wizard";
 import { 超上限 } from "@/lib/project/db";
 import { 生效组织规则 } from "@/lib/project/org-rules-store";
 import { 客户存了推项目 } from "@/lib/project/auto-advance";
@@ -145,26 +146,33 @@ export async function deleteLeads(ids: string[]) {
 
 /**
  * 企业版开了项目模式：转化时顺手建项目（10-25 F6，lib/project/from-lead.ts）。负责人是别人时先按持有上限查一遍，
- * 规则要在事务外读（事务里读设置会卡住）。返回 null = 不建；{ error } = 超上限，转化整个不做
+ * 规则要在事务外读（事务里读设置会卡住）。返回 null = 不建；{ error } = 超上限或首条跟进不对，转化整个不做。
+ * 首条跟进必带（10-26 验收 #13），和建档向导同一套规整：开了超时回收要填下一步时间，没开时选填
  */
-async function 转项目前查(b: { projectMode?: boolean }, me: { id: string }, ownerId: string): Promise<null | { 建: true } | { error: string }> {
+async function 转项目前查(b: { projectMode?: boolean }, me: { id: string }, ownerId: string, 跟进: 向导跟进 | undefined): Promise<null | { 建: true; 跟进: 规整好的沟通 } | { error: string }> {
   if (!企业版() || b.projectMode !== true) return null;
+  if (!跟进 || typeof 跟进 !== "object") return { error: "转成项目要记一条首条跟进：这次和对方聊了什么" };
+  const 规则 = await 生效组织规则();
+  const 要下一步 = 规则.超时回收.开;
+  const 好 = 规整沟通(跟进, { 要下一步, 叫法: "首条" });
+  if ("error" in 好) return 好;
   if (ownerId !== me.id) {
-    const 超 = await 超上限(prisma, await 生效组织规则(), ownerId, { phase: "线索", result: null });
+    const 超 = await 超上限(prisma, 规则, ownerId, { phase: "线索", result: null });
     if (超) return { error: 超 };
   }
-  return { 建: true };
+  return { 建: true, 跟进: 好 };
 }
 
 async function 转项目之后(user: Actor, lead: { name: string }, customerId: string, projectId: string | undefined) {
   if (!projectId) return;
   await recordAudit({
     user, action: "create", entity: "Project", entityId: projectId,
-    summary: `线索「${lead.name}」转化时新建项目`,
+    summary: `线索「${lead.name}」转化时新建项目，连同首条跟进`,
     detail: { 项目: lead.name, customerId },
   });
   await 客户存了推项目(user, customerId);
   revalidatePath("/projects");
+  revalidatePath("/follow-ups");
 }
 
 /**
@@ -184,7 +192,7 @@ async function 转项目之后(user: Actor, lead: { name: string }, customerId: 
  */
 export type 线索撞号 = { 客户名: string | null; 负责人: string; customerId: string | null; 能并: boolean };
 
-export async function convertLead(id: string): Promise<
+export async function convertLead(id: string, 跟进?: 向导跟进): Promise<
   { ok: true; customerId: string; projectId?: string } | { ok: false; error: string; 撞号?: 线索撞号 }
 > {
   const user = await requireUser();
@@ -212,7 +220,7 @@ export async function convertLead(id: string): Promise<
   const 我 = await 限定的我(defaultClient);
   // 团队开了互看：同事的客户看得到、但并不过去（并 = 改那位客户）
   const 读我 = await 读的我(defaultClient);
-  const 项目 = await 转项目前查(b, user, lead.ownerId ?? user.id);
+  const 项目 = await 转项目前查(b, user, lead.ownerId ?? user.id, 跟进);
   if (项目 && "error" in 项目) return { ok: false as const, error: 项目.error };
   const outcome = await prisma.$transaction(async (tx) => {
     // 看全部：同事的客户也算已经有了（团队版业务员，lib/team-scope.ts）
@@ -284,7 +292,7 @@ export async function convertLead(id: string): Promise<
       await 写外贸档案(tx, customer.id, 规.ok ? 规.data : { source: 规整外贸档案({ source: 档案.档案.source }).ok ? 档案.档案.source : null }, false);
     }
     await tx.lead.update({ where: { id }, data: { customerId: customer.id } });
-    const projectId = 项目 ? await 线索建项目(tx, { 线索名: lead.name, customerId: customer.id, ownerId: lead.ownerId ?? user.id, creatorId: user.id }) : undefined;
+    const projectId = 项目 ? await 线索建项目(tx, { 线索名: lead.name, leadId: id, customerId: customer.id, ownerId: lead.ownerId ?? user.id, creatorId: user.id, 跟进: 项目.跟进 }) : undefined;
     return { ok: true as const, customerId: customer.id, projectId };
   });
 
@@ -312,7 +320,7 @@ export async function convertLead(id: string): Promise<
  * Lead.customerId 是唯一的：那位客户已经关联着另一条线索（同一个人从两个渠道来过）时，
  * 原来那条的关联不动，这一条只标已转化、备注里写明并到了谁。
  */
-export async function mergeLeadInto(leadId: string, customerId: string): Promise<{ ok: true; customerId: string; projectId?: string } | { ok: false; error: string }> {
+export async function mergeLeadInto(leadId: string, customerId: string, 跟进?: 向导跟进): Promise<{ ok: true; customerId: string; projectId?: string } | { ok: false; error: string }> {
   const user = await requireUser();
   const b = await getBusiness();
   const lead = await prisma.lead.findUnique({ where: { id: leadId } });
@@ -325,7 +333,7 @@ export async function mergeLeadInto(leadId: string, customerId: string): Promise
   const 条件 = 邮箱 ? await 同邮箱条件(prisma, 邮箱) : 电话.ok ? await 同号条件(prisma, 电话.phone, await 分机留存起()) : null;
   const 对得上 = 条件 !== null && (await prisma.customer.count({ where: { AND: [{ id: customerId }, 条件] } })) > 0;
   if (!对得上) return { ok: false, error: `线索${邮箱 ? "邮箱" : "电话"}和${b.customer}「${customer.name}」对不上，不能并` };
-  const 项目 = await 转项目前查(b, user, lead.ownerId ?? user.id);
+  const 项目 = await 转项目前查(b, user, lead.ownerId ?? user.id, 跟进);
   if (项目 && "error" in 项目) return { ok: false, error: 项目.error };
 
   const 结果 = await prisma.$transaction(async (tx) => {
@@ -338,7 +346,7 @@ export async function mergeLeadInto(leadId: string, customerId: string): Promise
       data: { status: "已转化", convertedAt: new Date(), ...(已关联 ? { remark: 备注 } : { customerId }) },
     });
     if (!gate.count) return null;
-    return { projectId: 项目 ? await 线索建项目(tx, { 线索名: lead.name, customerId, ownerId: lead.ownerId ?? user.id, creatorId: user.id }) : undefined };
+    return { projectId: 项目 ? await 线索建项目(tx, { 线索名: lead.name, leadId, customerId, ownerId: lead.ownerId ?? user.id, creatorId: user.id, 跟进: 项目.跟进 }) : undefined };
   });
   if (!结果) return { ok: false, error: "这条线索刚刚已经转化过了，刷新看看" };
 

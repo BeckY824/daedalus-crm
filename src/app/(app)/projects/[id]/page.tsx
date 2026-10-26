@@ -46,6 +46,9 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     生效组织规则(),
   ]);
   const 类别名 = new Map(类别们.map((c) => [c.id, c.name]));
+  // 10-26 验收 #13：线索转出来的项目记着是哪条线索来的。线索后来删了就只说「已删除」
+  const 来源线索 = !p.sourceLeadId || !露 ? null
+    : await prisma.lead.findUnique({ where: { id: p.sourceLeadId }, select: { name: true, convertedAt: true } }).then((l) => ({ name: l?.name ?? null, convertedAt: l?.convertedAt ? dayjs(l.convertedAt).format("YYYY-MM-DD") : null }));
   const 公海 = !!p.pooledAt;
   const 企业 = 企业版();
 
@@ -74,7 +77,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     customer: 露 ? { id: p.customer.id, name: p.customer.name, school: p.customer.school } : null, contact: 露 ? p.contact : null,
     ownerId: p.ownerId, ownerName: 叫(p.ownerId)!, historyOwners: 历史负责人.map((x) => 叫(x)!), creatorName: 叫(p.creatorId)!, createdAt: p.createdAt.toISOString(),
     phase: p.phase, node: p.node, result: p.result, exceptionReason: p.exceptionReason, exceptionCategory: p.exceptionCategory?.name ?? null,
-    pooled: 公海, 企业版: 企业,
+    pooled: 公海, 企业版: 企业, 来源线索,
     // 下一步时间只有日子：在服务端按业务日排成 YYYY-MM-DD，和回收日同一个钟，浏览器在别的时区也不差一天
     nextStepAt: p.nextStepAt ? dayjs(p.nextStepAt).format("YYYY-MM-DD") : null, 回收日, 要下一步, 能记沟通, 必填, 不给推, 能改节点: 节点能改,
     能放公海: !公海 && me.id === p.ownerId && (能进公海的阶段 as readonly string[]).includes(p.phase),

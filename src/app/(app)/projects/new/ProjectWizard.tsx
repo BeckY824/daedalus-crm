@@ -55,20 +55,23 @@ function 这步还差(步: number, d: 稿, 已查: string | null, 要下一步: 
  * 建档向导（团队版项目模式 1a，2026-10-23）：查重 → 联系人 → 客户 → 项目 → 首条沟通。
  * 中途关掉不落库，填过的存在本机草稿里（一人一份），下次进来接着填；最后一步一笔建好，失败整笔不留
  */
-export default function ProjectWizard({ users, 要下一步 }: { users: 可选成员[]; 要下一步: boolean }) {
+export default function ProjectWizard({ users, 要下一步, 能填下一步 = false }: { users: 可选成员[]; 要下一步: boolean; 能填下一步?: boolean }) {
   // 草稿在本机 localStorage 里，服务端渲染时读不到；挂上之后再按草稿起头，免得两边对不上
   const 挂上了 = useSyncExternalStore(不订阅, () => true, () => false);
   const 我 = useMe();
   const 全名 = 草稿全名(我?.id, 草稿键);
   if (!挂上了) return null;
   const 旧 = 读草稿(全名) as { 稿?: 稿; 步?: number } | null;
-  return <WizardBody key={全名} users={users} 要下一步={要下一步} 全名={全名} 旧={旧?.稿 && 有内容(旧.稿) ? { 稿: 旧.稿, 步: Number(旧.步) || 0 } : null} />;
+  return <WizardBody key={全名} users={users} 要下一步={要下一步} 能填下一步={能填下一步} 全名={全名} 旧={旧?.稿 && 有内容(旧.稿) ? { 稿: 旧.稿, 步: Number(旧.步) || 0 } : null} />;
 }
 
 const 不订阅 = () => () => {};
 
-/** 要下一步 = 企业版开了超时回收：首条沟通要填下一步时间（项目建在线索阶段） */
-function WizardBody({ users, 要下一步, 全名, 旧 }: { users: 可选成员[]; 要下一步: boolean; 全名: string; 旧: { 稿: 稿; 步: number } | null }) {
+/**
+ * 要下一步 = 企业版开了超时回收：首条沟通要填下一步时间（项目建在线索阶段）。
+ * 能填下一步 = 企业版：没开超时回收也摆这一格、选填（10-26 验收 #4，向导里原来看不到下一步时间）
+ */
+function WizardBody({ users, 要下一步, 能填下一步, 全名, 旧 }: { users: 可选成员[]; 要下一步: boolean; 能填下一步: boolean; 全名: string; 旧: { 稿: 稿; 步: number } | null }) {
   const router = useRouter();
   const { message } = App.useApp();
   const b = useBusiness();
@@ -271,7 +274,7 @@ function WizardBody({ users, 要下一步, 全名, 旧 }: { users: 可选成员[
             />
           ), true)}
           {一行("沟通内容", <Input.TextArea rows={4} value={d.跟进.content} onChange={(e) => 改("跟进", { content: e.target.value })} />, true)}
-          {要下一步 && 一行("下一步时间", (
+          {(要下一步 || 能填下一步) && 一行("下一步时间", (
             <>
               <DatePicker
                 style={{ width: "100%" }}
@@ -280,9 +283,9 @@ function WizardBody({ users, 要下一步, 全名, 旧 }: { users: 可选成员[
                 onChange={(v) => 改("跟进", { 下一步时间: v ? v.format("YYYY-MM-DD") : null })}
                 placeholder="选一天"
               />
-              <div style={{ marginTop: 4, color: "var(--text-muted)", fontSize: 12 }}>到那天还没人跟进，项目会自动回到项目公海</div>
+              <div style={{ marginTop: 4, color: "var(--text-muted)", fontSize: 12 }}>{要下一步 ? "到那天还没人跟进，项目会自动回到项目公海" : "选填：打算哪天再跟进，项目上会显示"}</div>
             </>
-          ), true)}
+          ), 要下一步)}
         </>
       )}
 

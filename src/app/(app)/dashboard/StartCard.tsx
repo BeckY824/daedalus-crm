@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { App, Button } from "antd";
-import { ExperimentOutlined, ImportOutlined, PlusOutlined, SnippetsOutlined } from "@ant-design/icons";
+import { ExperimentOutlined, ImportOutlined, PlusOutlined, SettingOutlined, SnippetsOutlined, TeamOutlined } from "@ant-design/icons";
 import { 查演示数据状态, 灌一套演示数据, type 演示数据状态 } from "@/app/(app)/demo-data";
 import { useBusiness } from "@/lib/business-client";
 import { 外贸精简 } from "@/lib/business-config";
@@ -20,7 +20,7 @@ import { 外贸精简 } from "@/lib/business-config";
  * 自己升为主按钮——不能出现一张卡上零个主按钮的情况。
  * 企业版的管理员例外：那边没有演示数据，主按钮是「导入」（去设置 → 企业版导入），见 去导入。
  */
-export default function StartCard({ 自己服务器 = false, 去导入 = false }: {
+export default function StartCard({ 自己服务器 = false, 去导入 = false, 企业版 = false }: {
   /**
    * 跑在客户自己部署的服务器上（企业版私有部署、自部署的网页版，2026-10-25）：
    * 第三句不能再说「数据只在你的电脑上」「账号用来记 AI 次数和团队版同步」——
@@ -33,6 +33,11 @@ export default function StartCard({ 自己服务器 = false, 去导入 = false }
    * page.tsx 按 企业版() && 管理员 传；和设置页那一栏出现的条件一致
    */
   去导入?: boolean;
+  /**
+   * 企业版（CRM_ENTERPRISE=1，2026-10-26 验收 #8）：不弹个人版那套「粘一段聊天 → AI 切客户」的引导，
+   * 换成项目那条线——管理员先导入、建组织和成员、设项目规则；成员从新建项目开始。page.tsx 按 企业版() 传
+   */
+  企业版?: boolean;
 } = {}) {
   const b = useBusiness();
   const router = useRouter();
@@ -53,6 +58,8 @@ export default function StartCard({ 自己服务器 = false, 去导入 = false }
     而他微信里就有现成的名单。主线是「粘一段 → 客户本自己长出来」。
   */
   const 步骤 = [`粘一段聊天，切成${b.customer}`, "问一句进展", "让它记一笔"];
+
+  if (企业版) return <企业版开始 b={b} 管理员={去导入} 去={(u) => router.push(u)} />;
 
   return (
     <>
@@ -135,6 +142,61 @@ export default function StartCard({ 自己服务器 = false, 去导入 = false }
           </Button>
         </div>
         {能灌演示 && <p className="start-note">不会覆盖已有业务数据</p>}
+      </div>
+    </>
+  );
+}
+
+/** 企业版空库首页：项目从建档到推进一条线，不提演示数据和粘聊天（验收 #8） */
+function 企业版开始({ b, 管理员, 去 }: { b: ReturnType<typeof useBusiness>; 管理员: boolean; 去: (url: string) => void }) {
+  const 步骤 = 管理员 ? [`导入${b.customer}数据`, "建组织和成员", "设好项目规则"] : ["新建第一个项目", "记一次沟通", "按节点往前推"];
+  return (
+    <>
+      <h1 className="start-h">欢迎使用 Daedalus CRM</h1>
+      <ul className="start-intro">
+        <li>
+          <b>项目一条线走到底</b>
+          <span>从线索、建档、推进到交付，每个节点谁负责、下一步什么时候，都记在项目上。</span>
+        </li>
+        <li>
+          <b>公海和超时回收自动管</b>
+          <span>超过处理时长没跟进的项目回到公海，别人可以领；负责人随时看得到。</span>
+        </li>
+        <li>
+          <b>数据在你们自己的服务器上</b>
+          <span>{b.customer}和项目资料存在部署这套系统的服务器上，用 AI 时只把你让它看的那一段发给服务器上配好的模型。</span>
+        </li>
+      </ul>
+      <div className="start">
+        <span className="start-badge">第 1 步</span>
+        <div className="start-t">{管理员 ? "把团队搭起来" : "建你的第一个项目"}</div>
+        <ol className="start-steps">
+          {步骤.map((t, i) => (
+            <li key={t}>
+              <b>{i + 1}</b>
+              <span className="start-step-t">{t}</span>
+            </li>
+          ))}
+        </ol>
+        <div className="start-a">
+          {管理员 ? (
+            <>
+              <Button type="primary" icon={<ImportOutlined />} onClick={() => 去("/settings?tab=enterprise")}>
+                导入{b.customer}数据
+              </Button>
+              <Button icon={<TeamOutlined />} onClick={() => 去("/settings?tab=org")}>
+                组织架构
+              </Button>
+              <Button icon={<SettingOutlined />} onClick={() => 去("/settings?tab=project")}>
+                项目规则
+              </Button>
+            </>
+          ) : (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => 去("/projects/new")}>
+              新建项目
+            </Button>
+          )}
+        </div>
       </div>
     </>
   );

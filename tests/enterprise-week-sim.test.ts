@@ -38,6 +38,7 @@ import { resetDb } from "./reset";
 import { setSetting, invalidateSettingsCache } from "@/lib/settings";
 import { 建档向导, 改项目节点, 放回项目公海, 领取项目, 编辑项目 } from "@/app/(app)/projects/actions";
 import { saveLead, convertLead } from "@/app/(app)/leads/actions";
+import { dayjs } from "@/lib/utils";
 import { assignSalesOwner } from "@/app/(app)/customers/actions";
 import { deactivateUser } from "@/app/(app)/settings/actions";
 import { 建公司, type 公司 } from "./sim/公司";
@@ -46,6 +47,9 @@ import { 当前人, type 会话人 } from "./sim/身份";
 import { 接口都在, 要, 可有 } from "./sim/适配";
 const 开关开能跑 = await 接口都在();
 import { 红清单 } from "./sim/红清单";
+
+// 企业版线索转项目要带首条跟进（10-26 #13）；这家开了超时回收，下一步时间也得填
+const 转化首条 = () => ({ type: "PHONE", content: "转化前电话聊了需求", occurredAt: dayjs().subtract(1, "hour").format("YYYY-MM-DD HH:mm"), 下一步时间: dayjs().add(3, "day").format("YYYY-MM-DD") });
 
 // ———————————————————— 检查点（开关开那组）：id → 规则号 + 断言什么 ————————————————————
 
@@ -370,7 +374,7 @@ async function 剧本开() {
       await prisma.projectNodeLog.deleteMany({ where: { projectId: 项目id[n], toNode: "线索验证" } });
     }
   });
-  得(await 作为("内销1", () => convertLead(线索id["L1"])), "内销1 转化 L1");
+  得(await 作为("内销1", () => convertLead(线索id["L1"], 转化首条())), "内销1 转化 L1");
   await 查("D2-原市场人员只读看转化", async () => {
     const 列 = (await 作为("市渠1", () => 我分出去的线索())) as { name: string; status: string }[];
     expect(列.find((x) => x.name === "L1")?.status).toBe("已转化");
@@ -617,7 +621,7 @@ async function 剧本关() {
     ["组长", "P1", "线索验证"], ["组长", "P2", "线索推进"], ["内销2", "P2", "线索验证"], ["内贸经理", "P2", "线索验证"],
     ["外贸经理", "P8", "线索验证"], ["组长", "P10", "线索验证"], ["组长", "P10", "潜客培育"], ["外销1", "P1", "线索推进"],
   ] as const) 记(`D2 ${谁} 推 ${名} → ${到}：${话(await 作为(谁, () => 改项目节点(项目id[名], { phase: "线索", node: 到 })))}`);
-  记(`D2 内销1 转化 L1 → ${话(await 作为("内销1", () => convertLead(线索id["L1"])))}`);
+  记(`D2 内销1 转化 L1 → ${话(await 作为("内销1", () => convertLead(线索id["L1"], 转化首条())))}`);
   记(`D2 市渠1 改 L2 → ${话(await 作为("市渠1", () => saveLead({ id: 线索id["L2"], name: "L2 改名", source: "市场活动", status: "跟进中" })))}`);
   await 日终("D2 1/27");
 

@@ -31,6 +31,8 @@ import { 转化会带上 } from "@/lib/lead-convert";
 import { 自动分配线索, 批量自动分配, type 自动分配结果 } from "./assign-actions";
 import { AssignLeadModal, AssignedOutButton } from "./AssignLead";
 import LeadFullNotices from "./LeadFullNotices";
+import ConvertProjectModal from "./ConvertProjectModal";
+import type { 向导跟进 } from "@/lib/project/wizard";
 import type { 满额提醒 } from "@/lib/enterprise/lead-full-notice";
 
 type Row = {
@@ -60,6 +62,7 @@ export default function LeadsView({
   me,
   能自动分配 = false,
   企业版项目 = false,
+  要下一步 = false,
   线索分配开着 = false,
   满额提醒 = [],
 }: {
@@ -75,6 +78,8 @@ export default function LeadsView({
   能自动分配?: boolean;
   /** 企业版且开了项目模式（10-25 F1、F6）：新建线索照常弹表单，市场、渠道能只建一条线索；转化顺手建项目 */
   企业版项目?: boolean;
+  /** 企业版开了超时回收：转项目时首条跟进的下一步时间必填（验收 #13） */
+  要下一步?: boolean;
   /** 企业版「线索分配」规则开着：负责人只能经「分配」换，编辑框里负责人只读；页头摆「我分出去的」 */
   线索分配开着?: boolean;
   /** 企业版自动分配因都已满额没分出去的提醒，只有市场管理、总管理员有（lib/enterprise/lead-full-notice.ts） */
@@ -95,6 +100,8 @@ export default function LeadsView({
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
   const [分配中, set分配中] = useState<Row | null>(null);
+  /** 企业版转项目：先记首条跟进再转（验收 #13） */
+  const [转项目, set转项目] = useState<Row | null>(null);
   const [form] = Form.useForm();
 
   useEffect(() => {
@@ -139,7 +146,7 @@ export default function LeadsView({
    * 转客户撞了号（J-024）：原来只报「请勿重复建档」，线索永远转不了。
    * 看得到那位客户 → 问要不要并过去；看不到（业务员撞同事的）→ 说清是谁的、找谁并
    */
-  function 撞号了(r: Row, 撞: 线索撞号, 说法: string) {
+  function 撞号了(r: Row, 撞: 线索撞号, 说法: string, 跟进?: 向导跟进) {
     if (!撞.能并 || !撞.customerId) {
       modal.info({ title: 撞.客户名 ? `电话已经是「${撞.客户名}」的号码` : `电话已经在同事 ${撞.负责人} 名下`, content: 说法, okText: "知道了" });
       return;
@@ -151,7 +158,7 @@ export default function LeadsView({
       okText: `并到「${撞.客户名}」`,
       cancelText: "取消",
       async onOk() {
-        const res = await mergeLeadInto(r.id, 到);
+        const res = await mergeLeadInto(r.id, 到, 跟进);
         if (res.ok) {
           message.success(`已并到「${撞.客户名}」${res.projectId ? "，建好了项目" : ""}`);
           router.push(res.projectId ? `/projects/${res.projectId}` : `/customers/${res.customerId}`);
@@ -238,19 +245,19 @@ export default function LeadsView({
               size="small"
               icon={<SwapRightOutlined />}
               onClick={() =>
-                modal.confirm({
-                  title: 企业版项目 ? `将「${r.name}」转为项目？` : `将「${r.name}」转为${b.customer}？`,
+                企业版项目 ? set转项目(r) : modal.confirm({
+                  title: `将「${r.name}」转为${b.customer}？`,
                   // 按实际会填的格子、用当前叫法说（2026-10-04 L-016），见 lib/lead-convert.ts 转化会带上
                   content: (() => {
                     const 带 = 转化会带上(r, b.fields);
-                    return `会建一位${b.customer}${带 ? `，${带}一起带过去` : ""}${企业版项目 ? `，并在名下建一个项目「${r.name}」` : ""}，线索标记为已转化。`;
+                    return `会建一位${b.customer}${带 ? `，${带}一起带过去` : ""}，线索标记为已转化。`;
                   })(),
-                  okText: 企业版项目 ? "转为项目" : `转为${b.customer}`,
+                  okText: `转为${b.customer}`,
                   cancelText: "取消",
                   async onOk() {
                     const res = await convertLead(r.id);
                     if (res.ok) {
-                      message.success(res.projectId ? "已转为项目" : `已转为${b.customer}`);
+                      message.success(`已转为${b.customer}`);
                       router.push(res.projectId ? `/projects/${res.projectId}` : `/customers/${res.customerId}`);
                     } else if (res.撞号) 撞号了(r, res.撞号, res.error);
                     else message.error(res.error);
@@ -448,6 +455,29 @@ export default function LeadsView({
         </Form>
       </Modal>
       {能自动分配 && <AssignLeadModal lead={分配中} 关={() => set分配中(null)} />}
+      {企业版项目 && (
+        <ConvertProjectModal
+          lead={转项目}
+          要下一步={要下一步}
+          说明={转项目 ? (() => {
+            const 带 = 转化会带上(转项目, b.fields);
+            return `会建一位${b.customer}${带 ? `，${带}一起带过去` : ""}，并在名下建一个项目「${转项目.name}」，线索标记为已转化。`;
+          })() : ""}
+          关={() => set转项目(null)}
+          交={async (跟进) => {
+            const r = 转项目!;
+            const res = await convertLead(r.id, 跟进);
+            if (res.ok) {
+              set转项目(null);
+              message.success("已转为项目");
+              router.push(res.projectId ? `/projects/${res.projectId}` : `/customers/${res.customerId}`);
+            } else if (res.撞号) {
+              set转项目(null);
+              撞号了(r, res.撞号, res.error, 跟进);
+            } else message.error(res.error);
+          }}
+        />
+      )}
     </>
   );
 }

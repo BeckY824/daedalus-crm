@@ -881,6 +881,8 @@ model Project {
   pooledAt             DateTime?
   /// 下一步时间：在项目上记沟通时填（企业版开了超时回收时线索、商机阶段必填）。超时回收按它算、但不晚于节点时长，见 lib/project/timeout.ts；回到公海时清掉
   nextStepAt           DateTime?
+  /// 来源线索：企业版线索转化时建的项目记一笔是哪条线索（只记 id、不建关联，线索删了这里留着也不报错）；建档向导建的为空
+  sourceLeadId         String?
   /// 尾款结清：谁勾的、何时
   balanceSettled       Boolean                   @default(false)
   balanceSettledById   String?
@@ -903,6 +905,7 @@ model Project {
 
   @@index([customerId])
   @@index([ownerId])
+  @@index([sourceLeadId])
   @@index([pooledAt])
 }
 

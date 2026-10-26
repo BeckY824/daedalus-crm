@@ -120,7 +120,7 @@ export default function SettingsView({
     ...(桌面端 ? [{ key: "team", label: "团队", children: <TeamTab /> }] : []),
     // AI 接入是本机的（桌面端团队版的业务员在自己电脑上也能配）；业务配置全团队一份，只有管理员 / 老板改
     ...(isAdmin || 桌面端 ? [{ key: "ai", label: "AI 接入", children: <AiSettingsTab llm={llm} usage={aiUsage} 企业版={企业版} /> }] : []),
-    ...(isAdmin ? [{ key: "business", label: "业务配置", children: <BusinessSettingsTab value={business} 多人={users.filter((u) => u.active).length > 1} /> }] : []),
+    ...(isAdmin ? [{ key: "business", label: "业务配置", children: <BusinessSettingsTab value={business} 多人={users.filter((u) => u.active).length > 1} 企业版={企业版} /> }] : []),
     ...(组织架构 ? [{ key: "org", label: "组织架构", children: <OrgTab value={组织架构} /> }] : []),
     ...(项目设置 ? [{ key: "project", label: "项目模式", children: <ProjectSettingsTab value={项目设置} 成员={users.filter((u) => u.active).map((u) => ({ id: u.id, name: u.name }))} /> }] : []),
     { key: "imports", label: "导入记录", children: <ImportsTab /> },

@@ -28,6 +28,11 @@ type 结果 = { ok: true } | { ok: false; error: string };
 export const 默认角色们 = ["产品研发", "售后", "商务方案", "项目经理"] as const;
 /** 默认 4 个角色的固定 id：每台机器建出来的一样，团队版同步（1b）按 id 对得上 */
 export const 默认角色id: Record<(typeof 默认角色们)[number], string> = { 产品研发: "rd", 售后: "after-sales", 商务方案: "solution", 项目经理: "pm" };
+/** 企业版的默认 6 个（10-26 用户：「可以，后续也可以自定义角色即可」）：管理员在后台照样能加、改名 */
+export const 企业版默认角色们 = ["项目组长", "产品顾问", "研发顾问", "项目顾问", "项目助理", "售后支撑"] as const;
+export const 企业版默认角色id: Record<(typeof 企业版默认角色们)[number], string> = {
+  项目组长: "ent-lead", 产品顾问: "ent-product", 研发顾问: "ent-rd", 项目顾问: "ent-consult", 项目助理: "ent-assist", 售后支撑: "ent-after-sales",
+};
 export const 角色名上限 = 20;
 
 /**
@@ -93,8 +98,11 @@ export async function 看得到的客户(customerIds: string[], db: Pick<Prisma.
 export async function 角色字典(db: Prisma.TransactionClient = prisma) {
   if ((await db.projectRole.count()) === 0) {
     // 两个窗口同时第一次读：按名字 upsert，后到的那个什么都不改
-    for (const [i, name] of 默认角色们.entries()) {
-      await db.projectRole.upsert({ where: { name }, update: {}, create: { id: 默认角色id[name], name, sort: i } });
+    const 种子: [string, string][] = 企业版()
+      ? 企业版默认角色们.map((n) => [企业版默认角色id[n], n])
+      : 默认角色们.map((n) => [默认角色id[n], n]);
+    for (const [i, [id, name]] of 种子.entries()) {
+      await db.projectRole.upsert({ where: { name }, update: {}, create: { id, name, sort: i } });
     }
   }
   return db.projectRole.findMany({ orderBy: [{ sort: "asc" }, { createdAt: "asc" }] });

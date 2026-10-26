@@ -23,6 +23,8 @@ export type 项目详情 = {
   /** null = 公海里同事客户的项目，领取后再给（page.tsx 露客户）；联系人、沟通这时也是空的 */
   customer: { id: string; name: string; school: string | null } | null;
   contact: { id: string; name: string; position: string | null } | null;
+  /** 线索转出来的项目：来源线索的名字（null = 那条线索已删除）和转化日；不是线索转的、或公海里还没领时是 null */
+  来源线索: { name: string | null; convertedAt: string | null } | null;
   ownerId: string; ownerName: string; creatorName: string; createdAt: string;
   /** 历史负责人（只企业版有，别的版本是空的）：把这个项目放回过公海的人，最近放回的在前，同一个人只列一次 */
   historyOwners: string[];
@@ -285,6 +287,9 @@ export default function ProjectDetail({
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, marginBottom: 16 }}>
         <Card title="项目" extra={可改 && <Button type="link" size="small" disabled={忙} onClick={() => set编辑开着(true)}>编辑</Button>}>
           <div style={行样}><span style={键样}>{b.customer}</span>{p.customer ? <CustomerLink id={p.customer.id} name={p.customer.name} company={p.customer.school} /> : <span style={{ color: "var(--text-muted)" }}>领取后显示</span>}</div>
+          {p.来源线索 && (
+            <div style={行样}><span style={键样}>来源线索</span><span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{p.来源线索.name ?? <span style={{ color: "var(--text-muted)" }}>已删除的线索</span>}{p.来源线索.convertedAt && <span style={{ color: "var(--text-muted)" }}>（{p.来源线索.convertedAt} 转入）</span>}</span></div>
+          )}
           {p.contact && <div style={行样}><span style={键样}>联系人</span>{p.contact.name}{p.contact.position ? ` · ${p.contact.position}` : ""}</div>}
           <div style={行样}><span style={键样}>金额</span>{金额(p.amount, p.currency)}</div>
           <div style={行样}><span style={键样}>负责人</span>{p.pooled ? <span>在公海里<span style={{ color: "var(--text-muted)" }}>（{p.ownerName} 放回的）</span></span> : p.ownerName}</div>

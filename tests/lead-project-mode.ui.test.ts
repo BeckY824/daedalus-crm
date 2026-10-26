@@ -66,8 +66,12 @@ it("企业版项目模式：行上是「转项目」，转好去项目页（F6�
   const { page, errors, 去了 } = await 打开(true);
   await page.evaluate(() => { (window as unknown as { __转: unknown }).__转 = { ok: true, customerId: "c1", projectId: "p1" }; });
   await page.getByTestId("rows").getByRole("button", { name: /转项目/ }).click();
-  await expect.poll(() => page.locator(".ant-modal-confirm-title").innerText()).toBe("将「甲线索」转为项目？");
-  await page.getByRole("button", { name: "转为项目" }).click();
+  // 10-26 #13：转项目先记首条跟进，内容没填按钮是灰的
+  await expect.poll(() => page.locator(".ant-modal-title").innerText()).toBe("将「甲线索」转为项目");
+  const 转 = page.getByTestId("lead-convert-follow").getByRole("button", { name: "转为项目" });
+  expect(await 转.isDisabled()).toBe(true);
+  await page.getByLabel("沟通内容").fill("电话聊了需求");
+  await 转.click();
   await expect.poll(去了).toEqual(["/projects/p1"]);
   expect(errors).toEqual([]); await page.close();
 });

@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
 import {
-  改节点, 勾交付, 角色字典, 加角色, 改角色, 默认角色们, 客户的项目数, 能管项目, 改项目, 加组员, 换组员角色, 移出组员,
+  改节点, 勾交付, 角色字典, 加角色, 改角色, 默认角色们, 企业版默认角色们, 企业版默认角色id, 客户的项目数, 能管项目, 改项目, 加组员, 换组员角色, 移出组员,
   异常类别字典, 加异常类别, 改异常类别, 默认异常类别们, 放回公海, 领取公海项目, 公海超时收回, 持有数,
 } from "@/lib/project/db";
 import { setSetting, invalidateSettingsCache } from "@/lib/settings";
@@ -167,6 +167,17 @@ describe("组员角色字典", () => {
   it("第一次读补上默认 4 个，再读不重复", async () => {
     expect((await 角色字典()).map((r) => r.name)).toEqual([...默认角色们]);
     expect((await 角色字典()).length).toBe(4);
+  });
+
+  it("企业版第一次读补上企业版默认 6 个（固定 id）；不是企业版还是原来 4 个", async () => {
+    vi.stubEnv("CRM_ENTERPRISE", "1");
+    const 列 = await 角色字典();
+    expect(列.map((r) => r.name)).toEqual([...企业版默认角色们]);
+    expect(列.map((r) => r.id)).toEqual(企业版默认角色们.map((n) => 企业版默认角色id[n]));
+    expect((await 角色字典()).length).toBe(6);
+    vi.unstubAllEnvs();
+    // 已经有角色的库（老库 4 个 / 企业版 6 个）不再补：开关切换不改已有字典
+    expect((await 角色字典()).length).toBe(6);
   });
 
   it("只有老板能加、能改；业务员、主管都不行", async () => {

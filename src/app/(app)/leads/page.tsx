@@ -11,6 +11,7 @@ import { 读组织 } from "@/lib/enterprise/org";
 import { 能分配 } from "@/lib/enterprise/lead-assign";
 import { 企业版 } from "@/lib/enterprise/switch";
 import { 读满额提醒 } from "@/lib/enterprise/lead-full-notice";
+import { 生效组织规则 } from "@/lib/project/org-rules-store";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +64,9 @@ export default async function LeadsPage({
   const 能自动分配 = 线索分配开着 && 能分配(await 读组织(), me);
   // 企业版自动分配因都已满额没分出去的提醒（只发给市场管理、总管理员，见 lib/enterprise/lead-full-notice.ts）
   const 满额提醒们 = 企业版() ? await 读满额提醒(me.id) : [];
+  // 企业版转项目要记首条跟进；开了超时回收，下一步时间必填（验收 #13，服务端 转项目前查 也拦）
+  const 企业版项目 = 企业版() && b.projectMode === true;
+  const 要下一步 = 企业版项目 && (await 生效组织规则()).超时回收.开;
   return (
     <LeadsView
       总数={总数}
@@ -71,7 +75,8 @@ export default async function LeadsPage({
       filters={{ keyword: sp.keyword ?? "", status: sp.status ?? "", ownerId: sp.ownerId ?? "", source: sp.source ?? "" }}
       来源们={来源们}
       能自动分配={能自动分配}
-      企业版项目={企业版() && b.projectMode === true}
+      企业版项目={企业版项目}
+      要下一步={要下一步}
       线索分配开着={线索分配开着}
       满额提醒={满额提醒们}
       rows={rows.map((l) => ({

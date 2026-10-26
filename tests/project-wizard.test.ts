@@ -109,6 +109,14 @@ describe("建档向导", () => {
       const 下一步 = await 项目的(await 建档向导(带下一步("2099-01-01")));
       expect(下一步 && typeof 下一步 !== "string" && 下一步.getFullYear()).toBe(2099);
     });
+
+    it("企业版没开超时回收（验收 #4）：下一步时间选填，不填照建，填了写上项目，早于今天拦", async () => {
+      vi.stubEnv("CRM_ENTERPRISE", "1");
+      expect(await 项目的(await 建档向导(输入()))).toBeNull();
+      const 下一步 = await 项目的(await 建档向导({ ...带下一步("2099-01-01"), 客户: { ...输入().客户, phone: "13900000013" } }));
+      expect(下一步 && typeof 下一步 !== "string" && 下一步.getFullYear()).toBe(2099);
+      expect(await 建档向导({ ...带下一步("2020-01-01"), 客户: { ...输入().客户, phone: "13900000014" } })).toMatchObject({ ok: false, error: expect.stringContaining("不能早于今天") });
+    });
   });
 
   it("开关关着：拦下，一行不写", async () => {

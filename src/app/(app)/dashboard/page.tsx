@@ -59,7 +59,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     const 学员数 = await prisma.customer.count();
     if (学员数 === 0 && (await prisma.lead.count()) === 0) {
       // StartCard 自带那句「欢迎使用 Daedalus CRM」，这里不再叠一个页头
-      return <StartCard 自己服务器={自己服务器()} 去导入={去导入(user.role)} />;
+      return <StartCard 自己服务器={自己服务器()} 去导入={去导入(user.role)} 企业版={企业版()} />;
     }
     return <Board 满额提醒={满额提醒们} />;
   }
@@ -161,6 +161,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       /* 一条业务数据都没有：首页换成一张「开始」卡，不摆信号也不摆指标 */
       自己服务器={自己服务器()}
       去导入={去导入(user.role)}
+      企业版={企业版()}
       满额提醒={满额提醒们}
       空库={学员数 === 0 && 线索数 === 0 && mine.total === 0 && myPlans === 0 && 没做完的待办 === 0}
       信号={{

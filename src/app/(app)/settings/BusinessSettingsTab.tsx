@@ -17,7 +17,13 @@ import { DemoDataSection } from "@/components/EmptyState";
  * 顶上那几个预设是**填表的快捷方式**，不是一个新的配置项：点一下把整组字段填好，
  * 之后每一项照样能自己改，也要自己点保存。默认那套是通用销售，教培招生和外贸出口各是一套。
  */
-export default function BusinessSettingsTab({ value, 多人 = false }: { value: BusinessConfig; /** 在职的不止一个人：才摆公海那一项 */ 多人?: boolean }) {
+export default function BusinessSettingsTab({ value, 多人 = false, 企业版 = false }: {
+  value: BusinessConfig;
+  /** 在职的不止一个人：才摆公海那一项 */
+  多人?: boolean;
+  /** 企业版网页端：项目就在这台服务器上、全团队共用，不说「只存在建它的那台电脑上」（验收 #7） */
+  企业版?: boolean;
+}) {
   const router = useRouter();
   const { message } = App.useApp();
   const [form] = Form.useForm<BusinessConfig>();
@@ -146,7 +152,11 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
             name="projectMode"
             label="项目模式"
             valuePropName="checked"
-            extra={`打开后侧栏多一项「项目」，新建${value.customer}、线索、商机改走建档向导，一单生意从线索到交付记在一个项目里；已有的线索、商机、订单照旧。开关全团队一份；项目本身暂时只存在建它的那台电脑上，还不在团队里同步，同事那边看不到、也领不到公海里的项目。手机端暂时还按原来的方式新建。`}
+            extra={`打开后侧栏多一项「项目」，新建${value.customer}、线索、商机改走建档向导，一单生意从线索到交付记在一个项目里；已有的线索、商机、订单照旧。开关全团队一份；${
+              企业版
+                ? "项目存在这台服务器上，全团队都看得到，公海里的项目按规则领取。"
+                : "项目本身暂时只存在建它的那台电脑上，还不在团队里同步，同事那边看不到、也领不到公海里的项目。手机端暂时还按原来的方式新建。"
+            }`}
           >
             <Switch />
           </Form.Item>
@@ -211,7 +221,7 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
         </Row>
 
         {/*
-          商机阶段名（2026-10-21 用户放行：Even 团队内贸、外贸一起用，外贸那套「询盘 / 寄样」内贸的人不对口）。
+          商机阶段名（2026-10-21 用户放行：企业版团队内贸、外贸一起用，外贸那套「询盘 / 寄样」内贸的人不对口）。
           只改显示，存的值不动；全队一份，随团队同步
         */}
         <Typography.Title level={5} style={{ marginTop: 8 }}>商机阶段名</Typography.Title>
