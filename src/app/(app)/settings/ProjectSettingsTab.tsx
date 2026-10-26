@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { App, Button, Card, Input, InputNumber, Popconfirm, Select, Space, Switch, Tag } from "antd";
 import { 加组员角色, 改组员角色, 加项目异常类别, 改项目异常类别, 改组织规则, 预览超时回收 } from "@/app/(app)/projects/actions";
-import { 上限最大, 时长最大, type 组织规则, type 规则改动 } from "@/lib/project/org-rules";
+import { 上限最大, 时长最大, 是不限, type 组织规则, type 规则改动 } from "@/lib/project/org-rules";
 import { 节点们 } from "@/lib/project/nodes";
 import { 必填项们, 必填叫法, 能配必填的节点, 建议必填 } from "@/lib/project/required";
 import { 改提成比例 } from "@/app/(app)/projects/commission-actions";
@@ -148,7 +148,7 @@ function DictCard({
 
 /**
  * 项目持有上限（企业版组织规则，默认关）：开了以后每人手上线索 / 商机阶段的项目到了上限，就领不了公海、也不能再被指派。
- * 自己建档、跟着客户转、离职交接不拦。每人可以单独设，空着 = 用默认
+ * 自己建档、跟着客户转、离职交接不拦。每人可以单独设，空着 = 用默认；填 999 = 不限（10-26）
  */
 function HoldCapCard({
   规则, 持有, 成员, 挡, 忙, 跑,
@@ -177,13 +177,14 @@ function HoldCapCard({
       }
     >
       <div style={{ color: "var(--text-muted)", marginBottom: 12 }}>
-        开了以后，每人手上线索 / 商机阶段、还在跟的项目到了上限，就不能再从项目公海领、也不能再被指派新项目；自己建档的不拦。默认关，不限个数。
+        开了以后，每人手上线索 / 商机阶段、还在跟的项目到了上限，就不能再从项目公海领、也不能再被指派新项目；自己建档的不拦。默认关，不限个数。填 {上限最大} = 不限。
       </div>
       {规则.持有上限开 && (
         <>
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
             <span>默认每人最多</span>
             <InputNumber aria-label="默认持有上限" min={1} max={上限最大} precision={0} suffix="个" style={{ width: 120 }} disabled={!!挡} value={默认} onChange={(v) => set默认(v)} />
+            {是不限(默认) && <Tag color="processing" data-testid="hold-cap-unlimited-default">不限</Tag>}
           </div>
           {成员.map((u) => (
             <div key={u.id} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, minWidth: 0 }}>
@@ -192,11 +193,12 @@ function HoldCapCard({
               <InputNumber
                 aria-label={`${u.name}的持有上限`}
                 min={0} max={上限最大} precision={0} suffix="个" style={{ width: 120, flex: "0 0 auto" }}
-                placeholder={`默认 ${默认 ?? 规则.默认上限}`}
+                placeholder={`默认 ${是不限(默认 ?? 规则.默认上限) ? "不限" : (默认 ?? 规则.默认上限)}`}
                 disabled={!!挡}
                 value={每人[u.id] ?? null}
                 onChange={(v) => set每人((m) => ({ ...m, [u.id]: v }))}
               />
+              {是不限(每人[u.id]) && <Tag color="processing" style={{ marginInlineEnd: 0, flex: "0 0 auto" }}>不限</Tag>}
             </div>
           ))}
           {!挡 && (

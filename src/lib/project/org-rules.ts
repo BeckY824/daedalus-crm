@@ -7,8 +7,10 @@
 import { 节点们 } from "./nodes";
 import { 必填项名们, 能配必填的节点 } from "./required";
 
-/** 持有上限最多填多少：防手滑多打几个 0 */
+/** 持有上限最多填多少：防手滑多打几个 0。填满 999 = 不限（10-26 用户定）：分配、领取、指派都不再卡这个人 */
 export const 上限最大 = 999;
+/** 这个数算不算「不限」 */
+export const 是不限 = (n: number | null | undefined): boolean => typeof n === "number" && n >= 上限最大;
 /** 节点处理时长最多填多少天 */
 export const 时长最大 = 365;
 /** 能设处理时长的节点：线索、商机阶段的；订单阶段永远不回收 */
@@ -180,8 +182,9 @@ export function 合上改动(现在: 组织规则, 改: 规则改动): 组织规
   return { ...现在, 公海, 超时回收, 节点推进 };
 }
 
-/** 这个人的持有上限；没开上限 = null（不限） */
+/** 这个人的持有上限；没开上限、或者他的上限填的 999 = null（不限） */
 export function 持有上限of(规则: 组织规则, userId: string): number | null {
   if (!规则.公海.持有上限开) return null;
-  return 规则.公海.每人上限[userId] ?? 规则.公海.默认上限;
+  const n = 规则.公海.每人上限[userId] ?? 规则.公海.默认上限;
+  return 是不限(n) ? null : n;
 }

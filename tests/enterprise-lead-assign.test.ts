@@ -22,7 +22,7 @@ import { resetDb } from "./reset";
 import { 改权限key } from "@/lib/enterprise/edit-perm-table";
 import { 分配线索, 设配额, 我分出去的线索, 本月分配情况, 自动分配线索, 批量自动分配, 设自动分配参与 } from "@/app/(app)/leads/assign-actions";
 import { getSetting } from "@/lib/settings";
-import { 企划线索计数key, 月份, 计不计数, 满了, 有配额, 挑接手人, 挑的理由, 自动分配不参与key } from "@/lib/enterprise/lead-assign";
+import { 企划线索计数key, 月份, 计不计数, 满了, 有配额, 挑接手人, 挑的理由, 自动分配不参与key, 认参与状态 } from "@/lib/enterprise/lead-assign";
 import { 规则 } from "@/lib/enterprise/rules";
 import { saveLead } from "@/app/(app)/leads/actions";
 
@@ -252,15 +252,22 @@ describe("自动分配线索", () => {
     expect(await prisma.entLeadAssign.findFirstOrThrow({ where: { leadId: L } })).toMatchObject({ kind: "营销", counted: true });
   });
 
-  it("暂停参与的不再挑；恢复后照常挑", async () => {
+  it("暂停、禁止的都不再挑；恢复为允许后照常挑；老格式名单里的人读成禁止", async () => {
     当(老板, "ADMIN");
-    expect(await 设自动分配参与(内贸, false)).toEqual({ ok: true });
+    expect(await 设自动分配参与(内贸, "暂停")).toEqual({ ok: true });
+    expect(await 设自动分配参与(外贸, "禁止")).toEqual({ ok: true });
+    // 老格式名单（销售经理、虚线经理）改第一下就换成新格式，原来的人照旧禁止
+    expect(await getSetting(自动分配不参与key)).toEqual({ [销售经理]: "禁止", [虚线经理]: "禁止", [内贸]: "暂停", [外贸]: "禁止" });
     当(市场);
-    expect(await 自动分配线索(await 建线索("L"))).toMatchObject({ toUserId: 外贸 });
+    expect(await 自动分配线索(await 建线索("L"))).toMatchObject({ toUserId: 两边 });
     当(老板, "ADMIN");
-    expect(await 设自动分配参与(内贸, true)).toEqual({ ok: true });
+    expect(await 设自动分配参与(内贸, "允许")).toEqual({ ok: true });
     当(市场);
     expect(await 自动分配线索(await 建线索("M"))).toMatchObject({ toUserId: 内贸 });
+    // 外贸还是禁止：他 0 条也不挑；内贸、两边都 1/10，内贸进池早
+    expect(await 自动分配线索(await 建线索("N"))).toMatchObject({ toUserId: 内贸 });
+    // 手动分配不受参与状态影响
+    expect(await 分配线索({ leadId: await 建线索("手动"), toUserId: 外贸 })).toMatchObject({ ok: true });
   });
 
 
@@ -299,45 +306,91 @@ describe("自动分配线索", () => {
   });
 });
 
-describe("参与自动分配开关", () => {
+describe("参与自动分配（允许 / 暂停 / 禁止）", () => {
   beforeEach(() => 开());
 
-  it("老板、总管理员、销售管理能改；市场管理、销售不能；只收能接线索的人", async () => {
+  it("老板、总管理员、销售管理能改；市场管理、销售不能；只收能接线索的人、只收三种状态", async () => {
     for (const [who, role] of [[老板, "ADMIN"], [总管, "SALES"], [销售经理, "SALES"], [虚线经理, "SALES"]] as const) {
       当(who, role);
-      expect(await 设自动分配参与(两边, false)).toEqual({ ok: true });
-      expect(await getSetting(自动分配不参与key)).toEqual([两边]);
-      expect(await 设自动分配参与(两边, true)).toEqual({ ok: true });
-      expect(await getSetting(自动分配不参与key)).toEqual([]);
+      expect(await 设自动分配参与(两边, "暂停")).toEqual({ ok: true });
+      expect(await getSetting(自动分配不参与key)).toEqual({ [两边]: "暂停" });
+      expect(await 设自动分配参与(两边, "禁止")).toEqual({ ok: true });
+      expect(await getSetting(自动分配不参与key)).toEqual({ [两边]: "禁止" });
+      expect(await 设自动分配参与(两边, "允许")).toEqual({ ok: true });
+      expect(await getSetting(自动分配不参与key)).toEqual({});
     }
     for (const who of [市场, 内贸]) {
       当(who);
-      expect(await 设自动分配参与(两边, false)).toMatchObject({ ok: false, error: expect.stringMatching(/只有老板/) });
+      expect(await 设自动分配参与(两边, "暂停")).toMatchObject({ ok: false, error: expect.stringMatching(/只有老板/) });
     }
     当(老板, "ADMIN");
-    expect(await 设自动分配参与(渠道, false)).toMatchObject({ ok: false, error: expect.stringContaining("不是销售") });
-    expect(await 设自动分配参与(两边, "否" as unknown as boolean)).toMatchObject({ ok: false });
-    expect(await getSetting(自动分配不参与key)).toEqual([]);
+    expect(await 设自动分配参与(渠道, "禁止")).toMatchObject({ ok: false, error: expect.stringContaining("不是销售") });
+    expect(await 设自动分配参与(两边, "否" as never)).toMatchObject({ ok: false, error: "参与只能是允许、暂停或禁止" });
+    expect(await getSetting(自动分配不参与key)).toEqual({});
   });
 
-  it("改了留操作记录；没变不重复留", async () => {
-    await 设自动分配参与(内贸, false);
-    await 设自动分配参与(内贸, false);
-    expect(await prisma.auditLog.count({ where: { entity: "EntLeadAssign", summary: { contains: "暂停 内贸小王" } } })).toBe(1);
+  it("老的 true / false 照收：true = 允许、false = 禁止", async () => {
+    当(老板, "ADMIN");
+    expect(await 设自动分配参与(内贸, false)).toEqual({ ok: true });
+    expect(await getSetting(自动分配不参与key)).toEqual({ [内贸]: "禁止" });
+    expect((await 本月分配情况())!.find((r) => r.userId === 内贸)).toMatchObject({ 参与: false, 参与状态: "禁止" });
+    expect(await 设自动分配参与(内贸, true)).toEqual({ ok: true });
+    expect((await 本月分配情况())!.find((r) => r.userId === 内贸)).toMatchObject({ 参与: true, 参与状态: "允许" });
   });
 
-  it("同时拨两个人的开关都留下；名单按内容比，存坏的重复项会被理顺", async () => {
-    await Promise.all([设自动分配参与(内贸, false), 设自动分配参与(外贸, false)]);
-    expect(((await getSetting<string[]>(自动分配不参与key)) ?? []).sort()).toEqual([内贸, 外贸].sort());
-    // 名单长度不变但内容变了，也要写
-    await setSetting(自动分配不参与key, [内贸, 内贸]);
-    await 设自动分配参与(两边, false);
-    expect(await getSetting(自动分配不参与key)).toEqual([内贸, 两边]);
+  it("老格式（数组、对象里存 true / false）读得懂；存坏了当人人允许", () => {
+    expect(认参与状态(["a", "", 3, "b"])).toEqual({ a: "禁止", b: "禁止" });
+    expect(认参与状态({ a: true, b: false, c: "暂停", d: "禁止", e: "随便", f: 1 })).toEqual({ b: "禁止", c: "暂停", d: "禁止" });
+    for (const 坏 of [null, undefined, "x", 3]) expect(认参与状态(坏)).toEqual({});
   });
 
-  it("规则关着拒", async () => {
+  it("暂停的一键恢复为允许；本月分配情况带三态，暂停的参与 = false", async () => {
+    当(老板, "ADMIN");
+    await 设自动分配参与(内贸, "暂停");
+    await 设自动分配参与(外贸, "禁止");
+    const 看 = (await 本月分配情况())!;
+    expect(看.find((r) => r.userId === 内贸)).toMatchObject({ 参与: false, 参与状态: "暂停" });
+    expect(看.find((r) => r.userId === 外贸)).toMatchObject({ 参与: false, 参与状态: "禁止" });
+    expect(看.find((r) => r.userId === 两边)).toMatchObject({ 参与: true, 参与状态: "允许" });
+    expect(await 设自动分配参与(内贸, "允许")).toEqual({ ok: true });
+    expect(await getSetting(自动分配不参与key)).toEqual({ [外贸]: "禁止" });
+  });
+
+  it("改了留操作记录、暂停写明可随时恢复；没变不重复留；老格式只换格式不留痕", async () => {
+    await 设自动分配参与(内贸, "暂停");
+    await 设自动分配参与(内贸, "暂停");
+    await 设自动分配参与(内贸, "禁止");
+    await 设自动分配参与(内贸, "允许");
+    const 记 = await prisma.auditLog.findMany({ where: { entity: "EntLeadAssign", entityId: 内贸 } });
+    expect(记.map((a) => a.summary).sort()).toEqual(["暂停 内贸小王 参与自动分配（可随时恢复）", "禁止 内贸小王 参与自动分配", "恢复 内贸小王 参与自动分配"].sort());
+    // 允许本来就没存：不写、不留痕
+    await 设自动分配参与(两边, "允许");
+    expect(await prisma.auditLog.count({ where: { entity: "EntLeadAssign", entityId: 两边 } })).toBe(0);
+    // 老格式里已经是禁止的人再设禁止：换成新格式，但不留痕
+    await setSetting(自动分配不参与key, [外贸]);
+    await 设自动分配参与(外贸, "禁止");
+    expect(await getSetting(自动分配不参与key)).toEqual({ [外贸]: "禁止" });
+    expect(await prisma.auditLog.count({ where: { entity: "EntLeadAssign", entityId: 外贸 } })).toBe(0);
+  });
+
+  it("同时改两个人都留下", async () => {
+    await Promise.all([设自动分配参与(内贸, "暂停"), 设自动分配参与(外贸, "禁止")]);
+    expect(await getSetting(自动分配不参与key)).toEqual(expect.objectContaining({ [内贸]: "暂停", [外贸]: "禁止" }));
+  });
+
+  it("规则关着、不是企业版都拒，存着的不动", async () => {
+    await setSetting(自动分配不参与key, { [内贸]: "暂停" });
+    mocks.企业版 = false;
+    expect((await 设自动分配参与(内贸, "允许")).ok).toBe(false);
+    expect((await 设自动分配参与(外贸, true)).ok).toBe(false);
+    expect(await 本月分配情况()).toBeNull();
+    mocks.企业版 = true;
+    // 规则关着放最后：设置缓存跟着关，不带到下一组
     await 开(false);
-    expect((await 设自动分配参与(内贸, false)).ok).toBe(false);
+    expect((await 设自动分配参与(内贸, "允许")).ok).toBe(false);
+    expect((await 设自动分配参与(外贸, "禁止")).ok).toBe(false);
+    expect(await getSetting(自动分配不参与key)).toEqual({ [内贸]: "暂停" });
+    expect(await prisma.auditLog.count({ where: { entity: "EntLeadAssign" } })).toBe(0);
   });
 });
 

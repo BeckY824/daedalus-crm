@@ -353,6 +353,28 @@ describe("项目公海", () => {
     expect(await 领取公海项目(老板, p.id)).toEqual({ ok: true });
   });
 
+  it("持有上限填 999 = 不限：默认 999 或单独设 999 的人领取、指派都不卡；不是企业版照旧不拦", async () => {
+    await setSetting("orgRules", { 公海: { 持有上限开: true, 默认上限: 1, 每人上限: { [丙.id]: 999 } } });
+    for (let i = 0; i < 3; i++) await 项目(丙.id);
+    const p = await 项目(乙.id);
+    await 放回公海(乙, p.id);
+    expect(await 领取公海项目(丙, p.id)).toEqual({ ok: true });
+    const c = await 项目(老板.id);
+    expect(await 改项目(老板, c.id, { name: "一号项目", ownerId: 丙.id })).toMatchObject({ ok: true });
+    // 乙没单独设，用默认 1：手上已经 1 个，再指派就拦
+    await 项目(乙.id);
+    const d = await 项目(老板.id);
+    expect(await 改项目(老板, d.id, { name: "一号项目", ownerId: 乙.id })).toMatchObject({ ok: false, error: expect.stringContaining("持有上限（1 个）") });
+    // 默认填 999：乙也不限了
+    await setSetting("orgRules", { 公海: { 持有上限开: true, 默认上限: 999, 每人上限: {} } });
+    expect(await 改项目(老板, d.id, { name: "一号项目", ownerId: 乙.id })).toMatchObject({ ok: true });
+    // 不是企业版：同样的设置不拦，和改之前一样
+    vi.stubEnv("CRM_ENTERPRISE", "");
+    await setSetting("orgRules", { 公海: { 持有上限开: true, 默认上限: 1, 每人上限: { [丙.id]: 0 } } });
+    const e = await 项目(老板.id);
+    expect(await 改项目(老板, e.id, { name: "一号项目", ownerId: 丙.id })).toMatchObject({ ok: true });
+  });
+
   it("超时回收没开：调了什么都不做（开了的见 project-timeout.test.ts）", async () => {
     await 项目(乙.id);
     expect(await 公海超时收回({ id: 老板.id, name: "boss" }, new Date(Date.now() + 400 * 86400_000))).toBe(0);

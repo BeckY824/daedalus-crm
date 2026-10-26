@@ -52,6 +52,16 @@ describe("持有上限of", () => {
     expect(持有上限of(规则, "a")).toBe(0);
     expect(持有上限of(规则, "b")).toBe(10);
   });
+
+  it("填满 999 = 不限：默认 999、单独设 999 都返回 null；998 照算", () => {
+    const 规则 = { ...默认组织规则, 公海: { 持有上限开: true, 默认上限: 999, 每人上限: { a: 3, b: 998 } as Record<string, number> } };
+    expect(持有上限of(规则, "a")).toBe(3);
+    expect(持有上限of(规则, "b")).toBe(998);
+    expect(持有上限of(规则, "c")).toBeNull();
+    规则.公海 = { 持有上限开: true, 默认上限: 5, 每人上限: { a: 999 } };
+    expect(持有上限of(规则, "a")).toBeNull();
+    expect(持有上限of(规则, "c")).toBe(5);
+  });
 });
 
 describe("超时回收设置", () => {

@@ -73,8 +73,35 @@ export const 满了 = (已分: number, 配额: number | null) => 配额 !== null
 /** 自动分配只挑填了配额、而且不是 0 的人（10-25：没填的不参与；配额 0 也不分） */
 export const 有配额 = (配额: number | null): 配额 is number => 配额 !== null && 配额 > 0;
 
-/** 不参与自动分配的人：Setting 里存 JSON string[]，没存 = 人人参与。设置 → 组织架构 →「线索分配」里每人一个开关 */
+/**
+ * 每人参不参与自动分配（10-26 改三态）：允许 / 暂停 / 禁止。暂停 = 暂时不参与、可随时恢复；禁止 = 不参与。
+ * 两种都不进轮转，手动分配都照常。存 Setting：{ userId: "暂停" | "禁止" }，允许的不存，没存 = 人人允许。
+ * 老格式（10-24 起的开关）是 string[] = 关掉的人，读成 禁止；对象里存 true / false 的读成 允许 / 禁止。下一次改就写成新格式
+ */
 export const 自动分配不参与key = "enterprise.lead_assign.auto_excluded";
+
+export const 参与状态们 = ["允许", "暂停", "禁止"] as const;
+export type 参与状态 = (typeof 参与状态们)[number];
+export const 是参与状态 = (x: unknown): x is 参与状态 => (参与状态们 as readonly unknown[]).includes(x);
+
+/** 存着的值规整成 userId → 暂停 / 禁止（允许不放进来）。存坏了的当没设 */
+export function 认参与状态(v: unknown): Record<string, Exclude<参与状态, "允许">> {
+  const out: Record<string, Exclude<参与状态, "允许">> = {};
+  if (Array.isArray(v)) {
+    for (const id of v) if (typeof id === "string" && id) out[id] = "禁止";
+    return out;
+  }
+  if (!v || typeof v !== "object") return out;
+  for (const [id, x] of Object.entries(v as Record<string, unknown>)) {
+    if (!id) continue;
+    if (x === "暂停" || x === "禁止") out[id] = x;
+    else if (x === false) out[id] = "禁止";
+  }
+  return out;
+}
+
+/** 这个人现在的状态 */
+export const 参与状态of = (表: Record<string, 参与状态>, userId: string): 参与状态 => 表[userId] ?? "允许";
 
 export type 候选人 = { userId: string; 已分: number; 配额: number | null; 进池: Date };
 
