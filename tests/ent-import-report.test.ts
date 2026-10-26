@@ -259,6 +259,33 @@ describe("客户表里带联系人：导进库里的样子", () => {
     ]);
     expect(文件(await 重新试跑(客户.批次Id, { 文件实体: { "客户.csv": "lead" } }, "tester-id"))).toEqual([["客户.csv", "lead", 1]]);
   });
+
+  it("客户表的编号列没当「原系统 ID」用：拆出来的联系人不拿那个编号去认客户，不会挂到以前导过、外部 ID 恰好一样的别家", async () => {
+    const 读 = (名: string, csv: string) => 读文件们({ 名, bytes: new TextEncoder().encode(csv) });
+    // 以前导过一家，原系统 ID 是 R1
+    const 旧 = await 试跑({ 来源: "excel", 用户Id: "tester-id", 表: 读("旧客户.csv", "记录ID,客户名称\nR1,旧公司\n"), 建议器: null });
+    await 写一批(旧.批次Id, 我);
+    // 这次的表里「记录ID」是另一套编号，人在报告上改成「不用」
+    const 首次 = await 试跑({ 来源: "excel", 用户Id: "tester-id", 表: 读("客户.csv", "记录ID,客户名称,联系人\nR1,新公司,张三\n"), 建议器: null });
+    const 再 = await 重新试跑(首次.批次Id, { 列: { customer: { 记录ID: "" } } }, "tester-id");
+    expect(再.报告.提醒.join("\n")).toMatch(/所属客户ID抄自客户表的「记录ID」.*按客户名称挂/);
+    await 写一批(再.批次Id, 我);
+    expect(await 库里联系人()).toEqual(["新公司|张三||"]);
+  });
+
+  it("客户表带联系人、另有一张联系人表：同名、同一家客户的只导一个（按联系人表那条），另提醒", async () => {
+    const 读 = (名: string, csv: string) => 读文件们({ 名, bytes: new TextEncoder().encode(csv) });
+    const 表们 = [
+      ...读("客户.csv", "客户ID,客户名称,联系人,联系人电话\nK1,甲公司,张三,13800000009\nK2,乙公司,张三,13800000003\n"),
+      ...读("联系人.csv", "联系人姓名,所属客户ID,手机\n张三,K1,13800000001\n李四,K1,13800000002\n"),
+    ].map((t) => ({ ...t, 实体: t.名 === "客户.csv" ? ("customer" as const) : ("contact" as const) }));
+    const { 批次Id, 报告 } = await 试跑({ 来源: "excel", 用户Id: "tester-id", 表: 表们, 建议器: null });
+    expect(报告.按类.contact.待写).toBe(3);
+    expect(报告.提醒.join("\n")).toMatch(/「客户\.csv（联系人）」里有 1 个联系人单独的联系人表里也有/);
+    await 写一批(批次Id, 我);
+    // 乙公司的张三只在客户表里，照导
+    expect(await 库里联系人()).toEqual(["甲公司|张三|13800000001|", "甲公司|李四|13800000002|", "乙公司|张三|13800000003|"].sort());
+  });
 });
 
 describe("合并改动", () => {
