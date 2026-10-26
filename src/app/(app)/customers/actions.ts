@@ -41,7 +41,7 @@ import { 带走没做完的, 带走并记下, 还项目, 数转走的项目, typ
 import { 记换负责人 } from "@/lib/owner-log-db";
 import { 企业版 } from "@/lib/enterprise/switch";
 import { 验号码 } from "@/lib/enterprise/contact-format";
-import { 企业号码查重, 全公司查号, 撞号结论, 号码库类型 } from "@/lib/enterprise/contact-dedupe";
+import { 企业号码查重, 全公司查号, 撞号结论, 记号码 } from "@/lib/enterprise/contact-dedupe";
 import { setOppStatus } from "../opportunities/actions";
 import { 认得 } from "@/lib/project/hook";
 import { 客户的项目数 } from "@/lib/project/db";
@@ -99,7 +99,7 @@ export type CustomerInput = {
   extra?: Partial<Record<keyof 外贸档案, string | null>>;
   /**
    * 企业版建档向导选了号码类型的那个号码（2026-10-26，lib/enterprise/contact-format.ts）。
-   * 只在 企业版() 下、新建时认：按类型验格式、全公司查重；手机号当电话存，邮箱 / 微信存进 CustomerExtra，旺旺 ID 存 EntContactNumber。
+   * 只在 企业版() 下、新建时认：按类型验格式、全公司查重；记进联系方式子表 ContactMethod，老列照写（手机号当电话存，邮箱 / 微信存进 CustomerExtra）。
    * 开关关着、编辑时一律不看
    */
   企业号码?: { 类型: string; 值: string } | null;
@@ -426,9 +426,7 @@ export async function saveCustomer(input: CustomerInput, 接着?: unknown): Prom
       }
       const created = await tx.customer.create({ data });
       await 写外贸档案(tx, created.id, { ...档案.data, ...(企号?.类型 === "邮箱" ? { email: 企号.值 } : 企号?.类型 === "微信" ? { wechat: 企号.值 } : {}) }, false);
-      if (企号?.类型 === "旺旺ID") {
-        await tx.entContactNumber.create({ data: { customerId: created.id, kind: 号码库类型.旺旺ID, value: 企号.值, numberKey: 企号.键 } });
-      }
+      if (企号) await 记号码(tx, created.id, null, 企号);
       if (认得(接着)) await 接着(tx, created.id);
       return { created } as const;
     });

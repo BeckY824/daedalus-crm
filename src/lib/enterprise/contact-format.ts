@@ -129,3 +129,27 @@ export const 查重提示 = {
   我的通讯录已有: "📒我的通讯录已有该号码",
   重复: (同事: string) => `⛔号码重复，可与 ${同事} 沟通核实`,
 } as const;
+
+/** 向导联系人那一步的三格 */
+export type 联系人三格 = { phone: string; email: string; wechat: string };
+const 带进哪格: Partial<Record<号码类型, keyof 联系人三格>> = { 手机号: "phone", 邮箱: "email", 微信: "wechat" };
+
+/**
+ * 企业版建档向导第一步查重过了，把号码带进联系人那一步（QA #2：查过以后改了号码再查，后面带的还是旧号码）。
+ * 带过 = 上一次查重带进去的那几格当时的值。那一格空着、或者还是上次带进去的样子（人没动过）就换成这次的；人自己填过、改过的不动。
+ * 换了类型的：上次带进另一格、人没动过的清掉——后面带的只是最后查过的那一个号。返回要改的格和这次带过的
+ */
+export function 带进联系人(联系人: 联系人三格, 带过: Partial<联系人三格> | undefined, 类型: string, 值: string): { 改: Partial<联系人三格>; 带过: Partial<联系人三格> } {
+  const 改: Partial<联系人三格> = {}, 这次: Partial<联系人三格> = {};
+  const 格 = 是号码类型(类型) ? 带进哪格[类型] : undefined;
+  for (const 列 of ["phone", "email", "wechat"] as const) {
+    const 没动过 = 带过?.[列] !== undefined && 联系人[列] === 带过[列];
+    if (列 === 格) {
+      if (!联系人[列].trim() || 没动过) {
+        if (联系人[列] !== 值) 改[列] = 值;
+        这次[列] = 值;
+      }
+    } else if (没动过 && 联系人[列]) 改[列] = "";
+  }
+  return { 改, 带过: 这次 };
+}

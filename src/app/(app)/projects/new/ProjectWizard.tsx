@@ -17,7 +17,7 @@ import { 外贸精简 } from "@/lib/business-config";
 import { 项目名上限, 备注上限 } from "@/lib/project/wizard";
 import { checkDuplicate, type DuplicateHit } from "../../customers/actions";
 import { 查号码, type 查号码结果 } from "../../customers/number-actions";
-import { 向导能选类型 } from "@/lib/enterprise/contact-format";
+import { 向导能选类型, 带进联系人, type 联系人三格 } from "@/lib/enterprise/contact-format";
 import { 建档向导 } from "../actions";
 
 const 草稿键 = "项目建档向导";
@@ -30,6 +30,8 @@ type 稿 = {
   /** 企业版第一步选的号码类型（lib/enterprise/contact-format.ts）；开关关着没有这格 */
   号码类型?: string;
   联系人: { name: string; position: string; phone: string; email: string; wechat: string };
+  /** 企业版：上一次查重带进联系人那几格的值（人没动过的，再查一个号时跟着换）；开关关着没有这格 */
+  带过?: Partial<联系人三格>;
   客户: { name: string; school: string; remark: string };
   项目: { name: string; ownerId: string; amount: number | null; currency: string; remark: string };
   /** 下一步时间（YYYY-MM-DD）：开了超时回收时才有这格、必填；老草稿里没有这格 */
@@ -129,10 +131,14 @@ function WizardBody({ users, 要下一步, 企业版, 全名, 旧 }: { users: �
         set企查(r);
         set已查(查过键(d, true));
         if (r.ok && r.状态 === "首次录入") {
-          // 查过的号码顺手填进联系人那一格（空着才填）
-          if (d.号码类型 === "手机号" && !d.联系人.phone) 改("联系人", { phone: r.值 });
-          if (d.号码类型 === "邮箱" && !d.联系人.email) 改("联系人", { email: r.值 });
-          if (d.号码类型 === "微信" && !d.联系人.wechat) 改("联系人", { wechat: r.值 });
+          // 查过的号码顺手填进联系人那一格：空着的、或者还是上次查重带进去的（人没改过）换成这次的
+          const 类型 = d.号码类型;
+          setD((o) => {
+            const t = 带进联系人(o.联系人, o.带过, 类型, r.值);
+            const n = { ...o, 联系人: { ...o.联系人, ...t.改 }, 带过: t.带过 };
+            存草稿(全名, { 稿: n, 步 });
+            return n;
+          });
         }
         return;
       }

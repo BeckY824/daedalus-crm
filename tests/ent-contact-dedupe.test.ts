@@ -1,7 +1,7 @@
 /**
  * 企业版建档的全公司号码查重（lib/enterprise/contact-dedupe.ts + customers/number-actions.ts 查号码 +
- * saveCustomer 的 企业号码，测试清单 B5 / B8）：不分谁名下、客户上和联系人上都比；撞到按 我名下 → 公海 → 同事 挑一句；
- * 旺旺 ID 存 EntContactNumber、换个大小写空格也撞。开关关着：没有号码类型、保存不认 企业号码、查重照旧
+ * saveCustomer 的 企业号码，测试清单 B5 / B8）：不分谁名下、客户上和联系人上都比；撞到好几条认首条（建档最早）；
+ * 旺旺 ID 记进联系方式子表 ContactMethod、换个大小写空格也撞。开关关着：没有号码类型、保存不认 企业号码、查重照旧
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
@@ -94,8 +94,8 @@ describe("企业版开着", () => {
     当(乙);
     const r = await saveCustomer(客户({ name: "旺旺客户", salesOwnerId: 乙, 企业号码: { 类型: "旺旺ID", 值: "My Shop:kefu01" } }));
     expect(r).toMatchObject({ ok: true });
-    const 行 = await prisma.entContactNumber.findMany();
-    expect(行).toMatchObject([{ kind: "wangwang", value: "MyShop:kefu01", numberKey: "myshop:kefu01" }]);
+    const 行 = await prisma.contactMethod.findMany();
+    expect(行).toMatchObject([{ kind: "wangwang", value: "MyShop:kefu01", numberKey: "myshop:kefu01", contactId: null, formatStatus: "ok", region: null }]);
     当(甲);
     expect(await 查号码("旺旺ID", "myshop:KEFU01")).toMatchObject({ 状态: "重复", 提示: "⛔号码重复，可与 乙 沟通核实" });
     const 再建 = await saveCustomer(客户({ name: "又一个", 企业号码: { 类型: "旺旺ID", 值: "MYSHOP : kefu01" } }));
@@ -113,6 +113,11 @@ describe("企业版开着", () => {
     const 手 = await saveCustomer(客户({ name: "手机客户", phone: "", 企业号码: { 类型: "手机号", 值: "+86 139-0000-0103" } }));
     expect(手).toMatchObject({ ok: true });
     expect(await prisma.customer.findFirst({ where: { name: "手机客户" }, select: { phone: true } })).toEqual({ phone: "13900000103" });
+    // 子表一行一号，老列照写；手机号带归属地
+    expect(await prisma.contactMethod.findMany({ orderBy: { kind: "asc" }, select: { kind: true, value: true, numberKey: true, region: true } })).toEqual([
+      { kind: "email", value: "Li@Corp.com", numberKey: "li@corp.com", region: null },
+      { kind: "phone", value: "13900000103", numberKey: "13900000103", region: expect.stringContaining("新疆") },
+    ]);
   });
 
   it("保存：撞到另一位负责人联系人上的电话也挡下", async () => {
@@ -126,6 +131,30 @@ describe("企业版开着", () => {
     const ids = await prisma.$transaction((tx) => 全公司查号(tx, "手机号", "13900000105", "13900000105"));
     expect(ids).toEqual([c.id]);
   });
+
+  it("只在子表里的号也撞：手机号 / 邮箱 / 微信 / 旺旺 四种都比", async () => {
+    const c = await 建("乙的客户", 乙);
+    await prisma.contactMethod.createMany({ data: [
+      { customerId: c.id, kind: "phone", value: "13900000106", numberKey: "13900000106" },
+      { customerId: c.id, kind: "email", value: "Sub@Corp.com", numberKey: "sub@corp.com" },
+      { customerId: c.id, kind: "wechat", value: "SubWx_01", numberKey: "subwx_01" },
+      { customerId: c.id, kind: "wangwang", value: "SubShop:kf01", numberKey: "subshop:kf01" },
+    ] });
+    expect(await 查号码("手机号", "139 0000 0106")).toMatchObject({ 状态: "重复" });
+    expect(await 查号码("邮箱", "SUB@corp.com")).toMatchObject({ 状态: "重复" });
+    expect(await 查号码("微信", "subwx_01")).toMatchObject({ 状态: "重复" });
+    expect(await 查号码("旺旺ID", "SUBSHOP : kf01")).toMatchObject({ 状态: "重复" });
+    // 类型不同不算撞：同一串记成微信，拿去查旺旺不撞
+    expect(await 查号码("旺旺ID", "SubWx_01")).toMatchObject({ 状态: "首次录入" });
+  });
+
+  it("撞到好几条认首条（建档最早）：先建的是同事 → 提示同事；首条在公海 → 公海待捞", async () => {
+    const 早 = await 建("乙的老客户", 乙, { phone: "13900000107", createdAt: new Date("2026-01-01") });
+    await 建("甲的新客户", 甲, { phone: "13900000107", createdAt: new Date("2026-06-01") });
+    expect(await 查号码("手机号", "13900000107")).toMatchObject({ 状态: "重复", 提示: "⛔号码重复，可与 乙 沟通核实" });
+    await prisma.customerPool.create({ data: { customerId: 早.id } });
+    expect(await 查号码("手机号", "13900000107")).toMatchObject({ 状态: "公海待捞", 提示: 查重提示.公海待捞 });
+  });
 });
 
 describe("开关关着照旧", () => {
@@ -133,10 +162,10 @@ describe("开关关着照旧", () => {
     expect(await 查号码("旺旺ID", "MyShop")).toMatchObject({ ok: false, 状态: "没开" });
     const 没电话 = await saveCustomer(客户({ name: "旺旺客户", 企业号码: { 类型: "旺旺ID", 值: "MyShop" } }));
     expect(没电话.ok).toBe(false);
-    expect(await prisma.entContactNumber.count()).toBe(0);
+    expect(await prisma.contactMethod.count()).toBe(0);
     const 有电话 = await saveCustomer(客户({ name: "旺旺客户", phone: "13900000201", 企业号码: { 类型: "旺旺ID", 值: "MyShop" } }));
     expect(有电话).toMatchObject({ ok: true });
-    expect(await prisma.entContactNumber.count()).toBe(0);
+    expect(await prisma.contactMethod.count()).toBe(0);
 
     const c = await 建("乙的客户", 乙);
     await prisma.contact.create({ data: { customerId: c.id, name: "王经理", phone: "13900000202" } });

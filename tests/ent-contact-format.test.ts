@@ -3,7 +3,7 @@
  * 旺旺 ID 带子账号，+86 / 0086 写法当国内号。纯函数，不碰库
  */
 import { describe, it, expect } from "vitest";
-import { 验号码, 号码提示 } from "@/lib/enterprise/contact-format";
+import { 验号码, 号码提示, 带进联系人 } from "@/lib/enterprise/contact-format";
 
 const 过 = (类型: string, 值: string) => {
   const r = 验号码(类型, 值);
@@ -97,5 +97,31 @@ describe("二维码（B6）", () => {
   it("没图：请上传二维码图片；有图就过", () => {
     expect(验号码("二维码", "")).toMatchObject({ ok: false, 状态: "待上传", 提示: 号码提示.待上传 });
     expect(状态("二维码", "", true)).toBe("ok");
+  });
+});
+
+describe("向导：查重后带进联系人（验收 #2）", () => {
+  const 空 = { phone: "", email: "", wechat: "" };
+  it("空着就带；改了号再查，没动过的那格跟着换成新号", () => {
+    const 一 = 带进联系人(空, undefined, "手机号", "13900000001");
+    expect(一).toEqual({ 改: { phone: "13900000001" }, 带过: { phone: "13900000001" } });
+    const 现在 = { ...空, ...一.改 };
+    const 二 = 带进联系人(现在, 一.带过, "手机号", "13900000009");
+    expect(二).toEqual({ 改: { phone: "13900000009" }, 带过: { phone: "13900000009" } });
+  });
+  it("自己改过的那格不碰", () => {
+    const 一 = 带进联系人(空, undefined, "邮箱", "a@corp.com");
+    const 改过 = { ...空, email: "boss@corp.com" };
+    expect(带进联系人(改过, 一.带过, "邮箱", "b@corp.com")).toEqual({ 改: {}, 带过: {} });
+    expect(带进联系人({ ...空, phone: "13900000005" }, undefined, "手机号", "13900000001").改).toEqual({});
+  });
+  it("换了类型：旧类型那格没动过就清掉，新号带进新格", () => {
+    const 一 = 带进联系人(空, undefined, "手机号", "13900000001");
+    const 二 = 带进联系人({ ...空, ...一.改 }, 一.带过, "微信", "WangLi_88");
+    expect(二).toEqual({ 改: { phone: "", wechat: "WangLi_88" }, 带过: { wechat: "WangLi_88" } });
+  });
+  it("旺旺 / 二维码没有对应的格：只清掉没动过的旧带入", () => {
+    const 一 = 带进联系人(空, undefined, "邮箱", "a@corp.com");
+    expect(带进联系人({ ...空, ...一.改 }, 一.带过, "旺旺ID", "MyShop")).toEqual({ 改: { email: "" }, 带过: {} });
   });
 });
