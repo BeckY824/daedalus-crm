@@ -17,7 +17,7 @@ vi.mock("@/lib/business", async (原) => {
 
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
-import { 编辑项目, 加项目组员, 换项目组员角色, 移出项目组员, 改组织规则, 预览超时回收, 记项目沟通Action } from "@/app/(app)/projects/actions";
+import { 编辑项目, 加项目组员, 换项目组员角色, 移出项目组员, 改组织规则, 预览超时回收, 记项目沟通Action, 回项目邀请 } from "@/app/(app)/projects/actions";
 import { 角色字典 } from "@/lib/project/db";
 import { 读组织规则 } from "@/lib/project/org-rules-store";
 import { invalidateSettingsCache } from "@/lib/settings";
@@ -139,5 +139,38 @@ describe("改组织规则（企业版持有上限）", () => {
     expect(await 改组织规则({ 公海: { 持有上限开: true } })).toMatchObject({ ok: false, error: expect.stringContaining("没开") });
     expect((await 读组织规则()).公海.持有上限开).toBe(false);
     expect(await 记录()).toEqual([]);
+  });
+});
+
+describe("企业版项目组邀请（10-26）", () => {
+  afterEach(() => { vi.unstubAllEnvs(); });
+
+  it("邀请记「邀请进」，同意 / 拒绝各记一条；别人替他回不行", async () => {
+    vi.stubEnv("CRM_ENTERPRISE", "1");
+    expect(await 加项目组员(项目id, 乙, null)).toEqual({ ok: true });
+    const m = await prisma.projectMember.findFirstOrThrow({ where: { userId: 乙 } });
+    expect(m.inviteStatus).toBe("INVITED");
+    expect(await 回项目邀请(m.id, true)).toMatchObject({ ok: false });
+    mocks.user = { ...mocks.user, id: 乙, role: "SALES" };
+    expect(await 回项目邀请(m.id, false)).toEqual({ ok: true });
+    mocks.user = { ...mocks.user, id: 甲, role: "ADMIN" };
+    expect(await 加项目组员(项目id, 乙, null)).toEqual({ ok: true });
+    mocks.user = { ...mocks.user, id: 乙, role: "SALES" };
+    expect(await 回项目邀请(m.id, true)).toEqual({ ok: true });
+    expect((await 记录()).map((r) => r.summary)).toEqual([
+      expect.stringContaining("邀请进"), expect.stringContaining("拒绝加入"),
+      expect.stringContaining("邀请进"), expect.stringContaining("同意加入"),
+    ]);
+  });
+
+  it("开关关着：回邀请直接拦、一行不写；加人照旧「加进」直接进组", async () => {
+    vi.stubEnv("CRM_ENTERPRISE", "");
+    expect(await 加项目组员(项目id, 乙, null)).toEqual({ ok: true });
+    const m = await prisma.projectMember.findFirstOrThrow({ where: { userId: 乙 } });
+    expect(m.inviteStatus).toBe("JOINED");
+    mocks.user = { ...mocks.user, id: 乙, role: "SALES" };
+    expect(await 回项目邀请(m.id, false)).toMatchObject({ ok: false, error: expect.stringContaining("企业版") });
+    expect((await prisma.projectMember.findUniqueOrThrow({ where: { id: m.id } })).inviteStatus).toBe("JOINED");
+    expect((await 记录()).map((r) => r.summary)).toEqual([expect.stringContaining("加进")]);
   });
 });

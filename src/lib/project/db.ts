@@ -28,6 +28,8 @@ type 结果 = { ok: true } | { ok: false; error: string };
 export const 默认角色们 = ["产品研发", "售后", "商务方案", "项目经理"] as const;
 /** 默认 4 个角色的固定 id：每台机器建出来的一样，团队版同步（1b）按 id 对得上 */
 export const 默认角色id: Record<(typeof 默认角色们)[number], string> = { 产品研发: "rd", 售后: "after-sales", 商务方案: "solution", 项目经理: "pm" };
+/** 企业版的组员角色多两个（10-26 用户定 6 个）：字典里没有就补上，固定 id 同上；字典照旧能改、能停用 */
+export const 企业版加的角色: Record<string, string> = { 采购: "purchase", 跟单: "merch" };
 export const 角色名上限 = 20;
 
 /**
@@ -89,12 +91,22 @@ export async function 看得到的客户(customerIds: string[], db: Pick<Prisma.
   return new Set(rows.map((r) => r.id));
 }
 
-/** 组员角色字典：按排序列出（停用的也列，界面自己挑），空着就先建默认 4 个 */
+/** 组员角色字典：按排序列出（停用的也列，界面自己挑），空着就先建默认 4 个；企业版再补采购、跟单 */
 export async function 角色字典(db: Prisma.TransactionClient = prisma) {
   if ((await db.projectRole.count()) === 0) {
     // 两个窗口同时第一次读：按名字 upsert，后到的那个什么都不改
     for (const [i, name] of 默认角色们.entries()) {
       await db.projectRole.upsert({ where: { name }, update: {}, create: { id: 默认角色id[name], name, sort: i } });
+    }
+  }
+  if (企业版()) {
+    // 角色只停用不删：按 id 或名字有过的（改了名、停用了的）都不再补
+    const 有了 = await db.projectRole.findMany({ where: { OR: [{ id: { in: Object.values(企业版加的角色) } }, { name: { in: Object.keys(企业版加的角色) } }] }, select: { id: true, name: true } });
+    const 排到 = await db.projectRole.count();
+    let i = 0;
+    for (const [name, id] of Object.entries(企业版加的角色)) {
+      if (有了.some((r) => r.id === id || r.name === name)) continue;
+      await db.projectRole.upsert({ where: { name }, update: {}, create: { id, name, sort: 排到 + i++ } });
     }
   }
   return db.projectRole.findMany({ orderBy: [{ sort: "asc" }, { createdAt: "asc" }] });
@@ -586,15 +598,18 @@ export async function 记项目沟通(me: 谁, projectId: string, input: 向导�
       data: { type: 好.type, content: 好.content, occurredAt: 好.occurredAt, title: "", status: "已完成", customerId: p.customerId, contactId: p.contactId, ownerId: me.id },
     });
     await tx.followUpProject.create({ data: { followUpId: 跟进.id, projectId: p.id, node: p.node } });
-    const c = await tx.customer.findUnique({ where: { id: p.customerId }, select: { lastFollowAt: true } });
-    if (!c?.lastFollowAt || c.lastFollowAt < 好.occurredAt) await tx.customer.update({ where: { id: p.customerId }, data: { lastFollowAt: 好.occurredAt } });
+    // 企业版组员不一定看得到这位客户（客户是负责人的）：最近跟进时间只是跟着记一笔，不按范围拦
+    const c = await 看全部(() => tx.customer.findUnique({ where: { id: p.customerId }, select: { lastFollowAt: true } }));
+    if (!c?.lastFollowAt || c.lastFollowAt < 好.occurredAt) await 看全部(() => tx.customer.update({ where: { id: p.customerId }, data: { lastFollowAt: 好.occurredAt } }));
     if (好.nextStepAt) await tx.project.update({ where: { id: p.id }, data: { nextStepAt: 好.nextStepAt } });
     return { ok: true as const, followUpId: 跟进.id, ...带推进(await 按必填推进(tx, 规则, me, p.id)) };
   });
 }
 
 /**
- * 加组员：能管项目的人拉，1a 直接进组（inviteStatus = JOINED）；1b 的进组邀请改成 INVITED、等对方点。
+ * 加组员：能管项目的人拉，1a 直接进组（inviteStatus = JOINED）。
+ * 企业版（10-26）= 发邀请（INVITED），对方在自己那边点同意才进组，同意前不算组员、看不到项目；
+ * 拒绝过的（DECLINED）可以再邀一次；拉自己直接进组。组长 = 项目负责人。
  * 角色可空；停用的角色不让新选，已经用它的组员不动
  */
 export async function 加组员(me: 谁, projectId: string, userId: string, roleId?: string | null): Promise<结果> {
@@ -606,12 +621,46 @@ export async function 加组员(me: 谁, projectId: string, userId: string, role
     if (!(await 在职(tx, uid))) return { ok: false as const, error: "这位成员不存在或已停用" };
     const 角色 = await 可用角色(tx, roleId);
     if (typeof 角色 === "object" && 角色) return 角色;
-    if (await tx.projectMember.findUnique({ where: { projectId_userId: { projectId: p.id, userId: uid } } })) {
-      return { ok: false as const, error: "这位已经在项目组里了" };
+    const 发邀请 = 企业版() && uid !== me.id;
+    const 有 = await tx.projectMember.findUnique({ where: { projectId_userId: { projectId: p.id, userId: uid } } });
+    if (有 && 发邀请 && 有.inviteStatus === "DECLINED") {
+      await tx.projectMember.update({ where: { id: 有.id }, data: { roleId: 角色, inviteStatus: "INVITED", invitedById: me.id } });
+      return { ok: true as const };
     }
-    await tx.projectMember.create({ data: { projectId: p.id, userId: uid, roleId: 角色, inviteStatus: "JOINED", invitedById: me.id } });
+    if (有) return { ok: false as const, error: 有.inviteStatus === "INVITED" ? "已经邀请过这位了，等对方同意" : "这位已经在项目组里了" };
+    await tx.projectMember.create({ data: { projectId: p.id, userId: uid, roleId: 角色, inviteStatus: 发邀请 ? "INVITED" : "JOINED", invitedById: me.id } });
     return { ok: true as const };
   });
+}
+
+/** 企业版：被邀请的人回邀请。只有本人能回、只回还在等的；同意 = 进组（JOINED），拒绝 = DECLINED（负责人那边看得到「没接受」，能再邀） */
+export async function 回邀请(me: 谁, memberId: string, 同意: boolean): Promise<结果 & { projectId?: string }> {
+  return 查完再写(async (tx) => {
+    // 同意前看不到项目（团队范围里只算 JOINED 的组员），这一行按 id 取、只认本人
+    const m = await 看全部(() => tx.projectMember.findUnique({ where: { id: String(memberId ?? "") }, select: { id: true, userId: true, projectId: true, inviteStatus: true } }));
+    if (!m || m.userId !== me.id) return { ok: false as const, error: "这个邀请已经不在了，刷新看看" };
+    if (m.inviteStatus !== "INVITED") return { ok: false as const, error: m.inviteStatus === "JOINED" ? "你已经在项目组里了" : "你已经拒绝过这个邀请了" };
+    await 看全部(() => tx.projectMember.update({ where: { id: m.id }, data: { inviteStatus: 同意 ? "JOINED" : "DECLINED" } }));
+    return { ok: true as const, projectId: m.projectId };
+  });
+}
+
+export type 待回邀请 = { id: string; projectId: string; 项目: string; 负责人: string; 邀请人: string; 角色: string | null; createdAt: Date };
+
+/** 企业版：等我回的项目组邀请（只带项目名、负责人、谁邀的、角色，项目里的东西同意了才看得到） */
+export async function 待我回的邀请(me: 谁): Promise<待回邀请[]> {
+  if (!企业版()) return [];
+  const rows = await 看全部(() => prisma.projectMember.findMany({
+    where: { userId: me.id, inviteStatus: "INVITED" },
+    select: { id: true, projectId: true, invitedById: true, createdAt: true, role: { select: { name: true } }, project: { select: { name: true, ownerId: true } } },
+    orderBy: { createdAt: "desc" },
+  }));
+  const ids = [...new Set(rows.flatMap((r) => [r.project.ownerId, r.invitedById].filter((x): x is string => !!x)))];
+  const 名 = new Map((await 看全部(() => prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, email: true } }))).map((u) => [u.id, u.name || u.email]));
+  return rows.map((r) => ({
+    id: r.id, projectId: r.projectId, 项目: r.project.name, 负责人: 名.get(r.project.ownerId) ?? "—",
+    邀请人: (r.invitedById && 名.get(r.invitedById)) || "—", 角色: r.role?.name ?? null, createdAt: r.createdAt,
+  }));
 }
 
 /** 角色 id → 能用的角色 id（null = 不选）；停用的、不在的给一句话 */
