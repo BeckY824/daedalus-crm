@@ -53,6 +53,7 @@ import { 规则 } from "@/lib/enterprise/rules";
 import { 客户筛选条件 } from "@/app/(app)/customers/query";
 import { 导出客户 } from "@/app/(app)/customers/export-action";
 import { patchCustomer } from "@/app/(app)/customers/actions";
+import { deleteContact, restoreContact } from "@/app/(app)/customers/[id]/actions";
 import { TOOL_MAP, type ToolContext } from "@/lib/agent/tools";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
 import { maskPhone } from "@/lib/utils";
@@ -302,5 +303,21 @@ describe("停用的人", () => {
   it("就算绕过入口直接查库，也只看得到公海", async () => {
     const ids = await 作为("停用的人", async () => (await db.customer.findMany({ select: { id: true } })).map((c) => c.id));
     expect(ids).toEqual([客户id.get("公海")]);
+  });
+});
+
+describe("删联系人的撤销快照（直接调接口）", () => {
+  it.each([
+    { role: "普通销售" as const, mask: true },
+    { role: "老板" as const, mask: false },
+  ])("$role → 快照里的号打码 $mask；撤销后库里还是原号", async ({ role, mask }) => {
+    const 原号 = "13900771234";
+    const c = await raw.contact.create({ data: { name: `${role}的联系人`, phone: 原号, customerId: 客户id.get(记录归属[role].自己的!)! } });
+    const r = await 作为(role, () => deleteContact(c.id));
+    if (!r.ok) throw new Error(r.error);
+    expect(r.快照.phone).toBe(mask ? maskPhone(原号) : 原号);
+    expect(await 作为(role, () => restoreContact(r.快照))).toEqual({ ok: true });
+    expect((await raw.contact.findUniqueOrThrow({ where: { id: c.id } })).phone).toBe(原号);
+    await raw.contact.delete({ where: { id: c.id } });
   });
 });

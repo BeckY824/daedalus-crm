@@ -63,6 +63,8 @@ export const 不同步表 = [
   "EntDept", "EntMember",
   // 企业版线索分配（2026-10-24）：同上
   "EntLeadAssign", "EntLeadQuota",
+  // 企业版站内提醒（2026-10-26）：同上
+  "EntNotice",
 ] as const;
 
 /**
@@ -137,6 +139,7 @@ export const 指向人的列: [string, string][] = [
   ["EntLeadAssign", "byUserId"],
   ["EntLeadQuota", "userId"],
   ["EntLeadQuota", "setById"],
+  ["EntNotice", "userId"],
 ];
 
 /**

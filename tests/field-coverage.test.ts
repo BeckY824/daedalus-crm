@@ -84,9 +84,19 @@ const 派生: Record<string, Record<string, string>> = {
     fromUserId: "分之前线索在谁名下，分配时从线索上抄过来",
     byUserId: "点分配的那个人，当前登录账号",
     counted: "算不算进当月配额，按线索种类和设置算出来",
-    month: "分配那一刻的年月，按服务器本地时间算，每月清零靠它",
+    month: "分配那一刻的年月，按业务钟算（企业版北京时间），每月清零靠它",
   },
   EntLeadQuota: { setById: "最后改配额的人，当前登录账号" },
+  // 企业版站内提醒（2026-10-26）：系统发的，人只能点「知道了」（readAt，lib/enterprise/notice.ts 已读企业提醒）
+  EntNotice: {
+    userId: "收提醒的人，按管理员类别挑出来",
+    kind: "哪一种提醒，发的地方写死",
+    title: "系统按事由写的标题",
+    body: "系统按事由写的内容",
+    link: "系统给的去处",
+    times: "没看期间又发生了几次，系统数",
+    readAt: "点「知道了」的时间，当前登录账号只能标自己的",
+  },
   Opportunity: { activityAt: "最近业务推进时间；转交负责人保留，业务字段/报价变化时刷新，老数据为空沿用原修改时间" },
   Customer: {
     expectedSignOn: "预计签约原日历日，随保存/导入/同步保留；旧数据未知为空",

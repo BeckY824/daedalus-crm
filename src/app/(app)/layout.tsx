@@ -22,6 +22,7 @@ import { 是共享工作区 } from "@/lib/shared-ws/config";
 import { ShortcutProvider } from "@/components/Shortcut";
 import MobileAuthPrompt from "@/components/MobileAuthPrompt";
 import TeamConnectPrompt from "@/components/TeamConnectPrompt";
+import EntNoticePrompt from "@/components/EntNoticePrompt";
 import { 要问待授权手机 } from "@/lib/sync/mobile-desktop";
 import { 背调有入口 } from "@/lib/research/channel";
 import { ResearchEntryProvider } from "@/components/research/ResearchEntry";
@@ -123,6 +124,7 @@ export default async function AppLayout({
       {本地模式() && 要问待授权手机() && <MobileAuthPrompt />}
       {/* 新电脑登录了团队成员的账号、还没连上：打开就弹框发申请，另一台电脑 / 手机马上弹「允许」（多设备同步） */}
       {本地模式() && <TeamConnectPrompt />}
+      {企业版() && <EntNoticePrompt />}
       </ResearchEntryProvider>
       </AiMeterProvider>
     </BusinessProvider>

@@ -1200,7 +1200,7 @@ model EntLeadAssign {
   kind       String   @default("营销")
   /// 算不算进接手人当月的分配数（配额按它数）
   counted    Boolean  @default(true)
-  /// YYYY-MM（服务器本地时间），按月清零就是只数本月这一格
+  /// YYYY-MM（业务钟：企业版北京时间），按月清零就是只数本月这一格
   month      String
   createdAt  DateTime @default(now())
 
@@ -1216,4 +1216,25 @@ model EntLeadQuota {
   /// 最后一次是谁设的
   setById   String
   updatedAt DateTime @updatedAt
+}
+
+/// 企业版站内提醒（2026-10-26）：现在只有「自动分配都已满额」一种，给市场管理、总管理员各一条。
+/// 同一个人同一种没看的只留一条：再满额一次就刷新内容、次数 +1，不堆。点「知道了」写 readAt
+model EntNotice {
+  id        String    @id @default(cuid())
+  /// 发给谁
+  userId    String
+  /// 哪一种：线索满额
+  kind      String
+  title     String
+  body      String
+  /// 点「去看看」去哪
+  link      String?
+  /// 没看的这段时间里又发生了几次
+  times     Int       @default(1)
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId, readAt])
 }

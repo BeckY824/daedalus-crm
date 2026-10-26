@@ -14,6 +14,7 @@ import { 客户存了推项目 } from "@/lib/project/auto-advance";
 import { recordAudit } from "@/lib/audit";
 import { 领取 } from "../pool-actions";
 import { 认回打码号 } from "@/lib/phone";
+import { 号码脱敏器 } from "@/lib/shared-ws/current";
 import { 版本冲突, 版本条件, 推进版本 } from "@/lib/edit-version";
 import { dayjs } from "@/lib/utils";
 import { parseScheduleDate } from "@/lib/schedule-date";
@@ -819,7 +820,8 @@ export async function deleteContact(id: string) {
     刷新联系人(c.customerId);
     const 快照: 删掉的联系人 = {
       哪种: "挂着",
-      id: c.id, name: c.name, position: c.position, phone: c.phone, email: c.email, wechat: c.wechat, remark: c.remark,
+      // 撤销快照会交回界面：号码和页面上一样过一遍打码（字段权限藏电话的角色直接调接口也拿不到原号），撤销时按删除记录认回
+      id: c.id, name: c.name, position: c.position, phone: (await 号码脱敏器())(c.phone), email: c.email, wechat: c.wechat, remark: c.remark,
       isPrimary: c.isPrimary, customerId: c.customerId, createdAt: c.createdAt.toISOString(),
       跟进: 跟进.map((f) => f.id),
     };
@@ -845,7 +847,7 @@ export async function deleteUnassignedContact(id: string) {
     刷新联系人();
     const 快照: 删掉的联系人 = {
       哪种: "未归属",
-      id: u.id, name: u.name, position: u.position, phone: u.phone, email: u.email, wechat: u.wechat, remark: u.remark,
+      id: u.id, name: u.name, position: u.position, phone: (await 号码脱敏器())(u.phone), email: u.email, wechat: u.wechat, remark: u.remark,
       fromCustomerId: u.fromCustomerId, fromCustomerName: u.fromCustomerName, followUpIds: u.followUpIds,
       ownerId: u.ownerId,
       wasPrimary: u.wasPrimary,
@@ -857,10 +859,22 @@ export async function deleteUnassignedContact(id: string) {
   }
 }
 
+/** 撤销快照里的号码是打码过的：按删除时留的那条记录认回原号；认不回（不是原号打码的样子）照交来的存 */
+async function 认回删掉的号(id: string, 交回: string | null) {
+  if (!交回?.includes("*")) return 交回;
+  const r = await prisma.auditLog.findFirst({
+    where: { entity: "Contact", entityId: id, action: "delete" }, orderBy: { at: "desc" }, select: { detail: true },
+  });
+  let 原: string | null = null;
+  try { 原 = (JSON.parse(r?.detail ?? "null") as { 电话?: string | null } | null)?.电话 ?? null; } catch { /* 记录坏了就认不回 */ }
+  return 认回打码号(交回, 原);
+}
+
 /** 撤销删除：同一个 id 原样建回来；挂着的那种连原来的跟进记录一起接回去 */
 export async function restoreContact(快照: 删掉的联系人) {
   try {
     const me = await requireUser();
+    const 号 = await 认回删掉的号(快照.id, 快照.phone);
     const 在 = await Promise.all([
       prisma.contact.findUnique({ where: { id: 快照.id }, select: { id: true } }),
       prisma.unassignedContact.findUnique({ where: { id: 快照.id }, select: { id: true } }),
@@ -869,7 +883,7 @@ export async function restoreContact(快照: 删掉的联系人) {
     if (快照.哪种 === "未归属") {
       await prisma.unassignedContact.create({
         data: {
-          id: 快照.id, name: 快照.name, position: 快照.position, phone: 快照.phone, email: 快照.email, wechat: 快照.wechat,
+          id: 快照.id, name: 快照.name, position: 快照.position, phone: 号, email: 快照.email, wechat: 快照.wechat,
           remark: 快照.remark, fromCustomerId: 快照.fromCustomerId, fromCustomerName: 快照.fromCustomerName,
           followUpIds: 快照.followUpIds, detachedAt: new Date(快照.detachedAt), createdAt: new Date(快照.createdAt),
           ownerId: 快照.ownerId ?? me.id,
@@ -883,7 +897,7 @@ export async function restoreContact(快照: 删掉的联系人) {
       await prisma.$transaction(async (tx) => {
         await tx.contact.create({
           data: {
-            id: 快照.id, name: 快照.name, position: 快照.position, phone: 快照.phone, email: 快照.email, wechat: 快照.wechat,
+            id: 快照.id, name: 快照.name, position: 快照.position, phone: 号, email: 快照.email, wechat: 快照.wechat,
             remark: 快照.remark, isPrimary: 快照.isPrimary, customerId: 快照.customerId, createdAt: new Date(快照.createdAt),
           },
         });

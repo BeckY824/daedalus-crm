@@ -1,13 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { App, Button, Card, Input, Select, Space, Switch, Tag } from "antd";
+import { App, Button, Card, Checkbox, Input, Select, Space, Switch, Tag } from "antd";
 import { 角色名, 业务角色, 部门最多层数 } from "@/lib/sync/dept-policy";
 import { 部门树, type 组织部门 } from "@/lib/enterprise/org-tree";
 import { 规则, 规则名们, type 规则名 } from "@/lib/enterprise/rules-table";
-import { 字段, 字段名们, 字段级别of, type 字段配置, type 字段名 } from "@/lib/enterprise/field-perm-table";
-import { 建部门, 改部门, 删部门, 设成员, 设规则, 设字段权限, type 成员改动 } from "./org-actions";
+import { 字段, 字段名们, 字段级别of, 推荐字段配置, type 字段配置, type 字段名 } from "@/lib/enterprise/field-perm-table";
+import { 设置项, 设置项们, 谁能改, type 改权限配置, type 能改的人, type 设置项名 } from "@/lib/enterprise/edit-perm-table";
+import { 建部门, 改部门, 删部门, 设成员, 设规则, 设字段权限, 设改权限, type 成员改动 } from "./org-actions";
 import type { 分配情况 } from "../leads/assign-actions";
 import LeadAssignCard from "./LeadAssignCard";
 
@@ -22,6 +23,10 @@ export type 组织架构 = {
   规则开着: Record<规则名, boolean>;
   /** 「角色 × 字段」表，只有和默认（能改）不一样的格 */
   字段权限: 字段配置;
+  /** 字段权限表这个人能不能改：null = 能改，否则是「只有……能改」那句（按「后台设置谁能改」） */
+  字段权限挡: string | null;
+  /** 「后台设置谁能改」表，只有存过的项；没存的项 = 默认建议 */
+  改权限: 改权限配置;
   /** 「线索分配」那一屏：规则关着、或者这个人什么都看不到 = null */
   线索分配: 分配情况 | null;
 };
@@ -31,6 +36,8 @@ const 总管级 = (r: string) => r === "director" || r === "admin";
 /** 开关的 data-testid：第一条沿用老名字，E2E 在用 */
 const 规则testid: Record<规则名, string> = { 按组织看客户: "org-rule-scope", 线索分配: "org-rule-lead-assign", 字段权限: "org-rule-field-perm" };
 const 级别名 = { 改: "能改", 看: "只能看", 藏: "看不到" } as const;
+/** 「后台设置谁能改」表的列 */
+const 人列: readonly 能改的人[] = ["总管理员", "销售管理", "市场管理", "直属上级", "虚线上级"];
 
 /**
  * 设置 → 组织架构（企业版，2026-10-24）：部门树、每个人的部门 / 角色 / 业务线 / 直属上级 / 虚线上级。
@@ -41,10 +48,28 @@ export default function OrgTab({ value }: { value: 组织架构 }) {
   const router = useRouter();
   const { message, modal } = App.useApp();
   const [新名, set新名] = useState("");
-  const [忙, set忙] = useState(false);
-  const [表, set表] = useState<字段配置>(value.字段权限);
-  const 表改了 = JSON.stringify(表) !== JSON.stringify(value.字段权限);
-  const { 能改, 是老板 } = value;
+  const [忙了, set忙] = useState(false);
+  // 改完到新数据回来之前都算忙：router.refresh 不等它回来就放手，连着拨开关时界面还是旧数据，
+  // 第二下按旧值算、显示和库里对不上（10-25 质量：连关开关要刷新才对）
+  const [刷新中, 开始刷新] = useTransition();
+  const 忙 = 忙了 || 刷新中;
+  // 刚拨的开关先按拨的显示；「基于」是拨时页面上的值，页面数据一变（新数据回来、别人也改了）就听页面的
+  const [拨了, set拨了] = useState<Partial<Record<规则名, { 基于: boolean; 开: boolean }>>>({});
+  const 开着 = (名: 规则名) => {
+    const x = 拨了[名];
+    return x && x.基于 === value.规则开着[名] ? x.开 : value.规则开着[名];
+  };
+  // 字段权限的草稿同理：记下起草时页面上的表，页面上的表变了（保存成功、别人改了）草稿作废，显示新的
+  const 页面表 = JSON.stringify(value.字段权限);
+  const [草稿, set草稿] = useState<{ 基于: string; 表: 字段配置 } | null>(null);
+  const 表 = 草稿 && 草稿.基于 === 页面表 ? 草稿.表 : value.字段权限;
+  const 表改了 = JSON.stringify(表) !== 页面表;
+  // 「后台设置谁能改」的草稿：同上，页面上的表变了就作废
+  const 页面改权限 = JSON.stringify(value.改权限);
+  const [权限草稿, set权限草稿] = useState<{ 基于: string; 表: 改权限配置 } | null>(null);
+  const 改权限 = 权限草稿 && 权限草稿.基于 === 页面改权限 ? 权限草稿.表 : value.改权限;
+  const 改权限改了 = JSON.stringify(改权限) !== 页面改权限;
+  const { 能改, 是老板, 字段权限挡 } = value;
   const 树 = 部门树(value.部门);
   const 名 = new Map(value.部门.map((d) => [d.id, d.name]));
   const 部门选项 = 树.map(({ d, 层 }) => ({ value: d.id, label: `${"　".repeat(层 - 1)}${d.name}` }));
@@ -57,7 +82,7 @@ export default function OrgTab({ value }: { value: 组织架构 }) {
       if (!r.ok) message.error(r.error ?? "没改成，请稍后再试");
       else {
         if (成了) message.success(成了);
-        router.refresh();
+        开始刷新(() => router.refresh());
       }
       return r.ok;
     } catch {
@@ -119,13 +144,25 @@ export default function OrgTab({ value }: { value: 组织架构 }) {
 
   // 上级下拉的空值传 null 不传 undefined：undefined 会让 antd 当不受控，保存失败时框里还留着刚选的人
   const 设 = (id: string, 改: 成员改动) => void 跑(() => 设成员(id, 改));
-  const 设格 = (f: 字段名, r: 业务角色, v: keyof typeof 级别名) => set表((t) => {
-    const 行 = { ...t[f] };
+  const 设格 = (f: 字段名, r: 业务角色, v: keyof typeof 级别名) => {
+    const 行 = { ...表[f] };
     if (v === "改") delete 行[r];
     else 行[r] = v;
-    const { [f]: _旧, ...别的 } = t;
-    return Object.keys(行).length ? { ...别的, [f]: 行 } : 别的;
-  });
+    const { [f]: _旧, ...别的 } = 表;
+    set草稿({ 基于: 页面表, 表: Object.keys(行).length ? { ...别的, [f]: 行 } : 别的 });
+  };
+  const 拨 = async (名: 规则名, v: boolean) => {
+    if (忙) return;
+    set拨了((x) => ({ ...x, [名]: { 基于: value.规则开着[名], 开: v } }));
+    const ok = await 跑(() => 设规则(v, 名), v ? `已打开「${规则[名].名}」` : `已关掉「${规则[名].名}」`);
+    if (!ok) set拨了(({ [名]: _, ...别的 }) => 别的);
+  };
+  const 勾 = (项: 设置项名, 人: 能改的人, v: boolean) => {
+    const 现在 = 谁能改(改权限, 项);
+    const 可选: readonly 能改的人[] = 设置项[项].可选;
+    const 新 = 可选.filter((p) => (p === 人 ? v : 现在.includes(p)));
+    set权限草稿({ 基于: 页面改权限, 表: { ...改权限, [项]: 新 } });
+  };
   const 只看 = !能改 && <span style={{ color: "var(--text-muted)" }}>只有老板和总管理员能改</span>;
 
   return (
@@ -136,8 +173,8 @@ export default function OrgTab({ value }: { value: 组织架构 }) {
         <div style={{ display: "grid", gap: 12 }}>
           {规则名们.map((名) => (
             <Space align="start" key={名}>
-              <Switch checked={value.规则开着[名]} disabled={!能改 || 忙} aria-label={规则[名].名} data-testid={规则testid[名]}
-                onChange={(v) => void 跑(() => 设规则(v, 名), v ? `已打开「${规则[名].名}」` : `已关掉「${规则[名].名}」`)} />
+              <Switch checked={开着(名)} disabled={!能改 || 忙} aria-label={规则[名].名} data-testid={规则testid[名]}
+                onChange={(v) => void 拨(名, v)} />
               <div>
                 <b>{规则[名].名}</b>
                 <p className="muted" style={{ margin: 0 }}>{规则[名].说明}</p>
@@ -149,10 +186,10 @@ export default function OrgTab({ value }: { value: 组织架构 }) {
 
       {value.线索分配 && <LeadAssignCard rows={value.线索分配} />}
 
-      <Card title="字段权限" extra={只看}>
+      <Card title="字段权限" extra={字段权限挡 && <span style={{ color: "var(--text-muted)" }}>{字段权限挡}</span>}>
         <p className="muted">
           打开上面的「{规则.字段权限.名}」才生效。每格是这个角色对这个字段能做什么：能改、只能看；电话还能选看不到（页面、导出、AI 助手里都打码）。
-          没动过的格都是能改。老板不受限。
+          没动过的格都是能改。老板不受限。「用推荐表」填的是我们建议的默认（成交段渠道、市场只能看，项目运营只改备注），保存后再打开规则。
         </p>
         <div style={{ overflowX: "auto" }}>
           <table className="org-field-perm" data-testid="org-field-perm">
@@ -168,7 +205,7 @@ export default function OrgTab({ value }: { value: 组织架构 }) {
                   <th scope="row">{字段[f].名}<div className="muted">{字段[f].用在}</div></th>
                   {业务角色.map((r) => (
                     <td key={r}>
-                      <Select size="small" style={{ minWidth: 88 }} aria-label={`${角色名[r]} 对「${字段[f].名}」`} disabled={!能改 || 忙}
+                      <Select size="small" style={{ minWidth: 88 }} aria-label={`${角色名[r]} 对「${字段[f].名}」`} disabled={!!字段权限挡 || 忙}
                         value={字段级别of(表, f, r)} onChange={(v) => 设格(f, r, v)}
                         options={(字段[f].能藏 ? (["改", "看", "藏"] as const) : (["改", "看"] as const)).map((x) => ({ value: x, label: 级别名[x] }))} />
                     </td>
@@ -178,10 +215,53 @@ export default function OrgTab({ value }: { value: 组织架构 }) {
             </tbody>
           </table>
         </div>
-        {能改 && (
+        {!字段权限挡 && (
           <Space style={{ marginTop: 12 }}>
             <Button type="primary" disabled={!表改了 || 忙} data-testid="org-field-perm-save" onClick={() => void 跑(() => 设字段权限(表), "字段权限已保存")}>保存字段权限</Button>
-            <Button disabled={!表改了 || 忙} onClick={() => set表(value.字段权限)}>放弃修改</Button>
+            <Button disabled={!表改了 || 忙} onClick={() => set草稿(null)}>放弃修改</Button>
+            <Button disabled={忙} data-testid="org-field-perm-suggest" onClick={() => set草稿({ 基于: 页面表, 表: 推荐字段配置 })}>用推荐表</Button>
+          </Space>
+        )}
+      </Card>
+
+      <Card title="后台设置谁能改" extra={只看}>
+        <p className="muted">
+          每一行是一样后台设置，勾上的人能改，没勾的只能看。老板每一样都能改，不在表里。
+          「直属上级」「虚线上级」只用在线索配额上：只能给自己的下属设。
+        </p>
+        <div style={{ overflowX: "auto" }}>
+          <table className="org-field-perm" data-testid="org-edit-perm">
+            <thead>
+              <tr>
+                <th>设置</th>
+                {人列.map((p) => <th key={p}>{p}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {设置项们.map((项) => {
+                const 谁 = 谁能改(改权限, 项);
+                const 可选: readonly 能改的人[] = 设置项[项].可选;
+                return (
+                  <tr key={项} data-testid={`org-edit-perm-${项}`}>
+                    <th scope="row">{设置项[项].名}</th>
+                    {人列.map((p) => (
+                      <td key={p}>
+                        {可选.includes(p) ? (
+                          <Checkbox checked={谁.includes(p)} disabled={!能改 || 忙} aria-label={`${p} 能改「${设置项[项].名}」`}
+                            onChange={(e) => 勾(项, p, e.target.checked)} />
+                        ) : <span className="muted">—</span>}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {能改 && (
+          <Space style={{ marginTop: 12 }}>
+            <Button type="primary" disabled={!改权限改了 || 忙} data-testid="org-edit-perm-save" onClick={() => void 跑(() => 设改权限(改权限), "已保存谁能改")}>保存</Button>
+            <Button disabled={!改权限改了 || 忙} onClick={() => set权限草稿(null)}>放弃修改</Button>
           </Space>
         )}
       </Card>
