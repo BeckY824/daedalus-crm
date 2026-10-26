@@ -12,7 +12,7 @@ import path from "node:path";
 import { USERS, 要建的账号 } from "../prisma/seed";
 
 const ROOT = path.resolve(__dirname, "..");
-const 读 = (p: string) => readFileSync(path.join(ROOT, p), "utf8");
+const 读 = (p: string) => readFileSync(path.join(ROOT, p), "utf8").replaceAll("\r\n", "\n"); // Windows 检出可能是 CRLF，下面的正则按 \n 写
 const compose = 读("deploy/enterprise/docker-compose.yml");
 
 /** crm 服务 environment: 底下的键值（只认这一段，caddy 的不算） */
