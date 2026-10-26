@@ -21,6 +21,7 @@ import { 算提醒 } from "@/lib/reminders";
 import { 本地模式 } from "@/lib/desktop/cloud";
 import { multiTenant } from "@/lib/tenant/context";
 import { 企业版 } from "@/lib/enterprise/switch";
+import { 读满额提醒 } from "@/lib/enterprise/lead-full-notice";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +48,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   */
   const sp0 = await searchParams;
   const 对话 = sp0.c ? await 读对话(sp0.c) : null;
+  // 企业版自动分配因都已满额没分出去的提醒：首页顶部也摆一份，和线索页同一份数据，哪边关了两边都没了
+  const 满额提醒们 = 企业版() ? await 读满额提醒(user.id) : [];
   if (!(await llmEnabled())) {
     /*
       没配 AI 的首页就是数据看板。但**一条业务数据都没有**的时候，看板没什么可看，
@@ -58,7 +61,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       // StartCard 自带那句「欢迎使用 Daedalus CRM」，这里不再叠一个页头
       return <StartCard 自己服务器={自己服务器()} 去导入={去导入(user.role)} />;
     }
-    return <Board />;
+    return <Board 满额提醒={满额提醒们} />;
   }
 
   const b = await getBusiness();
@@ -158,6 +161,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       /* 一条业务数据都没有：首页换成一张「开始」卡，不摆信号也不摆指标 */
       自己服务器={自己服务器()}
       去导入={去导入(user.role)}
+      满额提醒={满额提醒们}
       空库={学员数 === 0 && 线索数 === 0 && mine.total === 0 && myPlans === 0 && 没做完的待办 === 0}
       信号={{
         逾期,

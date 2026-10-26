@@ -14,6 +14,7 @@ import { getBusiness } from "@/lib/business";
 import { 最近8周, 每周进行中金额, 每周赢单率 } from "@/lib/dashboard-trend";
 import { 客户数, 全部商机 } from "@/lib/dashboard-sql";
 import { 首页待办 } from "@/lib/dashboard-todo";
+import type { 满额提醒 } from "@/lib/enterprise/lead-full-notice";
 
 /**
  * 「现在」这个视图：指标卡、趋势、漏斗、排行、待办、盯盘。
@@ -21,7 +22,7 @@ import { 首页待办 } from "@/lib/dashboard-todo";
  * 内嵌（`内嵌`）= 在「数据」页里，页头由外面那层给，这里不画；
  * 不内嵌 = 它就是没配 AI 的首页，页头写「首页」。
  */
-export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
+export default async function Board({ 内嵌 = false, 满额提醒 }: { 内嵌?: boolean; /** 没配 AI 的首页才给：企业版自动分配都满额的提醒 */ 满额提醒?: 满额提醒[] }) {
   await requireUser();
 
   const now = dayjs();
@@ -196,6 +197,7 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
     <DashboardView
       内嵌={内嵌}
       多人={owners.length > 1}
+      满额提醒={满额提醒}
       /**
        * 空库时整页换成一张「从哪开始」——对着空库画四个 0、一条平的折线和全 0 的管道，
        * 既不好看也不给信息，第一次打开的人还以为是坏了。
