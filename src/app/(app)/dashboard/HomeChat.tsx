@@ -13,6 +13,8 @@ import Welcome from "./Welcome";
 import TurnLog, { type 一轮的动作 } from "./TurnLog";
 import Composer, { type ComposerHandle } from "./Composer";
 import { useHomeTurns } from "./useHomeTurns";
+import LeadFullNotices from "../leads/LeadFullNotices";
+import type { 满额提醒 } from "@/lib/enterprise/lead-full-notice";
 
 export type Suggestion = { label: string; question: string; kind?: "ask" | "prep" | "recap" };
 
@@ -30,7 +32,7 @@ export type Suggestion = { label: string; question: string; kind?: "ask" | "prep
 /** 本月签约按币种分开（2026-10-03，不换汇）；空数组 = 这个月还没签 */
 export type 首页信号 = { 逾期: number; 高意向: number; 本月签约: { 币种: string; 合计: number }[]; 高意向标签: string };
 
-export default function HomeChat({ 会话, userName, suggestions, context, models, 空库, 信号, 模式 = "宽", 上下文提示, 上下文范围, scope = 首页屏, 标题前缀, 自己服务器 = false, 去导入 = false }: {
+export default function HomeChat({ 会话, userName, suggestions, context, models, 空库, 信号, 模式 = "宽", 上下文提示, 上下文范围, scope = 首页屏, 标题前缀, 自己服务器 = false, 去导入 = false, 满额提醒 = [] }: {
   /** 地址上 ?c= 指的那条对话，服务端读好传进来。null = 一屏新对话 */
   会话: { id: string; title: string; messages: 历史消息[] } | null;
   userName: string;
@@ -66,6 +68,8 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   自己服务器?: boolean;
   /** 空库那张「开始」卡用：企业版管理员，主按钮去企业版导入（见 StartCard） */
   去导入?: boolean;
+  /** 首页才给：企业版自动分配因都已满额没分出去的提醒，摆在问答列最上面（lib/enterprise/lead-full-notice.ts） */
+  满额提醒?: 满额提醒[];
 }) {
   const b = useBusiness();
   const model = useModel(models);
@@ -97,6 +101,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
       {/* 首页对话列表收起了（或窗口太窄成了抽屉）：问答区左上角一颗侧栏图标把它叫回来，和列表页头上那颗是同一个。右侧 AI 面板（窄）里不摆 */}
       {!窄 && <PaneToggle 栏="chat" 位置="主区" className="pane-toggle-float" />}
       <div className="cli-col">
+        {!窄 && <LeadFullNotices 提醒={满额提醒} />}
         {empty && 窄 ? (
           /*
             窄模式（右侧面板）的空屏：380 宽塞不下问候、信号、建议问题那一套，

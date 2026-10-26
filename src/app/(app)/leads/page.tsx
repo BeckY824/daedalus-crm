@@ -11,7 +11,6 @@ import { 读组织 } from "@/lib/enterprise/org";
 import { 能分配 } from "@/lib/enterprise/lead-assign";
 import { 企业版 } from "@/lib/enterprise/switch";
 import { 读满额提醒 } from "@/lib/enterprise/lead-full-notice";
-import LeadFullNotices from "./LeadFullNotices";
 
 export const dynamic = "force-dynamic";
 
@@ -65,8 +64,6 @@ export default async function LeadsPage({
   // 企业版自动分配因都已满额没分出去的提醒（只发给市场管理、总管理员，见 lib/enterprise/lead-full-notice.ts）
   const 满额提醒们 = 企业版() ? await 读满额提醒(me.id) : [];
   return (
-    <>
-    <LeadFullNotices 提醒={满额提醒们} />
     <LeadsView
       总数={总数}
       me={me.id}
@@ -76,6 +73,7 @@ export default async function LeadsPage({
       能自动分配={能自动分配}
       企业版项目={企业版() && b.projectMode === true}
       线索分配开着={线索分配开着}
+      满额提醒={满额提醒们}
       rows={rows.map((l) => ({
         id: l.id,
         name: l.name,
@@ -94,6 +92,5 @@ export default async function LeadsPage({
         updatedAt: l.updatedAt.toISOString(),
       }))}
     />
-    </>
   );
 }

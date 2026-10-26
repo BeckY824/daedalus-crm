@@ -22,7 +22,6 @@ import { 本地模式 } from "@/lib/desktop/cloud";
 import { multiTenant } from "@/lib/tenant/context";
 import { 企业版 } from "@/lib/enterprise/switch";
 import { 读满额提醒 } from "@/lib/enterprise/lead-full-notice";
-import LeadFullNotices from "../leads/LeadFullNotices";
 
 export const dynamic = "force-dynamic";
 
@@ -62,12 +61,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       // StartCard 自带那句「欢迎使用 Daedalus CRM」，这里不再叠一个页头
       return <StartCard 自己服务器={自己服务器()} 去导入={去导入(user.role)} />;
     }
-    return (
-      <>
-        <LeadFullNotices 提醒={满额提醒们} />
-        <Board />
-      </>
-    );
+    return <Board 满额提醒={满额提醒们} />;
   }
 
   const b = await getBusiness();
@@ -158,8 +152,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
 
   return (
-    <>
-    <LeadFullNotices 提醒={满额提醒们} style={{ maxWidth: 820 }} />
     <HomeChat
       会话={对话}
       userName={user.name}
@@ -169,6 +161,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       /* 一条业务数据都没有：首页换成一张「开始」卡，不摆信号也不摆指标 */
       自己服务器={自己服务器()}
       去导入={去导入(user.role)}
+      满额提醒={满额提醒们}
       空库={学员数 === 0 && 线索数 === 0 && mine.total === 0 && myPlans === 0 && 没做完的待办 === 0}
       信号={{
         逾期,
@@ -177,6 +170,5 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         高意向标签: statusLabel(b, "意向较高"),
       }}
     />
-    </>
   );
 }

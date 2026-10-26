@@ -30,6 +30,8 @@ import { useFormGuard } from "@/lib/form-guard";
 import { 转化会带上 } from "@/lib/lead-convert";
 import { 自动分配线索, 批量自动分配, type 自动分配结果 } from "./assign-actions";
 import { AssignLeadModal, AssignedOutButton } from "./AssignLead";
+import LeadFullNotices from "./LeadFullNotices";
+import type { 满额提醒 } from "@/lib/enterprise/lead-full-notice";
 
 type Row = {
   id: string;
@@ -59,6 +61,7 @@ export default function LeadsView({
   能自动分配 = false,
   企业版项目 = false,
   线索分配开着 = false,
+  满额提醒 = [],
 }: {
   rows: Row[];
   /** 库里一共多少条。行只取了前 300，分页条不能拿行数冒充总数 */
@@ -74,6 +77,8 @@ export default function LeadsView({
   企业版项目?: boolean;
   /** 企业版「线索分配」规则开着：负责人只能经「分配」换，编辑框里负责人只读；页头摆「我分出去的」 */
   线索分配开着?: boolean;
+  /** 企业版自动分配因都已满额没分出去的提醒，只有市场管理、总管理员有（lib/enterprise/lead-full-notice.ts） */
+  满额提醒?: 满额提醒[];
 }) {
   const router = useRouter();
   const { message, modal } = App.useApp();
@@ -332,6 +337,8 @@ export default function LeadsView({
           </Space>
         }
       />
+
+      <LeadFullNotices 提醒={满额提醒} />
 
       <DataList<Row>
         截断={{ 总数 }}
