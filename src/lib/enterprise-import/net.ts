@@ -15,7 +15,12 @@ export const 真联网: 联网 = {
 };
 
 /** 原系统接口报错（权限不够、参数不对、对方出错）。同步里算「出错」，起点不挪，下次再拉 */
-export class 接口出错 extends Error {}
+export class 接口出错 extends Error {
+  /** 对方返回的错误码（有的话）：测试连接按它说原因 */
+  constructor(message: string, public code?: number) {
+    super(message);
+  }
+}
 
 /** 被限流时最多重试几次、每次等多久（1s、2s、4s…，封顶 30s） */
 export const 最多重试 = 5;

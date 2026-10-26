@@ -93,7 +93,7 @@ export class 飞书适配器 implements 适配器 {
       break;
     }
     if (!res.ok || code !== 0 || typeof j?.tenant_access_token !== "string") {
-      throw new 接口出错(`飞书拿不到访问令牌（HTTP ${res.status}${code !== undefined ? `，code ${code}` : ""}）：${(code !== undefined && 说人话[code]) || String(j?.msg ?? "没有返回内容")}`);
+      throw new 接口出错(`飞书拿不到访问令牌（HTTP ${res.status}${code !== undefined ? `，code ${code}` : ""}）：${(code !== undefined && 说人话[code]) || String(j?.msg ?? "没有返回内容")}`, code);
     }
     // 提前 5 分钟换新的，免得拉到一半过期
     const 秒 = typeof j.expire === "number" ? j.expire : 7200;
@@ -128,7 +128,7 @@ export class 飞书适配器 implements 适配器 {
         continue;
       }
       if (res.ok && code === 0) return (j?.data ?? {}) as Record<string, unknown>;
-      throw new 接口出错(`飞书${动作}出错（HTTP ${res.status}${code !== undefined ? `，code ${code}` : ""}）：${(code !== undefined && 话[code]) || String(j?.msg ?? "没有返回内容")}`);
+      throw new 接口出错(`飞书${动作}出错（HTTP ${res.status}${code !== undefined ? `，code ${code}` : ""}）：${(code !== undefined && 话[code]) || String(j?.msg ?? "没有返回内容")}`, code);
     }
   }
 
@@ -230,6 +230,32 @@ export class 飞书适配器 implements 适配器 {
       } while (pt);
     }
     return { 部门们, 人们: [...人们.values()] };
+  }
+
+  /* ── 测试连接用：每步只拉一点，失败的错误码带在 接口出错.code 上 ── */
+
+  /** 拿一次令牌：App ID / Secret 对不对 */
+  async 试令牌(): Promise<void> {
+    await this.取令牌();
+  }
+
+  /** 拉一个部门：通讯录权限开没开、发没发版 */
+  async 试通讯录(): Promise<void> {
+    await this.调("读通讯录", "GET", "/open-apis/contact/v3/departments/0/children", { department_id_type: "open_department_id", page_size: "1" }, undefined, 通讯录话);
+  }
+
+  /** 一个多维表格里的所有数据表：GET /open-apis/bitable/v1/apps/:app_token/tables */
+  async 列多维表(appToken: string): Promise<{ tableId: string; 名: string }[]> {
+    const 表们: { tableId: string; 名: string }[] = [];
+    let page_token: string | undefined;
+    do {
+      const d = await this.调("列数据表", "GET", `/open-apis/bitable/v1/apps/${encodeURIComponent(appToken)}/tables`, { page_size: "100", page_token });
+      for (const t of (d.items as { table_id?: string; name?: string }[] | undefined) ?? []) {
+        if (t?.table_id) 表们.push({ tableId: t.table_id, 名: String(t.name ?? "").trim() || t.table_id });
+      }
+      page_token = d.has_more ? String(d.page_token ?? "") || undefined : undefined;
+    } while (page_token);
+    return 表们;
   }
 }
 

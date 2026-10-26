@@ -4,15 +4,17 @@ import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { App, Button, Card, Input, Select, Space, Switch, Tag } from "antd";
 import { 部门最多层数 } from "@/lib/sync/dept-policy";
-import { 通讯录概况, 设通讯录同步, 立即同步通讯录, 设职务对照, 设通讯录凭据, type 通讯录一栏 } from "./org-actions";
+import { 通讯录概况, 设通讯录同步, 立即同步通讯录, 设职务对照, 设通讯录凭据, 设通讯录间隔, type 通讯录一栏 } from "./org-actions";
+import FeishuConnectCard from "./FeishuConnectCard";
 
 /**
- * 设置 → 组织架构 →「通讯录同步」（企业版 F1，10-26）：飞书 / 钉钉的部门、成员、直属上级、职务每小时拉一次，写进组织架构。
+ * 设置 → 组织架构 →「通讯录同步」（企业版 F1，10-26）：飞书 / 钉钉的部门、成员、直属上级、职务每小时（可改每半小时）拉一次，写进组织架构。
  * 只读通讯录，不往回写。只有老板和总管理员看得到这一栏（里面有连接凭据）。
- * - 凭据：App Secret 只写不回显，空着保存 = 不改；也可以用服务器环境变量。
+ * - 凭据：App Secret 加密存库，只显示后 4 位，空着保存 = 不改；也可以用服务器环境变量。飞书一栏下面是「飞书连接」：测试连接、对多维表格。
  * - 职务对照：客户自己起的职务名对到默认权限表的角色上；没对上的人业务角色不动。
  * - 这边手动改过某人的业务角色以后，同步不再覆盖他。
  */
+const 间隔选项 = [{ value: 60, label: "每小时" }, { value: 30, label: "每半小时" }];
 const 结果色: Record<string, string> = { 成功: "success", 没变化: "default", 没接: "warning", 出错: "error", 跳过: "default" };
 
 export default function OrgSyncCard() {
@@ -73,7 +75,7 @@ export default function OrgSyncCard() {
   return (
     <Card title="通讯录同步" data-testid="org-sync">
       <p className="muted">
-        打开后每小时从飞书 / 钉钉拉一次部门、成员、直属上级和职务，写进下面的组织架构；只读不写回。
+        打开后按设定的频率（默认每小时）从飞书 / 钉钉拉一次部门、成员、直属上级和职务，写进下面的组织架构；只读不写回。
         超过 {部门最多层数} 层的部门并到第 3 层；新来的人会建账号，但要在用户管理里设密码才能登录；那边离职的人这边不自动停用，请走离职交接。
         这边手动改过的业务角色，同步不会覆盖。拉的时候出错整次撤回，下次再试。
       </p>
@@ -86,7 +88,9 @@ export default function OrgSyncCard() {
               <Space align="center" wrap>
                 <b>{s.名}</b>
                 <Switch checked={s.开} disabled={!!忙} aria-label={`${s.名}通讯录同步`}
-                  onChange={(v) => void 跑(`on-${s.源}`, () => 设通讯录同步(s.源, v), v ? `${s.名}通讯录同步已打开，每小时一次` : `${s.名}通讯录同步已关掉`)} />
+                  onChange={(v) => void 跑(`on-${s.源}`, () => 设通讯录同步(s.源, v), v ? `${s.名}通讯录同步已打开，${s.间隔分钟 === 30 ? "每半小时" : "每小时"}一次` : `${s.名}通讯录同步已关掉`)} />
+                <Select size="small" style={{ width: 104 }} value={s.间隔分钟} options={间隔选项} disabled={!!忙} aria-label={`${s.名}同步频率`}
+                  onChange={(v: 60 | 30) => void 跑(`gap-${s.源}`, () => 设通讯录间隔(s.源, v), `${s.名}通讯录改成${v === 30 ? "每半小时" : "每小时"}同步一次`)} />
                 {s.凭据.齐了 ? <Tag color="success">凭据已填</Tag> : <Tag color="warning">凭据没填</Tag>}
                 <Button size="small" loading={忙 === `sync-${s.源}`} disabled={!!忙 || !s.凭据.齐了} onClick={() => void 同步(s)}>立即同步</Button>
               </Space>
@@ -106,7 +110,7 @@ export default function OrgSyncCard() {
               <div style={{ display: "grid", gap: 8, marginTop: 12, maxWidth: 480 }}>
                 {s.凭据.字段.map((f) => {
                   const v = 草稿[f.键];
-                  const 提示 = f.来自环境变量 ? "用的是服务器环境变量" : f.密 && f.已填 ? "已填，留空不改" : "";
+                  const 提示 = f.来自环境变量 ? "用的是服务器环境变量" : f.密 && f.已填 ? `已填 ${f.值}，留空不改` : "";
                   const 框 = {
                     value: v ?? (f.密 ? "" : f.值),
                     placeholder: 提示 || f.名,
@@ -126,6 +130,8 @@ export default function OrgSyncCard() {
                   <Button disabled={!改过凭据 || !!忙} loading={忙 === `cred-${s.源}`} onClick={() => void 存凭据(s)}>保存凭据</Button>
                 </div>
               </div>
+
+              {s.源 === "feishu" && <FeishuConnectCard 草稿={草稿} />}
 
               <div style={{ marginTop: 12 }}>
                 <span className="muted">职务 → 业务角色（没对上的人，业务角色不动）</span>

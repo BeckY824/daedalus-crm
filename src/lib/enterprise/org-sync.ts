@@ -18,13 +18,13 @@
  * 企业版开关关着时什么都不做。
  */
 import { prisma } from "@/lib/prisma";
-import { getSetting, invalidateSettingsCache } from "@/lib/settings";
+import { encryptSecret, getSetting, invalidateSettingsCache, maskSecret } from "@/lib/settings";
 import { recordAudit, type Actor } from "@/lib/audit";
 import { 企业版 } from "@/lib/enterprise/switch";
 import { 忘掉企业版范围 } from "@/lib/enterprise/visibility";
 import { 建组织, 上级设置问题, 推业务角色 } from "@/lib/enterprise/org-core";
 import { 是业务角色, 部门最多层数, 角色名, type 业务角色 } from "@/lib/sync/dept-policy";
-import { 连接键, 当前联网 } from "@/lib/enterprise-import/adapter";
+import { 连接键, 当前联网, 读连接配置 } from "@/lib/enterprise-import/adapter";
 import { 飞书适配器 } from "@/lib/enterprise-import/feishu";
 import { 钉钉适配器 } from "@/lib/enterprise-import/dingtalk";
 import { 真联网 } from "@/lib/enterprise-import/net";
@@ -50,12 +50,17 @@ export type 通讯录设置 = {
   人对照: Record<string, string>;
   /** 上次同步给每个人的业务角色：这边的和它不一样 = 有人手动改过，不覆盖 */
   给过: Record<string, 业务角色>;
+  /** 多久同步一次：默认每小时，可改半小时 */
+  间隔分钟?: 通讯录间隔;
 };
 
-const 默认: 通讯录设置 = { 开: false, 开的人Id: null, 上次: null, 角色对照: {}, 职务们: [], 部门对照: {}, 人对照: {}, 给过: {} };
+export type 通讯录间隔 = 60 | 30;
+export const 通讯录间隔们: 通讯录间隔[] = [60, 30];
+const 默认: 通讯录设置 = { 开: false, 开的人Id: null, 上次: null, 角色对照: {}, 职务们: [], 部门对照: {}, 人对照: {}, 给过: {}, 间隔分钟: 60 };
 export const 通讯录键 = (源: 通讯录来源) => `entOrgSync.${源}`;
-/** 每小时一次：离上次满 55 分钟（钟每 5 分钟走一下） */
+/** 每小时一次：离上次满 55 分钟（钟每 5 分钟走一下）；选了半小时的满 25 分钟 */
 export const 通讯录间隔毫秒 = 55 * 60_000;
+const 间隔毫秒 = (s: Pick<通讯录设置, "间隔分钟">) => (s.间隔分钟 === 30 ? 25 * 60_000 : 通讯录间隔毫秒);
 /** 角色对照只能给到这些：总管理 / 管理员只有老板在组织页手动给 */
 export const 对照能给的角色 = (r: unknown): r is 业务角色 => 是业务角色(r) && r !== "director" && r !== "admin";
 /** 同步建的账号的密码占位：不是 bcrypt 串，登录永远对不上，要管理员在用户管理里设密码 */
@@ -81,6 +86,14 @@ async function 改设置(源: 通讯录来源, 改: Partial<通讯录设置>): P
 export async function 开关通讯录同步(源: 通讯录来源, 开: boolean, 用户: Actor): Promise<通讯录设置> {
   const s = await 改设置(源, 开 ? { 开, 开的人Id: 用户.id } : { 开 });
   await recordAudit({ user: 用户, action: "update", entity: "EntOrgSync", entityId: 源, summary: `${开 ? "打开" : "关掉"}${通讯录来源名[源]}通讯录同步` });
+  return s;
+}
+
+/** 改同步间隔（每小时 / 每半小时） */
+export async function 存通讯录间隔(源: 通讯录来源, 分钟: number, 用户: Actor): Promise<通讯录设置> {
+  const 间隔分钟: 通讯录间隔 = 分钟 === 30 ? 30 : 60;
+  const s = await 改设置(源, { 间隔分钟 });
+  await recordAudit({ user: 用户, action: "update", entity: "EntOrgSync", entityId: 源, summary: `${通讯录来源名[源]}通讯录改成${间隔分钟 === 30 ? "每半小时" : "每小时"}同步一次` });
   return s;
 }
 
@@ -111,35 +124,37 @@ export const 凭据字段: Record<通讯录来源, { 键: string; 名: string; �
 };
 
 export type 凭据概况 = {
-  /** 明文字段原样给，密的只给「已填」；来自环境变量的标 env */
+  /** 明文字段原样给，密的只给掩码（****尾 4 位）；来自环境变量的标 env */
   字段: { 键: string; 名: string; 密: boolean; 值: string; 已填: boolean; 来自环境变量: boolean }[];
   齐了: boolean;
 };
 
 export async function 读凭据概况(源: 通讯录来源): Promise<凭据概况> {
-  const c = (await getSetting<Record<string, unknown>>(连接键(源))) ?? {};
+  const c = (await 读连接配置(源)) ?? {};
   const 字段 = 凭据字段[源].map((f) => {
     const 库里 = 有值(c[f.键]) ? (c[f.键] as string) : null;
     const 环境 = 库里 ? null : 有值(process.env[f.env]) ? process.env[f.env]! : null;
     const v = 库里 ?? 环境;
-    return { 键: f.键, 名: f.名, 密: !!f.密, 值: f.密 || !v ? "" : v, 已填: !!v, 来自环境变量: !库里 && !!环境 };
+    return { 键: f.键, 名: f.名, 密: !!f.密, 值: !v ? "" : f.密 ? maskSecret(v) : v, 已填: !!v, 来自环境变量: !库里 && !!环境 };
   });
   // 钉钉的操作人可以不填（只有部分接口要），齐不齐只看 key + secret
   const 齐了 = 字段.filter((f) => f.键 !== "操作人UserId").every((f) => f.已填);
   return { 字段, 齐了 };
 }
 
-/** 存凭据：密的字段空着 = 不改；和导入共用同一份连接配置，别的键（表们、基址）原样留着 */
+/** 存凭据：密的字段空着 = 不改，存的是密文（库里看不到明文）；和导入共用同一份连接配置，别的键（表们、基址）原样留着 */
 export async function 存通讯录凭据(源: 通讯录来源, 填: Record<string, string>, 用户: Actor): Promise<凭据概况> {
   const 原 = (await getSetting<Record<string, unknown>>(连接键(源))) ?? {};
+  const 原明 = (await 读连接配置(源)) ?? {};
   const 新 = { ...原 };
   const 改了: string[] = [];
   for (const f of 凭据字段[源]) {
     const v = typeof 填[f.键] === "string" ? 填[f.键].trim() : undefined;
     if (v === undefined || (f.密 && v === "")) continue;
+    if (v === (原明[f.键] ?? "")) continue;
     if (v === "") delete 新[f.键];
-    else 新[f.键] = v;
-    if (新[f.键] !== 原[f.键]) 改了.push(f.名);
+    else 新[f.键] = f.密 ? encryptSecret(v) : v;
+    改了.push(f.名);
   }
   const value = JSON.stringify(新);
   await prisma.setting.upsert({ where: { key: 连接键(源) }, update: { value }, create: { key: 连接键(源), value } });
@@ -151,7 +166,7 @@ export async function 存通讯录凭据(源: 通讯录来源, 填: Record<strin
 
 /** 按凭据建适配器；没配返回 null */
 async function 建适配器(源: 通讯录来源): Promise<{ 拉通讯录(): Promise<通讯录> } | null> {
-  const c = (await getSetting<Record<string, unknown>>(连接键(源))) ?? {};
+  const c = (await 读连接配置(源)) ?? {};
   const 网 = 当前联网();
   if (源 === "feishu") {
     const appId = 有值(c.appId) ? c.appId : process.env.ENT_FEISHU_APP_ID;
@@ -469,7 +484,7 @@ async function 写进去(源: 通讯录来源, s: 通讯录设置, 本: 通讯�
 
 export function 通讯录到点了(s: 通讯录设置, 现在: Date): boolean {
   if (!s.开) return false;
-  return !s.上次 || 现在.getTime() - new Date(s.上次.时间).getTime() >= 通讯录间隔毫秒;
+  return !s.上次 || 现在.getTime() - new Date(s.上次.时间).getTime() >= 间隔毫秒(s);
 }
 
 /** 定时钟（enterprise-import/sync.ts 的 定时扫一遍）每 5 分钟调一次：开着、到点了的来源同步一次 */

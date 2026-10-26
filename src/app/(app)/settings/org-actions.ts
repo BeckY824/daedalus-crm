@@ -20,9 +20,10 @@ import { 是业务角色, 角色名, type 业务角色 } from "@/lib/sync/dept-p
 import { 规整字段配置, 字段权限key } from "@/lib/enterprise/field-perm";
 import { 挡改设置, 规整改权限, 改权限key, 设置项, 设置项们, 谁能改, type 设置项名 } from "@/lib/enterprise/edit-perm";
 import {
-  通讯录来源们, 通讯录来源名, 读通讯录设置, 读凭据概况, 开关通讯录同步, 存角色对照, 存通讯录凭据, 同步通讯录, 对照能给的角色,
-  type 通讯录来源, type 通讯录设置, type 凭据概况, type 通讯录一次结果,
+  通讯录来源们, 通讯录来源名, 读通讯录设置, 读凭据概况, 开关通讯录同步, 存角色对照, 存通讯录凭据, 存通讯录间隔, 同步通讯录, 对照能给的角色,
+  type 通讯录来源, type 通讯录设置, type 凭据概况, type 通讯录一次结果, type 通讯录间隔,
 } from "@/lib/enterprise/org-sync";
+import { 测试飞书连接, 读飞书表配置, 存飞书表, 主表们, type 测试结果, type 飞书表概况 } from "@/lib/enterprise/feishu-connect";
 
 type 结果 = { ok: true } | { ok: false; error: string };
 
@@ -253,6 +254,7 @@ export type 通讯录一栏 = {
   角色对照: 通讯录设置["角色对照"];
   职务们: string[];
   凭据: 凭据概况;
+  间隔分钟: 通讯录间隔;
 };
 
 const 是来源 = (v: unknown): v is 通讯录来源 => typeof v === "string" && (通讯录来源们 as string[]).includes(v);
@@ -265,7 +267,7 @@ export async function 通讯录概况(): Promise<{ ok: true; 来源们: 通讯�
     const 来源们 = await Promise.all(
       通讯录来源们.map(async (源) => {
         const s = await 读通讯录设置(源);
-        return { 源, 名: 通讯录来源名[源], 开: s.开, 上次: s.上次, 角色对照: s.角色对照, 职务们: s.职务们, 凭据: await 读凭据概况(源) };
+        return { 源, 名: 通讯录来源名[源], 开: s.开, 上次: s.上次, 角色对照: s.角色对照, 职务们: s.职务们, 凭据: await 读凭据概况(源), 间隔分钟: (s.间隔分钟 === 30 ? 30 : 60) as 通讯录间隔 };
       }),
     );
     const 角色们 = Object.entries(角色名).filter(([k]) => 对照能给的角色(k)).map(([value, label]) => ({ value, label }));
@@ -325,6 +327,57 @@ export async function 设通讯录凭据(源: 通讯录来源, 填: Record<strin
     await 存通讯录凭据(源, 填, who.me);
     改完了();
     return { ok: true };
+  } catch (e) {
+    return 不在了(e);
+  }
+}
+
+export async function 设通讯录间隔(源: 通讯录来源, 分钟: number): Promise<结果> {
+  const who = await 能改的人();
+  if (!who) return 不能改;
+  if (!是来源(源) || (分钟 !== 60 && 分钟 !== 30)) return { ok: false, error: "参数不对" };
+  try {
+    await 存通讯录间隔(源, 分钟, who.me);
+    改完了();
+    return { ok: true };
+  } catch (e) {
+    return 不在了(e);
+  }
+}
+
+/* ── 飞书连接：测试连接 + 多维表格对表（lib/enterprise/feishu-connect.ts） ── */
+
+/** 测试连接：填 = 页面上还没存的 App ID / Secret（Secret 空着用存着的）；链接不填就不测多维表格 */
+export async function 测试飞书连接动作(p: { 填?: { appId?: string; appSecret?: string }; 链接?: string }): Promise<{ ok: true; 结果: 测试结果 } | { ok: false; error: string }> {
+  const who = await 能改的人();
+  if (!who) return 不能改;
+  if (p && typeof p !== "object") return { ok: false, error: "参数不对" };
+  const 串 = (v: unknown) => (typeof v === "string" ? v : undefined);
+  try {
+    return { ok: true, 结果: await 测试飞书连接({ 填: { appId: 串(p?.填?.appId), appSecret: 串(p?.填?.appSecret) }, 链接: 串(p?.链接) }) };
+  } catch (e) {
+    return 不在了(e);
+  }
+}
+
+export async function 飞书表概况(): Promise<{ ok: true; 概况: 飞书表概况; 主表们: typeof 主表们 } | { ok: false; error: string }> {
+  const who = await 能改的人();
+  if (!who) return 不能改;
+  try {
+    return { ok: true, 概况: await 读飞书表配置(), 主表们 };
+  } catch (e) {
+    return 不在了(e);
+  }
+}
+
+export async function 设飞书表(链接: string, 选: Record<string, string | null>): Promise<{ ok: true; 概况: 飞书表概况 } | { ok: false; error: string }> {
+  const who = await 能改的人();
+  if (!who) return 不能改;
+  if (typeof 链接 !== "string" || !选 || typeof 选 !== "object") return { ok: false, error: "参数不对" };
+  try {
+    const r = await 存飞书表({ 链接, 选 }, who.me);
+    if (r.ok) 改完了();
+    return r;
   } catch (e) {
     return 不在了(e);
   }

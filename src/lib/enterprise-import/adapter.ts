@@ -4,7 +4,7 @@
  * Excel 没有「拉」这件事——人把导出文件传上来，excel.ts 读成 原始记录，后面同一条路。
  * 飞书 / 钉钉要客户在他们后台开应用、给权限，拿到之前先占个位，调到就说清楚「还没接」。
  */
-import { getSetting } from "../settings";
+import { decryptSecret, getSetting } from "../settings";
 import { 钉钉适配器, type 钉钉配置 } from "./dingtalk";
 import { 飞书适配器, type 飞书配置 } from "./feishu";
 import { 真联网, type 联网 } from "./net";
@@ -28,6 +28,25 @@ export class 还没接 extends Error {}
 /** 接口凭据和表配置存在 Setting `entConn.<来源>`（私有部署的库里，不进环境变量） */
 export const 连接键 = (来源: 来源) => `entConn.${来源}`;
 
+/** 密的字段在库里存密文（enc:v1:…）：用之前解开；解不开（密钥换了）当没填。老的明文照样能用 */
+export function 解连接配置(c: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!c) return c;
+  const 出 = { ...c };
+  for (const [k, v] of Object.entries(c)) {
+    if (typeof v === "string" && v.startsWith("enc:v1:")) {
+      const 明 = decryptSecret(v);
+      if (明 === null) delete 出[k];
+      else 出[k] = 明;
+    }
+  }
+  return 出;
+}
+
+/** 读连接配置（已解密） */
+export async function 读连接配置(来源: 来源): Promise<Record<string, unknown> | null> {
+  return 解连接配置(await getSetting<Record<string, unknown>>(连接键(来源)));
+}
+
 /**
  * 飞书 / 钉钉：每次拉的时候才读配置。没配（或缺必填项）就停下说人话，同步记「没接」；
  * 配好了就交给真正的适配器。
@@ -39,7 +58,7 @@ class 按配置适配器 implements 适配器 {
     return (this.上次用的 = await this.按配置());
   }
   private async 按配置(): Promise<适配器> {
-    const c = await getSetting<Record<string, unknown>>(连接键(this.来源));
+    const c = await 读连接配置(this.来源);
     const 有 = (k: string) => typeof c?.[k] === "string" && (c[k] as string).trim() !== "";
     if (c && this.来源 === "feishu" && 有("appId") && 有("appSecret") && Array.isArray(c.表们) && c.表们.length) {
       return new 飞书适配器(c as unknown as 飞书配置, 用的网);

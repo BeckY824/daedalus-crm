@@ -19,7 +19,7 @@ import feishuContacts from "./fixtures/ent-feishu-contacts.json";
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
 import { getSetting, invalidateSettingsCache, setSetting } from "@/lib/settings";
-import { 换联网, 连接键 } from "@/lib/enterprise-import/adapter";
+import { 换联网, 读连接配置, 连接键 } from "@/lib/enterprise-import/adapter";
 import { 读通讯录设置 } from "@/lib/enterprise/org-sync";
 import { 通讯录概况, 设通讯录同步, 立即同步通讯录, 设职务对照, 设通讯录凭据 } from "@/app/(app)/settings/org-actions";
 import { 假网, type 录制 } from "./helpers/ent-fake-net";
@@ -81,7 +81,7 @@ describe("谁能用", () => {
 });
 
 describe("凭据", () => {
-  it("密钥不回显；留空保存不改；导入那边的配置原样留着；留痕里没有密钥", async () => {
+  it("密钥只回显后 4 位、存库加密；留空保存不改；导入那边的配置原样留着；留痕里没有密钥", async () => {
     await setSetting(连接键("feishu"), { 表们: [{ 实体: "customer", app: "a", table: "t" }], 基址: "https://open.feishu.cn" });
     expect(await 设通讯录凭据("feishu", { appId: " cli_abc ", appSecret: "s3cret-v1" })).toEqual({ ok: true });
 
@@ -91,7 +91,7 @@ describe("凭据", () => {
     expect(飞书.凭据.齐了).toBe(true);
     expect(飞书.凭据.字段).toEqual([
       expect.objectContaining({ 键: "appId", 值: "cli_abc", 已填: true, 密: false }),
-      expect.objectContaining({ 键: "appSecret", 值: "", 已填: true, 密: true }),
+      expect.objectContaining({ 键: "appSecret", 值: "****t-v1", 已填: true, 密: true }),
     ]);
     expect(JSON.stringify(概)).not.toContain("s3cret");
     // 角色选项里没有总管级
@@ -101,9 +101,10 @@ describe("凭据", () => {
     // 只改 appId，密钥留空 = 不改
     expect(await 设通讯录凭据("feishu", { appId: "cli_new", appSecret: "" })).toEqual({ ok: true });
     invalidateSettingsCache();
-    expect(await getSetting(连接键("feishu"))).toEqual({
-      表们: [{ 实体: "customer", app: "a", table: "t" }], 基址: "https://open.feishu.cn", appId: "cli_new", appSecret: "s3cret-v1",
-    });
+    const 存的 = (await getSetting<Record<string, unknown>>(连接键("feishu")))!;
+    expect(存的).toMatchObject({ 表们: [{ 实体: "customer", app: "a", table: "t" }], 基址: "https://open.feishu.cn", appId: "cli_new" });
+    expect(String(存的.appSecret).startsWith("enc:v1:")).toBe(true);
+    expect(await 读连接配置("feishu")).toMatchObject({ appId: "cli_new", appSecret: "s3cret-v1" });
     const 留痕 = await prisma.auditLog.findMany({ where: { entity: "EntConn" }, orderBy: { at: "asc" } });
     expect(留痕.map((r) => r.summary)).toEqual(["改飞书连接凭据：App ID、App Secret", "改飞书连接凭据：App ID"]);
     expect(JSON.stringify(留痕)).not.toContain("s3cret");
