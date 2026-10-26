@@ -501,15 +501,18 @@ export async function 超时预览(规则: 组织规则, 今: Date = new Date())
  * 超时回收（企业版，D-34）：线索 / 商机阶段的项目在节点上超过处理时长没人管，自动回到项目公海，
  * 负责人收到一条待办提醒；留痕和放回公海一样（pool-release），理由写明是超时。没开 / 没设时长什么都不做。
  * 项目列表、首页加载时调，一天按同一份规则最多扫一次；老板刚改了时长也直接调一次。
- * 团队模式下每台只扫自己名下的（和客户公海 自动掉公海 一个道理：别人的跟进本机可能还没拉到）
+ * 团队模式下每台只扫自己名下的（和客户公海 自动掉公海 一个道理：别人的跟进本机可能还没拉到）。
+ * 「今天扫过了」的记号只管扫过的那一片（Y18）：只扫了某人名下的，记在这个人的号上，不挡全公司扫、也不挡别人
  */
 export async function 公海超时收回(me: { id: string; name: string }, 今: Date = new Date()): Promise<number> {
   const 规则 = await 生效组织规则();
   if (!规则.超时回收.开) return 0;
+  const 只扫 = 读团队() ? me.id : undefined;
+  const 键 = 只扫 ? `${超时扫过键}:${只扫}` : 超时扫过键;
   const 记号 = `${dayjs(今).format("YYYY-MM-DD")} ${JSON.stringify(规则.超时回收)}`;
-  if ((await getSetting<string>(超时扫过键)) === 记号) return 0;
+  if ((await getSetting<string>(键)) === 记号) return 0;
 
-  const 们 = await 超时的项目(规则, 今, 读团队() ? me.id : undefined);
+  const 们 = await 超时的项目(规则, 今, 只扫);
   const 收了: string[] = [];
   for (const p of 们) {
     // 逐个一笔事务：查出来到写下去之间有人刚推了节点、领了、记了沟通，就不收
@@ -536,7 +539,7 @@ export async function 公海超时收回(me: { id: string; name: string }, 今: 
       detail: { ids: 收了, 节点天数: 规则.超时回收.节点天数 },
     });
   }
-  await setSetting(超时扫过键, 记号);
+  await setSetting(键, 记号);
   return 收了.length;
 }
 
