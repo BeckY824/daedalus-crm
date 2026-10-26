@@ -31,6 +31,8 @@ beforeAll(async () => {
   if (fs.existsSync(`${测试库}-wal`)) fs.copyFileSync(`${测试库}-wal`, `${f}-wal`);
   db = new PrismaClient({ datasourceUrl: `file:${f}?connection_limit=1` });
   await db.$queryRawUnsafe("PRAGMA journal_mode = WAL");
+  // 清库按表序删，Windows 上留着别的测试写的外键引用会卡住；这是只属于本测试的一份拷贝，关掉外键检查
+  await db.$executeRawUnsafe("PRAGMA foreign_keys = OFF");
   for (const t of ["AiConversation", "AiProject", "AuditLog", "ImportBatch", "FollowUpOrder", "TradeOrderDoc", "TradeOrderNode", "TradeOrderPurchase", "TradeOrder", "Task", "FollowPlan", "FollowUpSource", "FollowUp", "ContractOwner", "Contract", "Opportunity", "Contact", "UnassignedContact", "Lead", "CustomerPool", "CustomerClaim"]) {
     await db.$executeRawUnsafe(`DELETE FROM "${t}"`);
   }

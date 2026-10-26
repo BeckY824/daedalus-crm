@@ -15,7 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 
-const css = fs.readFileSync(path.resolve(__dirname, "../src/app/globals.css"), "utf8");
+const css = fs.readFileSync(path.resolve(__dirname, "../src/app/globals.css"), "utf8").replaceAll("\r\n", "\n"); // Windows 检出可能是 CRLF，下面按 \n 找
 /** 文件最后那段全局的减弱动态规则（从注释那行起，到 @media 的右括号为止） */
 function 减弱动态块() {
   const i = css.indexOf("@media (prefers-reduced-motion: reduce) {\n  *, *::before, *::after {");
