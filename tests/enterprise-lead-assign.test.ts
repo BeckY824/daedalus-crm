@@ -632,3 +632,17 @@ describe("企业版站内提醒", () => {
     expect(await 我的企业提醒()).toEqual([]);
   });
 });
+
+describe("开关关着：个人版 / 团队版不变", () => {
+  it("自动分配都满额也不发提醒，提醒框不挂", async () => {
+    await 开();
+    await 配(内贸, 0);
+    await 配(外贸, 0);
+    mocks.企业版 = false;
+    当(市场);
+    expect(await 自动分配线索(await 建线索("关着"))).toMatchObject({ ok: false });
+    expect(await prisma.entNotice.count()).toBe(0);
+    const fs = await import("node:fs");
+    expect(fs.readFileSync("src/app/(app)/layout.tsx", "utf8")).toMatch(/\{企业版\(\) && <EntNoticePrompt \/>\}/);
+  });
+});

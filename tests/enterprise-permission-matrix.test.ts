@@ -320,4 +320,21 @@ describe("删联系人的撤销快照（直接调接口）", () => {
     expect((await raw.contact.findUniqueOrThrow({ where: { id: c.id } })).phone).toBe(原号);
     await raw.contact.delete({ where: { id: c.id } });
   });
+
+  it("开关关着（个人版 / 团队版）：字段权限存着也不打码，快照照旧是原号", async () => {
+    const 原号 = "13900775678";
+    const c = await raw.contact.create({ data: { name: "关着的联系人", phone: 原号, customerId: 客户id.get(记录归属.普通销售.自己的!)! } });
+    delete process.env.CRM_ENTERPRISE;
+    try {
+      const r = await 作为("普通销售", () => deleteContact(c.id));
+      if (!r.ok) throw new Error(r.error);
+      expect(r.快照.phone).toBe(原号);
+      expect(await 作为("普通销售", () => restoreContact(r.快照))).toEqual({ ok: true });
+      expect((await raw.contact.findUniqueOrThrow({ where: { id: c.id } })).phone).toBe(原号);
+    } finally {
+      process.env.CRM_ENTERPRISE = "1";
+      忘掉企业版范围();
+    }
+    await raw.contact.delete({ where: { id: c.id } });
+  });
 });

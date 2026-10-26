@@ -15,6 +15,7 @@ import { recordAudit } from "@/lib/audit";
 import { 领取 } from "../pool-actions";
 import { 认回打码号 } from "@/lib/phone";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
+import { 企业版 } from "@/lib/enterprise/switch";
 import { 版本冲突, 版本条件, 推进版本 } from "@/lib/edit-version";
 import { dayjs } from "@/lib/utils";
 import { parseScheduleDate } from "@/lib/schedule-date";
@@ -820,8 +821,7 @@ export async function deleteContact(id: string) {
     刷新联系人(c.customerId);
     const 快照: 删掉的联系人 = {
       哪种: "挂着",
-      // 撤销快照会交回界面：号码和页面上一样过一遍打码（字段权限藏电话的角色直接调接口也拿不到原号），撤销时按删除记录认回
-      id: c.id, name: c.name, position: c.position, phone: (await 号码脱敏器())(c.phone), email: c.email, wechat: c.wechat, remark: c.remark,
+      id: c.id, name: c.name, position: c.position, phone: await 快照号码(c.phone), email: c.email, wechat: c.wechat, remark: c.remark,
       isPrimary: c.isPrimary, customerId: c.customerId, createdAt: c.createdAt.toISOString(),
       跟进: 跟进.map((f) => f.id),
     };
@@ -847,7 +847,7 @@ export async function deleteUnassignedContact(id: string) {
     刷新联系人();
     const 快照: 删掉的联系人 = {
       哪种: "未归属",
-      id: u.id, name: u.name, position: u.position, phone: (await 号码脱敏器())(u.phone), email: u.email, wechat: u.wechat, remark: u.remark,
+      id: u.id, name: u.name, position: u.position, phone: await 快照号码(u.phone), email: u.email, wechat: u.wechat, remark: u.remark,
       fromCustomerId: u.fromCustomerId, fromCustomerName: u.fromCustomerName, followUpIds: u.followUpIds,
       ownerId: u.ownerId,
       wasPrimary: u.wasPrimary,
@@ -857,6 +857,14 @@ export async function deleteUnassignedContact(id: string) {
   } catch (e) {
     return 不在了(e);
   }
+}
+
+/**
+ * 撤销快照会交回界面：企业版里号码和页面上一样过一遍打码（字段权限藏电话的角色直接调接口也拿不到原号），撤销时按删除记录认回。
+ * 不是企业版照旧给原号，个人版 / 团队版不变。
+ */
+async function 快照号码(p: string | null) {
+  return 企业版() ? (await 号码脱敏器())(p) : p;
 }
 
 /** 撤销快照里的号码是打码过的：按删除时留的那条记录认回原号；认不回（不是原号打码的样子）照交来的存 */
