@@ -11,6 +11,7 @@ import { 设置项, 设置项们, 谁能改, type 改权限配置, type 能改�
 import { 建部门, 改部门, 删部门, 设成员, 设规则, 设字段权限, 设改权限, type 成员改动 } from "./org-actions";
 import type { 分配情况 } from "../leads/assign-actions";
 import LeadAssignCard from "./LeadAssignCard";
+import OrgSyncCard from "./OrgSyncCard";
 
 export type 组织架构 = {
   部门: 组织部门[];
@@ -265,6 +266,8 @@ export default function OrgTab({ value }: { value: 组织架构 }) {
           </Space>
         )}
       </Card>
+
+      {能改 && <OrgSyncCard />}
 
       <Card title="部门" extra={只看}>
         <p className="muted">部门最多 {部门最多层数} 层。销售没指定直属上级时，按所在部门往上找销售管理当他的上级。</p>

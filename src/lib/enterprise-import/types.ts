@@ -37,6 +37,26 @@ export type 原始记录 = {
 };
 
 /**
+ * 原系统的通讯录（组织架构同步用，src/lib/enterprise/org-sync.ts）：部门和人，ID 都是原系统的。
+ * 部门的上级外部ID 为 null = 挂在根上（飞书的「0」、钉钉的「1」本身不算一个部门）。
+ */
+export type 通讯录部门 = { 外部ID: string; 名: string; 上级外部ID: string | null; 排序: number };
+export type 通讯录人 = {
+  外部ID: string;
+  名: string;
+  邮箱?: string;
+  职务?: string;
+  /** 第一个当主部门；空 = 挂在根上 */
+  部门外部IDs: string[];
+  /** 直属上级（原系统里设了的才有） */
+  上级外部ID?: string;
+  /** 是哪个部门的负责人 */
+  是负责人?: boolean;
+  离职?: boolean;
+};
+export type 通讯录 = { 部门们: 通讯录部门[]; 人们: 通讯录人[] };
+
+/**
  * 我们这边的标准字段。`ref` 结尾的是「挂到谁下面」：
  * customerRef / customerName 认客户，opportunityRef / opportunityName 认商机（跟进用）
  */

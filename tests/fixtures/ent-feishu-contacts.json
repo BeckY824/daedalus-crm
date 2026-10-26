@@ -1,0 +1,265 @@
+{
+  "说明": "飞书通讯录（组织架构同步用），按官方 contact/v3 响应结构录的假数据：4 层部门（第 4 层要并到第 3 层）、部门和成员都翻页、一个离职、一个没邮箱",
+  "路由": {
+    "POST /open-apis/auth/v3/tenant_access_token/internal": [
+      {
+        "body": {
+          "code": 0,
+          "msg": "ok",
+          "tenant_access_token": "t-fake-1",
+          "expire": 7200
+        }
+      }
+    ],
+    "GET /open-apis/contact/v3/departments/0/children": [
+      {
+        "body": {
+          "code": 0,
+          "msg": "success",
+          "data": {
+            "has_more": true,
+            "page_token": "dp2",
+            "items": [
+              {
+                "open_department_id": "od-sales",
+                "name": "销售部",
+                "parent_department_id": "0",
+                "order": "10",
+                "leader_user_id": "ou-mgr"
+              },
+              {
+                "open_department_id": "od-east",
+                "name": "华东组",
+                "parent_department_id": "od-sales",
+                "order": "1",
+                "leader_user_id": "ou-lead"
+              },
+              {
+                "open_department_id": "od-mkt",
+                "name": "市场部",
+                "parent_department_id": "0",
+                "order": "20"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "GET /open-apis/contact/v3/departments/0/children?page_token=dp2": [
+      {
+        "body": {
+          "code": 0,
+          "msg": "success",
+          "data": {
+            "has_more": false,
+            "items": [
+              {
+                "open_department_id": "od-east-a",
+                "name": "华东一队",
+                "parent_department_id": "od-east",
+                "order": "1"
+              },
+              {
+                "open_department_id": "od-east-a-x",
+                "name": "华东一队A小组",
+                "parent_department_id": "od-east-a",
+                "order": "1"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "GET /open-apis/contact/v3/users/find_by_department?department_id=0": [
+      {
+        "body": {
+          "code": 0,
+          "msg": "success",
+          "data": {
+            "has_more": false,
+            "items": [
+              {
+                "open_id": "ou-boss",
+                "name": "老板",
+                "department_ids": [],
+                "status": {
+                  "is_resigned": false
+                },
+                "enterprise_email": "Boss@Example.com",
+                "job_title": "总经理"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "GET /open-apis/contact/v3/users/find_by_department?department_id=od-sales": [
+      {
+        "body": {
+          "code": 0,
+          "msg": "success",
+          "data": {
+            "has_more": false,
+            "items": [
+              {
+                "open_id": "ou-mgr",
+                "name": "王经理",
+                "department_ids": [
+                  "od-sales"
+                ],
+                "status": {
+                  "is_resigned": false
+                },
+                "enterprise_email": "mgr@example.com",
+                "job_title": "销售总监",
+                "leader_user_id": "ou-boss"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "GET /open-apis/contact/v3/users/find_by_department?department_id=od-east": [
+      {
+        "body": {
+          "code": 0,
+          "msg": "success",
+          "data": {
+            "has_more": true,
+            "page_token": "up2",
+            "items": [
+              {
+                "open_id": "ou-lead",
+                "name": "李组长",
+                "department_ids": [
+                  "od-east"
+                ],
+                "status": {
+                  "is_resigned": false
+                },
+                "enterprise_email": "lead@example.com",
+                "job_title": "大区经理",
+                "leader_user_id": "ou-mgr"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "GET /open-apis/contact/v3/users/find_by_department?department_id=od-east&page_token=up2": [
+      {
+        "body": {
+          "code": 0,
+          "msg": "success",
+          "data": {
+            "has_more": false,
+            "items": [
+              {
+                "open_id": "ou-s1",
+                "name": "张三",
+                "department_ids": [
+                  "od-east-a",
+                  "od-east"
+                ],
+                "status": {
+                  "is_resigned": false
+                },
+                "enterprise_email": "zs@example.com",
+                "job_title": "外贸专员",
+                "leader_user_id": "ou-lead"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "GET /open-apis/contact/v3/users/find_by_department?department_id=od-east-a": [
+      {
+        "body": {
+          "code": 0,
+          "msg": "success",
+          "data": {
+            "has_more": false,
+            "items": [
+              {
+                "open_id": "ou-s1",
+                "name": "张三",
+                "department_ids": [
+                  "od-east-a",
+                  "od-east"
+                ],
+                "status": {
+                  "is_resigned": false
+                },
+                "enterprise_email": "zs@example.com",
+                "job_title": "外贸专员",
+                "leader_user_id": "ou-lead"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "GET /open-apis/contact/v3/users/find_by_department?department_id=od-east-a-x": [
+      {
+        "body": {
+          "code": 0,
+          "msg": "success",
+          "data": {
+            "has_more": false,
+            "items": [
+              {
+                "open_id": "ou-s2",
+                "name": "赵四",
+                "department_ids": [
+                  "od-east-a-x"
+                ],
+                "status": {
+                  "is_resigned": false
+                },
+                "job_title": "销售",
+                "leader_user_id": "ou-lead"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "GET /open-apis/contact/v3/users/find_by_department?department_id=od-mkt": [
+      {
+        "body": {
+          "code": 0,
+          "msg": "success",
+          "data": {
+            "has_more": false,
+            "items": [
+              {
+                "open_id": "ou-m1",
+                "name": "孙市场",
+                "department_ids": [
+                  "od-mkt"
+                ],
+                "status": {
+                  "is_resigned": false
+                },
+                "job_title": "市场专员"
+              },
+              {
+                "open_id": "ou-gone",
+                "name": "周离职",
+                "department_ids": [
+                  "od-mkt"
+                ],
+                "status": {
+                  "is_resigned": true
+                },
+                "enterprise_email": "gone@example.com",
+                "job_title": "市场专员"
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

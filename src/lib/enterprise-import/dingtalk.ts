@@ -11,8 +11,8 @@
  * 放进「客户ID」「商机ID」，正好是 clean.ts 按外部ID 认父记录的那两列。负责人 userId 换成名字。
  */
 import type { 适配器, 现有列 } from "./adapter";
-import { 接口出错, 最多重试, 退避, 读JSON as 读, 请求, 真联网, type 联网 } from "./net";
-import type { 原始记录, 实体 } from "./types";
+import { 接口出错, 最多重试, 退避, 对方出错, 连不上重试, 读JSON as 读, 请求, 真联网, type 联网 } from "./net";
+import type { 原始记录, 实体, 通讯录, 通讯录部门, 通讯录人 } from "./types";
 
 export type 钉钉配置 = {
   appKey: string;
@@ -92,6 +92,10 @@ export class 钉钉适配器 implements 适配器 {
         await this.网.等(退避(第几次));
         continue;
       }
+      if (对方出错(res.status) && 第几次 < 连不上重试) {
+        await this.网.等(退避(第几次));
+        continue;
+      }
       break;
     }
     if (!res.ok || typeof j?.accessToken !== "string") {
@@ -120,6 +124,10 @@ export class 钉钉适配器 implements 适配器 {
         await this.网.等(退避(第几次));
         continue;
       }
+      if (对方出错(res.status) && 第几次 < 连不上重试) {
+        await this.网.等(退避(第几次));
+        continue;
+      }
       if ((res.status === 401 || 新令牌失效.has(code)) && !换过令牌) {
         换过令牌 = true;
         this.令牌 = null;
@@ -130,8 +138,8 @@ export class 钉钉适配器 implements 适配器 {
     }
   }
 
-  /** 老接口（oapi.dingtalk.com）：令牌放 query，HTTP 总是 200，看 errcode */
-  private async 调老(动作: string, 路径: string, 体: unknown) {
+  /** 老接口（oapi.dingtalk.com）：令牌放 query，HTTP 一般是 200，看 errcode；话 = 这类接口自己的错误码说明 */
+  private async 调老(动作: string, 路径: string, 体: unknown, 话: Record<string, string> = 说人话) {
     let 换过令牌 = false;
     for (let 第几次 = 0; ; 第几次++) {
       await this.节流();
@@ -143,13 +151,17 @@ export class 钉钉适配器 implements 适配器 {
         await this.网.等(退避(第几次));
         continue;
       }
+      if (对方出错(res.status) && 第几次 < 连不上重试) {
+        await this.网.等(退避(第几次));
+        continue;
+      }
       if (code !== undefined && 老令牌失效.has(code) && !换过令牌) {
         换过令牌 = true;
         this.令牌 = null;
         continue;
       }
       if (res.ok && code === 0) return j as Record<string, unknown>;
-      throw new 接口出错(`钉钉${动作}出错（HTTP ${res.status}${code !== undefined ? `，errcode ${code}` : ""}）：${(code !== undefined && 说人话[String(code)]) || String(j?.errmsg ?? "没有返回内容")}`);
+      throw new 接口出错(`钉钉${动作}出错（HTTP ${res.status}${code !== undefined ? `，errcode ${code}` : ""}）：${(code !== undefined && 话[String(code)]) || String(j?.errmsg ?? "没有返回内容")}`);
     }
   }
 
@@ -315,7 +327,75 @@ export class 钉钉适配器 implements 适配器 {
     for (const d of await this.拉跟进(dsl)) 出.push(await this.成记录("followup", 跟进字段, d, "钉钉 · 跟进记录"));
     return 出;
   }
+
+  /**
+   * 拉通讯录（组织架构同步用），都是老接口：
+   *   部门 POST /topapi/v2/department/listsub {dept_id} → 下一层部门，从根（1）一层层往下拉
+   *   人   POST /topapi/v2/user/list {dept_id, cursor, size} → 部门的直属成员（根也拉一遍）
+   * 应用要开「通讯录部门信息读权限」「成员信息读权限」（要邮箱再开「邮箱等个人信息」），通讯录权限范围选全部员工。
+   * 列表接口不给直属上级（manager_userid 只有单查一个人才给），给了才用；leader = 是这个部门的主管。
+   */
+  async 拉通讯录(): Promise<通讯录> {
+    const 部门们: 通讯录部门[] = [];
+    const 见过 = new Set<string>();
+    const 待拉 = ["1"];
+    while (待拉.length) {
+      const 上级 = 待拉.shift()!;
+      const j = await this.调老("拉部门", "/topapi/v2/department/listsub", { dept_id: Number(上级) }, 通讯录话);
+      数组(j.result).forEach((d, i) => {
+        const id = d.dept_id === undefined || d.dept_id === null ? "" : String(d.dept_id);
+        if (!id || 见过.has(id)) return;
+        见过.add(id);
+        部门们.push({ 外部ID: id, 名: String(d.name ?? "").trim() || id, 上级外部ID: 上级 === "1" ? null : 上级, 排序: typeof d.order === "number" ? d.order : i });
+        待拉.push(id);
+      });
+    }
+
+    const 人们 = new Map<string, 通讯录人>();
+    for (const 部门ID of ["1", ...部门们.map((x) => x.外部ID)]) {
+      let cursor = 0;
+      for (;;) {
+        const j = await this.调老("拉部门成员", "/topapi/v2/user/list", { dept_id: Number(部门ID), cursor, size: 每页 }, 通讯录话);
+        const r = (j.result ?? {}) as Record<string, unknown>;
+        for (const u of 数组(r.list)) {
+          const id = typeof u.userid === "string" ? u.userid : "";
+          if (!id) continue;
+          const 是主管 = u.leader === true || 数组(u.leader_in_dept).some((x) => x.leader === true);
+          const 有了 = 人们.get(id);
+          if (有了) {
+            if (是主管) 有了.是负责人 = true;
+            continue;
+          }
+          const 邮箱 = String(u.org_email || u.email || "").trim();
+          const 职务 = String(u.title ?? "").trim();
+          const 上级 = typeof u.manager_userid === "string" ? u.manager_userid : "";
+          人们.set(id, {
+            外部ID: id,
+            名: String(u.name ?? "").trim() || id,
+            ...(邮箱 ? { 邮箱 } : {}),
+            ...(职务 ? { 职务 } : {}),
+            部门外部IDs: (Array.isArray(u.dept_id_list) ? u.dept_id_list : []).map(String).filter((x) => x && x !== "1"),
+            ...(上级 ? { 上级外部ID: 上级 } : {}),
+            是负责人: 是主管,
+            离职: false,
+          });
+        }
+        if (!r.has_more) break;
+        const 下 = Number(r.next_cursor);
+        if (!Number.isFinite(下) || 下 <= cursor) break;
+        cursor = 下;
+      }
+    }
+    return { 部门们, 人们: [...人们.values()] };
+  }
 }
+
+const 通讯录话: Record<string, string> = {
+  ...说人话,
+  "60011": "应用没有通讯录的读权限：要在钉钉开发者后台给应用开「通讯录部门信息读权限」「成员信息读权限」",
+  "50004": "通讯录权限范围不含这个部门：要在钉钉开发者后台把通讯录权限范围改成全部员工",
+  "60003": "部门不存在（可能刚被删了），过一会再同步",
+};
 
 // —— 纯函数（契约测试直接测） ——
 

@@ -1,0 +1,185 @@
+{
+  "说明": "钉钉通讯录（组织架构同步用），按官方 topapi/v2 department/listsub、user/list 响应结构录的假数据：两层部门、成员翻页、一人在两个部门",
+  "路由": {
+    "POST /v1.0/oauth2/accessToken": [
+      {
+        "body": {
+          "accessToken": "dt-fake-1",
+          "expireIn": 7200
+        }
+      }
+    ],
+    "POST /topapi/v2/department/listsub?dept_id=1": [
+      {
+        "body": {
+          "errcode": 0,
+          "errmsg": "ok",
+          "result": [
+            {
+              "dept_id": 100,
+              "name": "销售一部",
+              "parent_id": 1
+            },
+            {
+              "dept_id": 200,
+              "name": "渠道部",
+              "parent_id": 1
+            }
+          ]
+        }
+      }
+    ],
+    "POST /topapi/v2/department/listsub?dept_id=100": [
+      {
+        "body": {
+          "errcode": 0,
+          "errmsg": "ok",
+          "result": [
+            {
+              "dept_id": 110,
+              "name": "深圳组",
+              "parent_id": 100
+            }
+          ]
+        }
+      }
+    ],
+    "POST /topapi/v2/department/listsub?dept_id=110": [
+      {
+        "body": {
+          "errcode": 0,
+          "errmsg": "ok",
+          "result": []
+        }
+      }
+    ],
+    "POST /topapi/v2/department/listsub?dept_id=200": [
+      {
+        "body": {
+          "errcode": 0,
+          "errmsg": "ok",
+          "result": []
+        }
+      }
+    ],
+    "POST /topapi/v2/user/list?dept_id=1&cursor=0": [
+      {
+        "body": {
+          "errcode": 0,
+          "errmsg": "ok",
+          "result": {
+            "has_more": false,
+            "list": [
+              {
+                "userid": "dboss",
+                "name": "钉老板",
+                "dept_id_list": [
+                  1
+                ],
+                "leader": false,
+                "org_email": "dboss@example.com",
+                "title": "董事长"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "POST /topapi/v2/user/list?dept_id=100&cursor=0": [
+      {
+        "body": {
+          "errcode": 0,
+          "errmsg": "ok",
+          "result": {
+            "has_more": true,
+            "next_cursor": 100,
+            "list": [
+              {
+                "userid": "dmgr",
+                "name": "钱主管",
+                "dept_id_list": [
+                  100
+                ],
+                "leader": true,
+                "org_email": "dmgr@example.com",
+                "title": "销售主管"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "POST /topapi/v2/user/list?dept_id=100&cursor=100": [
+      {
+        "body": {
+          "errcode": 0,
+          "errmsg": "ok",
+          "result": {
+            "has_more": false,
+            "list": [
+              {
+                "userid": "ds1",
+                "name": "吴销售",
+                "dept_id_list": [
+                  110,
+                  100
+                ],
+                "leader": false,
+                "org_email": "ds1@example.com",
+                "title": "销售",
+                "manager_userid": "dmgr"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "POST /topapi/v2/user/list?dept_id=110&cursor=0": [
+      {
+        "body": {
+          "errcode": 0,
+          "errmsg": "ok",
+          "result": {
+            "has_more": false,
+            "list": [
+              {
+                "userid": "ds1",
+                "name": "吴销售",
+                "dept_id_list": [
+                  110,
+                  100
+                ],
+                "leader": false,
+                "org_email": "ds1@example.com",
+                "title": "销售",
+                "manager_userid": "dmgr"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "POST /topapi/v2/user/list?dept_id=200&cursor=0": [
+      {
+        "body": {
+          "errcode": 0,
+          "errmsg": "ok",
+          "result": {
+            "has_more": false,
+            "list": [
+              {
+                "userid": "dch",
+                "name": "郑渠道",
+                "dept_id_list": [
+                  200
+                ],
+                "leader": false,
+                "title": "渠道运营"
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

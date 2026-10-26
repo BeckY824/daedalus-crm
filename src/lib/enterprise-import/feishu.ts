@@ -15,8 +15,8 @@
  * 没变的本来也靠指纹跳过。权限：应用要开「查看多维表格」，并被加进这几张多维表格。
  */
 import type { 适配器, 现有列 } from "./adapter";
-import { 接口出错, 最多重试, 退避, 北京时间串, 读JSON, 请求, 真联网, type 联网 } from "./net";
-import { 实体名, type 原始记录, type 实体 } from "./types";
+import { 接口出错, 最多重试, 退避, 对方出错, 连不上重试, 北京时间串, 读JSON, 请求, 真联网, type 联网 } from "./net";
+import { 实体名, type 原始记录, type 实体, type 通讯录, type 通讯录部门, type 通讯录人 } from "./types";
 
 export type 飞书表 = {
   实体: 实体;
@@ -86,6 +86,10 @@ export class 飞书适配器 implements 适配器 {
         await this.网.等(退避(第几次));
         continue;
       }
+      if (对方出错(res.status) && 第几次 < 连不上重试) {
+        await this.网.等(退避(第几次));
+        continue;
+      }
       break;
     }
     if (!res.ok || code !== 0 || typeof j?.tenant_access_token !== "string") {
@@ -97,8 +101,8 @@ export class 飞书适配器 implements 适配器 {
     return this.令牌.值;
   }
 
-  /** 调一个接口：限流退避重试，令牌失效换一次，其余报错说清是哪张表、为什么 */
-  private async 调(动作: string, 方法: "GET" | "POST", 路径: string, 参数: Record<string, string | undefined>, 体?: unknown) {
+  /** 调一个接口：限流退避重试，对方 5xx 再试两回，令牌失效换一次，其余报错说清是哪张表、为什么。话 = 这类接口自己的错误码说明 */
+  private async 调(动作: string, 方法: "GET" | "POST", 路径: string, 参数: Record<string, string | undefined>, 体?: unknown, 话: Record<number, string> = 说人话) {
     let 换过令牌 = false;
     for (let 第几次 = 0; ; 第几次++) {
       const url = new URL(this.基址 + 路径);
@@ -114,13 +118,17 @@ export class 飞书适配器 implements 适配器 {
         await this.网.等(退避(第几次));
         continue;
       }
+      if (对方出错(res.status) && 第几次 < 连不上重试) {
+        await this.网.等(退避(第几次));
+        continue;
+      }
       if (code !== undefined && 令牌失效.has(code) && !换过令牌) {
         换过令牌 = true;
         this.令牌 = null;
         continue;
       }
       if (res.ok && code === 0) return (j?.data ?? {}) as Record<string, unknown>;
-      throw new 接口出错(`飞书${动作}出错（HTTP ${res.status}${code !== undefined ? `，code ${code}` : ""}）：${(code !== undefined && 说人话[code]) || String(j?.msg ?? "没有返回内容")}`);
+      throw new 接口出错(`飞书${动作}出错（HTTP ${res.status}${code !== undefined ? `，code ${code}` : ""}）：${(code !== undefined && 话[code]) || String(j?.msg ?? "没有返回内容")}`);
     }
   }
 
@@ -175,7 +183,65 @@ export class 飞书适配器 implements 适配器 {
   现有列() {
     return this.列们;
   }
+
+  /**
+   * 拉通讯录（组织架构同步用）：
+   *   部门 GET /open-apis/contact/v3/departments/0/children?fetch_child=true → 根下所有部门（含子孙）
+   *   人   GET /open-apis/contact/v3/users/find_by_department?department_id=… → 每个部门的直属成员（根「0」也拉一遍）
+   * ID 一律要 open_id / open_department_id。应用要开「获取通讯录基本信息」「获取部门基础信息」等读权限，
+   * 通讯录权限范围要包含这些部门（范围外的部门拉不到）。一个人在几个部门会出现几次，按 open_id 去重。
+   */
+  async 拉通讯录(): Promise<通讯录> {
+    const 部门们: 通讯录部门[] = [];
+    const 负责人 = new Set<string>();
+    let page_token: string | undefined;
+    do {
+      const d = await this.调("拉部门", "GET", "/open-apis/contact/v3/departments/0/children", { fetch_child: "true", department_id_type: "open_department_id", user_id_type: "open_id", page_size: "50", page_token }, undefined, 通讯录话);
+      for (const it of (d.items as 飞书部门[] | undefined) ?? []) {
+        const id = it?.open_department_id;
+        if (!id) continue;
+        const 上级 = it.parent_department_id && it.parent_department_id !== "0" ? it.parent_department_id : null;
+        部门们.push({ 外部ID: id, 名: String(it.name ?? "").trim() || id, 上级外部ID: 上级, 排序: Number(it.order) || 0 });
+        if (it.leader_user_id) 负责人.add(it.leader_user_id);
+      }
+      page_token = d.has_more ? String(d.page_token ?? "") || undefined : undefined;
+    } while (page_token);
+
+    const 人们 = new Map<string, 通讯录人>();
+    for (const 部门ID of ["0", ...部门们.map((x) => x.外部ID)]) {
+      let pt: string | undefined;
+      do {
+        const d = await this.调("拉部门成员", "GET", "/open-apis/contact/v3/users/find_by_department", { department_id: 部门ID, department_id_type: "open_department_id", user_id_type: "open_id", page_size: "50", page_token: pt }, undefined, 通讯录话);
+        for (const u of (d.items as 飞书人[] | undefined) ?? []) {
+          if (!u?.open_id || 人们.has(u.open_id)) continue;
+          const 邮箱 = (u.enterprise_email || u.email || "").trim();
+          人们.set(u.open_id, {
+            外部ID: u.open_id,
+            名: String(u.name ?? "").trim() || u.open_id,
+            ...(邮箱 ? { 邮箱 } : {}),
+            ...(u.job_title?.trim() ? { 职务: u.job_title.trim() } : {}),
+            部门外部IDs: (u.department_ids ?? []).filter((x) => typeof x === "string" && x && x !== "0"),
+            ...(u.leader_user_id ? { 上级外部ID: u.leader_user_id } : {}),
+            是负责人: 负责人.has(u.open_id),
+            离职: u.status?.is_resigned === true,
+          });
+        }
+        pt = d.has_more ? String(d.page_token ?? "") || undefined : undefined;
+      } while (pt);
+    }
+    return { 部门们, 人们: [...人们.values()] };
+  }
 }
+
+type 飞书部门 = { open_department_id?: string; name?: string; parent_department_id?: string; order?: string | number; leader_user_id?: string };
+type 飞书人 = { open_id?: string; name?: string; email?: string; enterprise_email?: string; job_title?: string; leader_user_id?: string; department_ids?: string[]; status?: { is_resigned?: boolean } };
+
+const 通讯录话: Record<number, string> = {
+  ...说人话,
+  99991672: "应用没开通讯录读取权限（开放平台 → 权限管理 → 获取通讯录基本信息、获取部门基础信息、获取用户邮箱、获取用户直属上级）",
+  40004: "通讯录权限范围不含这个部门（开放平台 → 权限管理 → 通讯录权限范围，选全部成员）",
+  41050: "通讯录权限范围不含这个人（开放平台 → 权限管理 → 通讯录权限范围，选全部成员）",
+};
 
 const 表名 = (表: 飞书表) => 表.名 ?? `${实体名[表.实体]}表`;
 /** appToken / tableId 是客户填的，编码了再拼，带了 / ? # 也不会拼到别的接口上 */

@@ -20,6 +20,8 @@ export class 接口出错 extends Error {}
 /** 被限流时最多重试几次、每次等多久（1s、2s、4s…，封顶 30s） */
 export const 最多重试 = 5;
 export const 退避 = (第几次: number) => Math.min(30_000, 1000 * 2 ** 第几次);
+/** 对方服务器出错（502 网关、503 维护中…）：多半是一时的，和连不上一样再试 连不上重试 次 */
+export const 对方出错 = (status: number) => status >= 500 && status <= 599;
 
 /** 单次请求最多等多久：断网时 fetch 会自己报错，但对方不回话（半开连接、网关卡住）时会一直挂着，定时同步就整个卡死 */
 export const 请求超时毫秒 = 30_000;

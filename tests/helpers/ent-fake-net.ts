@@ -16,8 +16,8 @@ export function 键(method: string, url: string, body?: string): string {
   const u = new URL(url);
   const b = body ? (JSON.parse(body) as Record<string, unknown>) : {};
   const 选: string[] = [];
-  for (const k of ["relationType", "page_token", "nextToken"]) if (u.searchParams.get(k)) 选.push(`${k}=${u.searchParams.get(k)}`);
-  for (const k of ["nextToken", "cursor", "name", "userid"]) if (b[k] !== undefined) 选.push(`${k}=${String(b[k])}`);
+  for (const k of ["relationType", "department_id", "page_token", "nextToken"]) if (u.searchParams.get(k)) 选.push(`${k}=${u.searchParams.get(k)}`);
+  for (const k of ["dept_id", "nextToken", "cursor", "name", "userid"]) if (b[k] !== undefined) 选.push(`${k}=${String(b[k])}`);
   return `${method} ${u.pathname}${选.length ? `?${选.join("&")}` : ""}`;
 }
 

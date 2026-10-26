@@ -19,6 +19,10 @@ import { 读组织, 建组织, 管理员类别of, 部门挪动问题, 上级设�
 import { 是业务角色, 角色名, type 业务角色 } from "@/lib/sync/dept-policy";
 import { 规整字段配置, 字段权限key } from "@/lib/enterprise/field-perm";
 import { 挡改设置, 规整改权限, 改权限key, 设置项, 设置项们, 谁能改, type 设置项名 } from "@/lib/enterprise/edit-perm";
+import {
+  通讯录来源们, 通讯录来源名, 读通讯录设置, 读凭据概况, 开关通讯录同步, 存角色对照, 存通讯录凭据, 同步通讯录, 对照能给的角色,
+  type 通讯录来源, type 通讯录设置, type 凭据概况, type 通讯录一次结果,
+} from "@/lib/enterprise/org-sync";
 
 type 结果 = { ok: true } | { ok: false; error: string };
 
@@ -39,7 +43,7 @@ async function 能改的人() {
   if (me.role === "ADMIN") return { me, 是老板: true };
   return 管理员类别of(await 读组织(), me.id) === "总管理员" ? { me, 是老板: false } : null;
 }
-const 不能改: 结果 = { ok: false, error: "只有老板或总管理员能改组织架构" };
+const 不能改 = { ok: false as const, error: "只有老板或总管理员能改组织架构" };
 
 async function 全部部门(): Promise<Map<string, 组织部门>> {
   const ds = await prisma.entDept.findMany({ select: { id: true, name: true, parentId: true, sort: true } });
@@ -232,6 +236,93 @@ export async function 设改权限(配置: unknown): Promise<结果> {
     await setSetting(改权限key, 存);
     const 说 = 设置项们.map((项) => `${设置项[项].名}：${["老板", ...谁能改(存, 项)].join("、")}`).join("；");
     await recordAudit({ user: who.me, action: "update", entity: "Setting", entityId: 改权限key, summary: `改后台设置谁能改（${说}）`, detail: 存 });
+    改完了();
+    return { ok: true };
+  } catch (e) {
+    return 不在了(e);
+  }
+}
+
+/* ───────── 通讯录同步（飞书 / 钉钉 → 组织架构，10-26） ───────── */
+
+export type 通讯录一栏 = {
+  源: 通讯录来源;
+  名: string;
+  开: boolean;
+  上次: 通讯录设置["上次"];
+  角色对照: 通讯录设置["角色对照"];
+  职务们: string[];
+  凭据: 凭据概况;
+};
+
+const 是来源 = (v: unknown): v is 通讯录来源 => typeof v === "string" && (通讯录来源们 as string[]).includes(v);
+
+/** 设置页那一栏：凭据里的密钥只说填没填，不回原文；只给能改组织架构的人看 */
+export async function 通讯录概况(): Promise<{ ok: true; 来源们: 通讯录一栏[]; 角色们: { value: string; label: string }[] } | { ok: false; error: string }> {
+  const who = await 能改的人();
+  if (!who) return 不能改;
+  try {
+    const 来源们 = await Promise.all(
+      通讯录来源们.map(async (源) => {
+        const s = await 读通讯录设置(源);
+        return { 源, 名: 通讯录来源名[源], 开: s.开, 上次: s.上次, 角色对照: s.角色对照, 职务们: s.职务们, 凭据: await 读凭据概况(源) };
+      }),
+    );
+    const 角色们 = Object.entries(角色名).filter(([k]) => 对照能给的角色(k)).map(([value, label]) => ({ value, label }));
+    return { ok: true, 来源们, 角色们 };
+  } catch (e) {
+    return 不在了(e);
+  }
+}
+
+export async function 设通讯录同步(源: 通讯录来源, 开: boolean): Promise<结果> {
+  const who = await 能改的人();
+  if (!who) return 不能改;
+  if (!是来源(源) || typeof 开 !== "boolean") return { ok: false, error: "参数不对" };
+  try {
+    if (开 && !(await 读凭据概况(源)).齐了) return { ok: false, error: `先填好${通讯录来源名[源]}的连接凭据再打开` };
+    await 开关通讯录同步(源, 开, who.me);
+    改完了();
+    return { ok: true };
+  } catch (e) {
+    return 不在了(e);
+  }
+}
+
+/** 手动「立即同步」：照样走一次写库（同一来源同时只跑一次），结果原样回给界面 */
+export async function 立即同步通讯录(源: 通讯录来源): Promise<{ ok: true; 一次: 通讯录一次结果 } | { ok: false; error: string }> {
+  const who = await 能改的人();
+  if (!who) return 不能改;
+  if (!是来源(源)) return { ok: false, error: "参数不对" };
+  try {
+    const 一次 = await 同步通讯录(源, { 用户: who.me });
+    改完了();
+    return { ok: true, 一次 };
+  } catch (e) {
+    return 不在了(e);
+  }
+}
+
+export async function 设职务对照(源: 通讯录来源, 对照: Record<string, string>): Promise<结果> {
+  const who = await 能改的人();
+  if (!who) return 不能改;
+  if (!是来源(源) || !对照 || typeof 对照 !== "object") return { ok: false, error: "参数不对" };
+  try {
+    await 存角色对照(源, 对照, who.me);
+    改完了();
+    return { ok: true };
+  } catch (e) {
+    return 不在了(e);
+  }
+}
+
+/** 存连接凭据：密钥空着 = 不改 */
+export async function 设通讯录凭据(源: 通讯录来源, 填: Record<string, string>): Promise<结果> {
+  const who = await 能改的人();
+  if (!who) return 不能改;
+  if (!是来源(源) || !填 || typeof 填 !== "object") return { ok: false, error: "参数不对" };
+  try {
+    await 存通讯录凭据(源, 填, who.me);
     改完了();
     return { ok: true };
   } catch (e) {

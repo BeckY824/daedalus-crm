@@ -15,6 +15,7 @@ import { prisma } from "../prisma";
 import { getSetting, setSetting } from "../settings";
 import type { Actor } from "../audit";
 import { 企业版 } from "../enterprise/switch";
+import { 定时同步通讯录 } from "../enterprise/org-sync";
 import { 取适配器, 还没接, type 现有列 } from "./adapter";
 import { 写一批 } from "./apply";
 import { 试跑, type 试跑结果 } from "./report";
@@ -251,7 +252,7 @@ export function 到点了(s: 同步设置, 现在: Date): boolean {
 
 let 在扫 = false;
 
-/** 扫一遍各来源，到点的同步一次。企业版没开不扫；上一遍没扫完不叠 */
+/** 扫一遍各来源，到点的同步一次（数据导入 + 通讯录）。企业版没开不扫；上一遍没扫完不叠 */
 export async function 定时扫一遍(现在 = new Date()): Promise<void> {
   if (!企业版() || 在扫) return;
   在扫 = true;
@@ -263,6 +264,8 @@ export async function 定时扫一遍(现在 = new Date()): Promise<void> {
         console.error(`[企业版同步] ${源}`, e);
       }
     }
+    // 通讯录 → 组织架构：各来源自己开关，每小时一次
+    await 定时同步通讯录(现在);
   } finally {
     在扫 = false;
   }
