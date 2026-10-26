@@ -1,5 +1,5 @@
 import { prisma, defaultClient } from "@/lib/prisma";
-import { 限定的我 } from "@/lib/team-scope";
+import { 限定的我, 读的我 } from "@/lib/team-scope";
 import { requireUser } from "@/lib/auth";
 import { OPP_STAGES } from "@/lib/constants";
 import { 负责人口径 } from "@/lib/owners";
@@ -32,6 +32,8 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
   // 老板、个人版、企业版没开按组织看 = 不限定：客户数和全部商机在库里直接数 / 连表取，近期待办走短时缓存。三处共用一次判断
   let 判过: Promise<boolean> | undefined;
   const 不限定 = () => (判过 ??= 限定的我(defaultClient).then((我) => !我));
+  // 数客户时读的那组人：和 lib/team-scope 里客户、跟进的读范围同一个（不限定 / 开了互看 = null，虚线上级连带下属）
+  const 读范围 = async () => ((await 不限定()) ? null : 读的我(defaultClient));
 
   const [
     leadTotal,
@@ -77,10 +79,10 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
     */
     (async () => 首页待办(prisma, await 不限定()))(),
     /*
-      近 90 天两条线、本月 / 上月新增、每周新增：不限定（老板、个人版）时在库里按天数好再取回来，
-      业务员照旧取限定后的行算。口径和对拍见 lib/dashboard-sql.ts
+      近 90 天两条线、本月 / 上月新增、每周新增：在库里按天数好再取回来；业务员在 SQL 里带上看得到的那组人
+      （2026-10-26，原来取限定后的行算，企业版开着按组织看要三百多毫秒）。口径和对拍见 lib/dashboard-sql.ts
     */
-    (async () => 客户数(prisma, now, await 不限定()))(),
+    (async () => 客户数(prisma, now, await 读范围()))(),
     prisma.opportunity.count({ where: { status: "WON" } }),
     prisma.opportunity.count({ where: { status: { in: ["WON", "LOST"] } } }),
     // 卡片下方那三条小曲线原本是写死的装饰数据，改成按周真算。

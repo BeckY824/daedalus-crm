@@ -4,6 +4,7 @@ import { dayjs } from "@/lib/utils";
 import { 近90天趋势, 最近8周, 每周新增, type 趋势点 } from "@/lib/dashboard-trend";
 import { 带币种 } from "@/lib/money-db";
 import { 缓存着 } from "@/lib/home-cache";
+import type { 谁 } from "@/lib/team-scope";
 
 /**
  * 看板上「数客户」的那几样（近 90 天两条线、本月 / 上月新增、每周新增），在库里按天先数好再取回来。
@@ -16,8 +17,8 @@ import { 缓存着 } from "@/lib/home-cache";
  *   以字面数字写进 SQL，库里只做「落在哪两个零点之间」的比较，不用 SQLite 自己的时区。
  * - 需要的边界（每天零点、往前第 30 天、周起止、月初）任何一个不在这串零点里，就退回原来的取行算法。
  *
- * 只在**不限定**（老板、个人版、企业版没开按组织看）时走这里：裸 SQL 不过 lib/team-scope 的那层 where，
- * 业务员看到的数必须照旧由取行算法在限定后的行上算。tests/dashboard-sql.test.ts 拿取行算法对拍。
+ * 裸 SQL 不过 lib/team-scope 的那层 where。业务员（企业版开了按组织看）看到的范围由调用方传进来，
+ * 在 SQL 里自己加同一句「看得到的客户」（见 范围条件）。tests/dashboard-sql.test.ts 拿取行算法在限定后的行上对拍。
  */
 
 export type 客户数 = {
@@ -126,25 +127,44 @@ function 排边界(now: Dayjs): 计划 | null {
 
 const 数 = (x: unknown) => Number(x ?? 0);
 
-async function 库里数(db: PrismaClient, 计: 计划): Promise<客户数> {
+/**
+ * 业务员看得到的客户，写成 SQL：和 lib/team-scope 的 可见客户 同一句意思——
+ * 自己（这组人里的一位）是销售负责人或渠道负责人，或者在公海里。
+ *
+ * 公海那句写成 `id IN (SELECT customerId FROM CustomerPool)`，跟进那边写成 `customerId IN (SELECT id FROM Customer WHERE …)`：
+ * Prisma 的关联条件只会生成 LEFT JOIN Customer、LEFT JOIN CustomerPool，跟进表只能从时间索引一路回表 20 万次，
+ * 企业版 10 倍数据开着按组织看时，一位业务员数 120 天跟进要 200 ms 左右；写成 IN 子查询，先在 Customer 上
+ * 用两个负责人索引取出看得到的几千位，再按 (customerId, occurredAt) 索引取跟进，约 11 ms（2026-10-26）。
+ * 负责人为空的不算（IN 不收 NULL，Prisma 的等于也不收）；空的一组人谁也看不到，只剩公海（`IN ()` 在 SQLite 里合法，什么都不匹配）
+ */
+function 范围条件(范围: 谁): { sql: string; 参数: string[] } {
+  const 人 = typeof 范围 === "string" ? [范围] : [...范围];
+  const 问号 = 人.map(() => "?").join(",");
+  return { sql: `(salesOwnerId IN (${问号}) OR channelOwnerId IN (${问号}) OR id IN (SELECT customerId FROM CustomerPool))`, 参数: [...人, ...人] };
+}
+
+async function 库里数(db: PrismaClient, 计: 计划, 范围: 谁 | null = null): Promise<客户数> {
   const { 零点 } = 计;
   const 周起 = 计.周.map((w) => w.起ms).join(",");
+  const 限 = 范围 === null ? null : 范围条件(范围);
   const [建档, 活跃] = await Promise.all([
     db.$queryRawUnsafe<{ k: bigint | number; e: bigint | number; n: bigint | number }[]>(
       `SELECT k, e, count(*) AS n FROM (
          SELECT ${按毫秒("createdAt", (t) => 第几天或负一(t, 零点))} AS k, ${按毫秒("createdAt", (t) => `(${t} IN (${周起}))`)} AS e
-         FROM Customer
+         FROM Customer${限 ? ` WHERE ${限.sql}` : ""}
        ) GROUP BY k, e`,
+      ...(限?.参数 ?? []),
     ),
     // 每个客户把活跃的那几天拼成不重叠的段 [起, 止)：起处 +1、止处 −1。
     // 回的是「(起, 止) 各有几段」，不在库里再 UNION 一遍按天合计（那样要多排 20 万行）
     db.$queryRawUnsafe<{ k: bigint | number; e: bigint | number; n: bigint | number }[]>(
       `WITH p AS (SELECT DISTINCT customerId AS c, ${按毫秒("occurredAt", (t) => 不早于起点的第几天(t, 零点))} AS d
-         FROM FollowUp WHERE occurredAt >= ? AND ${按毫秒("occurredAt", (t) => `${t} >= ${零点[0]}`)}),
+         FROM FollowUp WHERE occurredAt >= ? AND ${按毫秒("occurredAt", (t) => `${t} >= ${零点[0]}`)}${限 ? ` AND customerId IN (SELECT id FROM Customer WHERE ${限.sql})` : ""}),
        q AS (SELECT d, LAG(d) OVER (PARTITION BY c ORDER BY d) AS pr FROM p)
        SELECT CASE WHEN pr IS NULL OR pr + ${窗口} < d THEN d ELSE pr + ${窗口} END AS k, d + ${窗口} AS e, count(*) AS n
        FROM q GROUP BY k, e`,
       计.跟进起.getTime(),
+      ...(限?.参数 ?? []),
     ),
   ]);
 
@@ -185,7 +205,7 @@ async function 库里数(db: PrismaClient, 计: 计划): Promise<客户数> {
   };
 }
 
-/** 取行算法：业务员（限定后的行）和边界对不上时用，就是原来 Board 里那一段 */
+/** 取行算法：边界对不上时用，就是原来 Board 里那一段；也是对拍的基准 */
 export async function 取行数(db: PrismaClient, now: Dayjs): Promise<客户数> {
   const monthStart = now.startOf("month").toDate();
   const lastMonthStart = now.subtract(1, "month").startOf("month").toDate();
@@ -206,12 +226,15 @@ export async function 取行数(db: PrismaClient, now: Dayjs): Promise<客户数
 }
 
 /**
- * 看板的客户数。`不限定` 由调用方按 lib/team-scope 判（限定的我 为 null）：
- * 不限定才在库里数，否则取行（行已经过限定那层 where）
+ * 看板的客户数。`范围` 由调用方按 lib/team-scope 判：null = 不限定（限定的我 为 null，或开了互看），
+ * 否则是读客户、跟进时限定的那组人（读的我），在库里数时自己加同一句条件。
+ * 边界对不上时取行——db 是加了限定的那个，行已经过限定那层 where
  */
-export async function 客户数(db: PrismaClient, now: Dayjs, 不限定: boolean): Promise<客户数> {
-  const 计 = 不限定 ? 排边界(now) : null;
+export async function 客户数(db: PrismaClient, now: Dayjs, 范围: 谁 | null): Promise<客户数> {
+  const 计 = 排边界(now);
   if (!计) return 取行数(db, now);
+  // 业务员的那份分人，不进缓存（缓存只放不分人的几样）
+  if (范围 !== null) return 库里数(db, 计, 范围);
   // 不分人、只随数据和日子变：短时缓存（lib/home-cache.ts，企业版才开，库一变就作废）。
   // 结果只看当天零点：120 天前那天的跟进只影响第 0..29 个零点的活跃数，而最早的「当天」是第 30 个以后
   const 值 = await 缓存着(`客户数:${now.startOf("day").valueOf()}`, () => 库里数(db, 计));
