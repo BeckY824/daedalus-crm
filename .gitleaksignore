@@ -36,3 +36,6 @@ fd851cf21cf2ded88be2bcc6d3072bf1d37cb00b:src/lib/research/verify/sanctions.ts:ge
 # 被 generic-api-key 当成 Key。是公开号段数据，不是任何凭据。
 58eedc7f10be92fa54dd034d544a7fa900cc4a95:src/lib/enterprise/phone-region-data.ts:generic-api-key:1408
 58eedc7f10be92fa54dd034d544a7fa900cc4a95:src/lib/enterprise/phone-region-data.ts:generic-api-key:1772
+# #229 squash 合进 main 后提交号变了，同样两行要按 main 上的提交再记一次。
+35dea531601cb3363c41f899e31b78a707ae9b87:src/lib/enterprise/phone-region-data.ts:generic-api-key:1408
+35dea531601cb3363c41f899e31b78a707ae9b87:src/lib/enterprise/phone-region-data.ts:generic-api-key:1772
