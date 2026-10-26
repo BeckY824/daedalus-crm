@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { 订单节点 } from "@/lib/features";
 import { 读收藏 } from "@/lib/favorites";
+import { 客户总数 } from "@/lib/pool-db";
 import { prisma } from "@/lib/prisma";
 import { headers } from "next/headers";
 import { getCurrentUser } from "@/lib/auth";
@@ -79,7 +80,8 @@ export default async function AppLayout({
     listModelOptions(),
     // 左栏下半截（2026-10-02 照毛玻璃原型）：收藏的客户、客户和在谈商机的数。都很便宜，和上面一起查
     读收藏(user.id),
-    prisma.customer.count(),
+    // 和客户页页签同一个数，同一次渲染只数一遍（lib/pool-db.ts 客户总数）
+    客户总数(),
     prisma.opportunity.count({ where: { status: "OPEN" } }),
   ]);
   /*

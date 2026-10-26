@@ -1,14 +1,14 @@
 /**
  * 公海读写（2026-10-03，0.46.15 第 6 块）。规矩和说法在 lib/pool.ts；按钮背后的动作在 customers/pool-actions.ts。
  */
-import { prisma, defaultClient } from "@/lib/prisma";
+import { cache } from "react";
+import { prisma } from "@/lib/prisma";
 import { getBusiness } from "@/lib/business";
 import { getSetting, setSetting } from "@/lib/settings";
 import { recordAudit } from "@/lib/audit";
 import { 读团队 } from "@/lib/sync/client";
 import { dayjs } from "@/lib/utils";
 import { 不掉公海的状态, 公海截止, 自动理由 } from "@/lib/pool";
-import { 限定的我 } from "@/lib/team-scope";
 
 /** 本机记的「今天扫过了」。不进团队同步（同步的设置 只有 business），每台各扫各的 */
 const 扫过键 = "poolSweptOn";
@@ -56,21 +56,22 @@ export async function 自动掉公海(me: { id: string; name: string }, 今: Dat
 }
 
 /**
+ * 这一次渲染看得到的客户总数（带限定）。左栏「客户」角标和客户页页签用同一个数：React 的 cache() 让同一次
+ * RSC 渲染里只数一遍（Server Action、路由处理器里它不缓存，每次照数）。企业版开了按组织看客户时，
+ * 带范围的客户计数要 Customer LEFT JOIN CustomerPool 全表扫一遍，10 倍数据一次 ~20 ms（2026-10-26 企业版 p95）
+ */
+export const 客户总数 = cache(() => prisma.customer.count());
+
+/**
  * 客户页两个页签上的数（不带筛选）：「客户」= 不在公海的，「公海」= 在公海的。和左栏「客户」角标同一套限定，两数相加 = 角标。
  *
- * 不限定时（老板、没进团队、企业版看全公司的）不拿 `pool: { is / isNot: null }` 去数：Prisma 把它展开成
- * Customer LEFT JOIN CustomerPool 再套一层子查询，10 万客户一次 ~10 ms，每次进客户页要数两遍（2026-10-25 企业版 p95）。
- * 改成数公海表 + 全部客户相减：公海表的 customerId 是外键、删客户连带删，条数就是公海里的客户数。
- * 限定了（业务员）照旧两头数：客户查询会自动带上范围、公海表不带，相减就对不上了
+ * 不拿 `pool: { is / isNot: null }` 去数：Prisma 把它展开成 Customer LEFT JOIN CustomerPool 再套一层子查询，
+ * 10 万客户一次 ~10 ms，限定了（业务员、企业版按组织看）还要全表扫，一次 20–30 ms，每次进客户页要数两遍（2026-10-25/26 企业版 p95）。
+ * 改成全部客户（和角标同一个数）减公海表条数。限定了也对得上：公海表按「挂在看得到的客户上」限定，
+ * 而看得到的客户里本来就含整个公海（可见客户 的第三条），所以带限定数出来的公海表 = 全部公海，
+ * 带限定的全部客户 = 看得到的非公海 + 全部公海；互看读两边都不限定。公海表的 customerId 是外键、删客户连带删
  */
 export async function 客户页签数(): Promise<{ 公海: number; 非公海: number }> {
-  if (await 限定的我(defaultClient)) {
-    const [公海, 非公海] = await Promise.all([
-      prisma.customer.count({ where: { pool: { isNot: null } } }),
-      prisma.customer.count({ where: { pool: { is: null } } }),
-    ]);
-    return { 公海, 非公海 };
-  }
-  const [全部, 公海] = await Promise.all([prisma.customer.count(), prisma.customerPool.count()]);
+  const [全部, 公海] = await Promise.all([客户总数(), prisma.customerPool.count()]);
   return { 公海, 非公海: 全部 - 公海 };
 }

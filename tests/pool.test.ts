@@ -13,18 +13,12 @@ import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   user: { id: "", name: "我", email: "me@local", role: "ADMIN", title: "管理员", avatar: null as string | null },
   团队: false,
-  限定: null as string | null,
 }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {} }));
 vi.mock("@/lib/auth", () => ({ requireUser: async () => mocks.user }));
 vi.mock("@/lib/sync/client", () => ({ 读团队: () => (mocks.团队 ? { teamId: "t", key: "k", device: "d" } : null) }));
 vi.mock("@/lib/llm", () => ({ llmEnabled: async () => false }));
 vi.mock("@/app/(app)/customers/CustomersView", () => ({ default: () => null }));
-// 只换 限定的我：客户页签数 按它挑数法（限定了照旧两头数）
-vi.mock("@/lib/team-scope", async (importOriginal) => {
-  const m = await importOriginal<typeof import("@/lib/team-scope")>();
-  return { ...m, 限定的我: async (db: Parameters<typeof m.限定的我>[0]) => mocks.限定 ?? m.限定的我(db) };
-});
 
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
@@ -47,7 +41,6 @@ beforeEach(async () => {
   await resetDb();
   invalidateSettingsCache();
   mocks.团队 = false;
-  mocks.限定 = null;
   我 = (await 造本人()).id;
   同事 = (await prisma.user.create({ data: { email: "b@local", name: "乙", role: "SALES", password: "x" } })).id;
   mocks.user = { ...mocks.user, id: 我, role: "ADMIN" };
@@ -351,7 +344,7 @@ describe("客户 / 公海两个页签（2026-10-13）", () => {
   });
 
 
-  it("页签上的数（2026-10-25 企业版 p95）：不限定时数公海表再相减，和按 pool 条件数的一样；删客户、领走跟着变；限定了照旧两头数", async () => {
+  it("页签上的数（2026-10-25 企业版 p95）：不限定时数公海表再相减，和按 pool 条件数的一样；删客户、领走跟着变（带限定的对拍在 customer-tabs-scope）", async () => {
     const { 海 } = await 造两位();
     await 造客户(我, { name: "页签-再一位" });
     const 照旧数 = async () => ({
@@ -368,9 +361,6 @@ describe("客户 / 公海两个页签（2026-10-13）", () => {
     expect(await 客户页签数()).toEqual({ 公海: 1, 非公海: 2 });
     await 领取([又一位.id]);
     expect(await 客户页签数()).toEqual({ 公海: 0, 非公海: 3 });
-    expect(await 客户页签数()).toEqual(await 照旧数());
-    // 限定了（业务员）：走两头数那条路，数照样对
-    mocks.限定 = 我;
     expect(await 客户页签数()).toEqual(await 照旧数());
   });
 
