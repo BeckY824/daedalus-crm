@@ -2,7 +2,7 @@
 
 /**
  * 企业版提成卡（2026-10-26）：成交金额、项目底价、项目溢价、预估提成、实际提成，和组长分给组员的比例。
- * 只有服务端给了 提成（企业版 + 看得了）才挂上；改底价、改分配只给组长和管理员（服务端再查一遍）
+ * 只有服务端给了 提成（企业版 + 看得了）才挂上；项目底价只有项目负责人填，改分配给组长和管理员（服务端再查一遍）
  */
 import { useState } from "react";
 import { Button, Card, InputNumber, Modal, Space, Tag } from "antd";
@@ -23,7 +23,7 @@ export function ProjectCommissionCard({ projectId, t, 忙, 跑 }: { projectId: s
   const 钱 = (n: number | null | undefined) => (n == null ? "—" : 金额(n, t.币种));
   const 用的 = t.实际 ?? t.预估;
   const 固定了 = !!t.实际;
-  const 底价能改 = t.能改 && !固定了;
+  const 底价能改 = t.能填底价 && !固定了;
 
   return (
     <Card title="提成" extra={固定了 ? <Tag color="green">实际提成已固定</Tag> : <Tag>预估</Tag>}>
@@ -36,7 +36,7 @@ export function ProjectCommissionCard({ projectId, t, 忙, 跑 }: { projectId: s
             <Button disabled={忙 || 底价 === t.项目底价} onClick={() => void 跑(() => 存项目底价(projectId, 底价), "已存项目底价")}>保存</Button>
           </Space.Compact>
         ) : (
-          <span title={t.能改 && 固定了 ? "已经赢单，实际提成已固定；要改项目底价先把项目退回商机" : undefined}>{钱(t.实际?.项目底价 ?? t.项目底价)}</span>
+          <span title={t.能填底价 && 固定了 ? "已经赢单，实际提成已固定；要改项目底价先把项目退回商机" : "项目底价由项目负责人填"}>{钱(t.实际?.项目底价 ?? t.项目底价)}</span>
         )}
       </div>
       <div style={行样}><span style={键样}>项目溢价</span>{用的 ? 钱(用的.项目溢价) : "—"}{用的 && 用的.项目溢价 === 0 && 用的.成交金额 < 用的.项目底价 && <span style={淡}>（成交金额低于底价，溢价算 0）</span>}</div>

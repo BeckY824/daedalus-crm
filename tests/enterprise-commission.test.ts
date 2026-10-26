@@ -162,6 +162,31 @@ describe("项目底价和分配", () => {
   it("老板也能改分配", async () => {
     expect(await 存提成分配(项目id, { [丙]: 50 })).toEqual({ ok: true, 变了: true });
   });
+
+  it("项目底价只有项目负责人填：老板、总管理员也不代填，一行不写、不记", async () => {
+    当(甲, "ADMIN");
+    expect(await 存项目底价(项目id, 100000)).toMatchObject({ ok: false, error: "项目底价由项目负责人填" });
+    expect(await prisma.entCommission.count()).toBe(0);
+    expect(await 记录()).toEqual([]);
+    // 卡片上：老板能改分配、不能填底价；负责人两样都能；组员都不能
+    expect(await 卡({ id: 甲, role: "ADMIN" })).toMatchObject({ 能改: true, 能填底价: false });
+    expect(await 卡({ id: 乙, role: "SALES" })).toMatchObject({ 能改: true, 能填底价: true });
+    expect(await 卡({ id: 丙, role: "SALES" })).toMatchObject({ 能改: false, 能填底价: false });
+    当(乙, "SALES");
+    expect(await 存项目底价(项目id, 100000)).toEqual({ ok: true, 变了: true });
+  });
+
+  it("成交金额低于项目底价：项目溢价算 0，提成只剩底价那份，不出负数", async () => {
+    当(乙, "SALES");
+    await 存项目底价(项目id, 100000);
+    await prisma.project.update({ where: { id: 项目id }, data: { amount: 80000 } });
+    const t = (await 卡({ id: 乙, role: "SALES" }))!;
+    expect(t.预估).toMatchObject({ 成交金额: 80000, 项目底价: 100000, 项目溢价: 0, 合计: 2000 });
+    expect(t.每人.every((x) => (x.金额 ?? 0) >= 0)).toBe(true);
+    // 正好等于底价：溢价也是 0
+    await prisma.project.update({ where: { id: 项目id }, data: { amount: 100000 } });
+    expect((await 卡({ id: 乙, role: "SALES" }))!.预估).toMatchObject({ 项目溢价: 0, 合计: 2000 });
+  });
 });
 
 describe("赢单固定实际提成", () => {

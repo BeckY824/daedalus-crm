@@ -31,7 +31,7 @@ function 刷新项目(projectId: string, customerId?: string) {
 
 const 钱 = (n: number | null | undefined) => (n == null ? "空" : String(n));
 
-/** 组长 / 管理员填、改、清项目底价 */
+/** 项目负责人填、改、清项目底价（只有负责人，用户 10-26 定） */
 export async function 存项目底价(projectId: string, 底价: number | null) {
   try {
     const me = await requireUser();
