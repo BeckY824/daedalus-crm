@@ -1,6 +1,6 @@
 {
   "name": "daedalus-crm-desktop",
-  "version": "0.46.28",
+  "version": "0.46.29",
   "description": "Daedalus CRM 桌面客户端",
   "main": "main.js",
   "license": "AGPL-3.0-only",
@@ -79,7 +79,11 @@
     },
     "win": {
       "artifactName": "Daedalus-CRM-${version}-${arch}-setup.${ext}",
-      "electronLanguages": ["en-US", "zh-CN", "zh-TW"],
+      "electronLanguages": [
+        "en-US",
+        "zh-CN",
+        "zh-TW"
+      ],
       "target": [
         {
           "target": "nsis",
