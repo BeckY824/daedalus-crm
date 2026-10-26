@@ -15,7 +15,7 @@ import { createHash } from "node:crypto";
 import { FOLLOW_TYPES, OPP_STAGES, STAGE_PROBABILITY } from "../constants";
 import { 认日期 } from "../import/plan";
 import { 查电话, 号键 } from "../phone";
-import { 进备注, 输单 } from "./mapping";
+import { 拆多人, 进备注, 输单 } from "./mapping";
 import { 实体顺序, 必填, 实体名, 字段中文, type 原始记录, type 实体, type 映射, type 问题, type 待写 } from "./types";
 
 /** 我们这边已有的东西，调用方从库里查好传进来。键都已规整过（见下面的 名键 / 号键） */
@@ -168,6 +168,8 @@ export function 清洗(记录: readonly 原始记录[], m: 映射, 本地: 本�
       return m.默认负责人Id;
     }
     const id = m.负责人[写法];
+    const 几个 = 拆多人(写法);
+    if (id && 几个.length) 出问题(r, "提醒", "负责人有几个", `负责人写了 ${几个.length} 个人（${写法}），我们一条只有一个负责人，按映射落到其中一个名下，其余的人请导完再看要不要协作`);
     if (id) return id;
     出问题(r, "提醒", "负责人对不上", `负责人「${写法}」对不上我们这边的成员，先落到默认负责人名下`);
     return m.默认负责人Id;
