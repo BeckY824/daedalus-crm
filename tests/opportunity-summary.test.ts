@@ -200,7 +200,7 @@ describe("商机汇总：库里按币种加和取行在 JS 里加对拍", () => 
   });
 
   it("页面：不限定才走库里，筛选参数和 where 同一组", () => {
-    const 源 = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/opportunities/page.tsx"), "utf8");
+    const 源 = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/opportunities/page.tsx"), "utf8").replaceAll("\r\n", "\n");
     expect(源).toMatch(/商机汇总\(prisma, where, \{ 关键词: 词, stage: sp\.stage, status: sp\.status, ownerId: sp\.ownerId \}, !\(await 限定的我\(defaultClient\)\)\)/);
     expect(源).toMatch(/\.\.\.\(sp\.stage \? \{ stage: sp\.stage \} : \{\}\),\n\s+\.\.\.\(sp\.status \? \{ status: sp\.status \} : \{\}\),\n\s+\.\.\.\(sp\.ownerId \? \{ ownerId: sp\.ownerId \} : \{\}\),/);
   });
