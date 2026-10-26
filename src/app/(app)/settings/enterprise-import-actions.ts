@@ -11,6 +11,8 @@ import { 列冲突, 定冲突, type 冲突选择, type 定冲突结果, type 冲
 import { 读同步设置, 改同步设置, 同步一次, 拉全量试跑, 能同步的来源, 正在同步, type 同步设置, type 同步频率, type 同步一次结果 } from "@/lib/enterprise-import/sync";
 import { 切换, 列快照, 导出快照, type 切换结果 } from "@/lib/enterprise-import/cutover";
 import { 合法值, 值说法, 值对照 } from "@/lib/enterprise-import/mapping";
+import { 导出对照表, 读回对照表 } from "@/lib/enterprise-import/template";
+import { 负责人候选 } from "@/lib/owners";
 import { 来源们, 来源名, type 来源, type 值对照名 } from "@/lib/enterprise-import/types";
 
 /**
@@ -144,6 +146,26 @@ export async function 取试跑报告(批次Id: string): Promise<{ 状态: strin
 export async function 改映射重新试跑(批次Id: string, 改: 映射改动): Promise<试跑报告> {
   const me = await 要管理员();
   return (await 重新试跑(批次Id, 改, me.id)).报告;
+}
+
+/** 对照表：报告里列、值、负责人怎么对的导成一张 CSV，给原系统那边的人填 */
+export async function 下载对照表(批次Id: string): Promise<string> {
+  await 要管理员();
+  const r = await 取试跑报告(批次Id);
+  if (!r) throw new Error("找不到这次试跑，请重新上传");
+  return 导出对照表(r.报告, await 负责人候选());
+}
+
+/** 填好的对照表传回来：和报告不一样的当人改的，重新试跑一遍；填错的行不算，列在 问题 里 */
+export async function 填回对照表(批次Id: string, 表单: FormData): Promise<{ 报告: 试跑报告; 改了: number; 问题: string[] }> {
+  const me = await 要管理员();
+  const f = 表单.get("file");
+  if (!f || typeof f === "string") throw new Error("没收到对照表，请重新选一下");
+  const r = await 取试跑报告(批次Id);
+  if (!r) throw new Error("找不到这次试跑，请重新上传");
+  const 读 = 读回对照表({ 名: f.name, bytes: new Uint8Array(await f.arrayBuffer()) }, r.报告, await 负责人候选());
+  const 报告 = 读.改了 ? (await 重新试跑(批次Id, 读.改, me.id)).报告 : r.报告;
+  return { 报告, 改了: 读.改了, 问题: 读.问题 };
 }
 
 /** 不要这次试跑了：只删还没开始导入的 */

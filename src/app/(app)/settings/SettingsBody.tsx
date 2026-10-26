@@ -129,8 +129,8 @@ export default async function SettingsBody() {
         };
       })()
     : null;
-  // 企业版：直属上级能给下属办离职（D-36），管理员除外；老板本来就能办全部
-  const 下属可停用 = org && !共享区 && me.role !== "ADMIN"
+  // 企业版：直属上级能给下属办离职（D-36），管理员除外；老板本来就能办全部。跟「按组织看客户」开关走，同 能办离职
+  const 下属可停用 = org && 开关?.按组织看客户 && !共享区 && me.role !== "ADMIN"
     ? users.filter((u) => u.role !== "ADMIN" && 直属上级of(org, u.id) === me.id).map((u) => u.id)
     : [];
 

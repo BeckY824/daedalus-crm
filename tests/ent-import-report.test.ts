@@ -12,8 +12,9 @@ import { invalidateSettingsCache } from "@/lib/settings";
 import { saveBusiness } from "@/lib/business";
 import { DEFAULT_BUSINESS } from "@/lib/business-config";
 import { 试跑, 重新试跑, 合并改动 } from "@/lib/enterprise-import/report";
+import { 写一批 } from "@/lib/enterprise-import/apply";
 import { 说明键, type AI输入, type 建议器 } from "@/lib/enterprise-import/mapping";
-import type { 读出的表 } from "@/lib/enterprise-import/excel";
+import { 读文件们, type 读出的表 } from "@/lib/enterprise-import/excel";
 import type { 实体, 映射 } from "@/lib/enterprise-import/types";
 
 function 表(名: string, 实体: 实体 | null, 表头: string[], 行: string[][]): 读出的表 {
@@ -206,6 +207,84 @@ describe("重新试跑", () => {
     await prisma.entImportBatch.update({ where: { id: 接口批.批次Id }, data: { raw: null } });
     await expect(重新试跑(接口批.批次Id, {}, "tester-id")).rejects.toThrow("没存原表");
     await expect(重新试跑("nope", {}, "tester-id")).rejects.toThrow("找不到");
+  });
+});
+
+describe("客户表里带联系人：导进库里的样子", () => {
+  const 我 = { id: "tester-id", name: "测试员" };
+  /** 库里的联系人：所属客户|姓名|电话|邮箱，排好序 */
+  const 库里联系人 = async () =>
+    (await prisma.contact.findMany({ select: { name: true, phone: true, email: true, customer: { select: { name: true } } } }))
+      .map((c) => [c.customer.name, c.name, c.phone ?? "", c.email ?? ""].join("|"))
+      .sort();
+
+  it("只有一列「联系人」、一格里连名字带电话 / 邮箱、一格几个人：进库时名字是名字、电话是电话、几个人是几条", async () => {
+    const csv = "客户名称,联系人\n甲公司,张三 13800000001\n乙公司,李四（13900000002）；王五 wangwu@x.com\n丙公司,赵六\n";
+    const 表们 = 读文件们({ 名: "客户.csv", bytes: new TextEncoder().encode(csv) });
+    const { 批次Id, 报告 } = await 试跑({ 来源: "excel", 用户Id: "tester-id", 表: 表们, 建议器: null });
+    expect(报告.按类.contact.待写).toBe(4);
+    await 写一批(批次Id, 我);
+    expect(await 库里联系人()).toEqual(["丙公司|赵六||", "乙公司|李四|13900000002|", "乙公司|王五||wangwu@x.com", "甲公司|张三|13800000001|"].sort());
+  });
+
+  it("人选的类别定了才拆：猜成联系人、人改成客户就按客户拆；猜成客户、人改成线索就不拆（上传时选、试跑后改都一样）", async () => {
+    const 读 = (名: string, csv: string) => 读文件们({ 名, bytes: new TextEncoder().encode(csv) });
+    const 名单 = "名称,联系人姓名,联系人手机\n甲公司,张三,13800000001\n甲公司,李四,13800000002\n";
+    const 文件 = (r: { 报告: { 文件: { 名: string; 实体: 实体 | null; 行数: number }[] } }) => r.报告.文件.map((f) => [f.名, f.实体, f.行数]);
+    expect(读("名单.csv", 名单).map((t) => t.实体)).toEqual(["contact"]); // 按表头猜成了联系人
+
+    // 上传时就选了客户（上传接口：读完按表单改类别，再试跑）
+    const 选了 = 读("名单.csv", 名单).map((t) => ({ ...t, 实体: "customer" as const }));
+    expect(文件(await 试跑({ 来源: "excel", 用户Id: "tester-id", 表: 选了, 建议器: null }))).toEqual([
+      ["名单.csv", "customer", 1],
+      ["名单.csv（联系人）", "contact", 2],
+    ]);
+
+    // 试跑后在报告上改成客户，重新试跑、导入
+    const 首次 = await 试跑({ 来源: "excel", 用户Id: "tester-id", 表: 读("名单.csv", 名单), 建议器: null });
+    const 再 = await 重新试跑(首次.批次Id, { 文件实体: { "名单.csv": "customer" } }, "tester-id");
+    expect(文件(再)).toEqual([
+      ["名单.csv", "customer", 1],
+      ["名单.csv（联系人）", "contact", 2],
+    ]);
+    await 写一批(再.批次Id, 我);
+    expect(await prisma.customer.findMany({ select: { name: true } })).toEqual([{ name: "甲公司" }]);
+    expect(await 库里联系人()).toEqual(["甲公司|张三|13800000001|", "甲公司|李四|13800000002|"].sort());
+
+    // 反过来：猜成客户、人改成线索，联系人那几列留在线索表里，不另拆
+    const 客户 = await 试跑({ 来源: "excel", 用户Id: "tester-id", 表: 读("客户.csv", "客户名称,联系人姓名,联系人手机\n丁公司,赵六,13800000003\n"), 建议器: null });
+    expect(文件(客户)).toEqual([
+      ["客户.csv", "customer", 1],
+      ["客户.csv（联系人）", "contact", 1],
+    ]);
+    expect(文件(await 重新试跑(客户.批次Id, { 文件实体: { "客户.csv": "lead" } }, "tester-id"))).toEqual([["客户.csv", "lead", 1]]);
+  });
+
+  it("客户表的编号列没当「原系统 ID」用：拆出来的联系人不拿那个编号去认客户，不会挂到以前导过、外部 ID 恰好一样的别家", async () => {
+    const 读 = (名: string, csv: string) => 读文件们({ 名, bytes: new TextEncoder().encode(csv) });
+    // 以前导过一家，原系统 ID 是 R1
+    const 旧 = await 试跑({ 来源: "excel", 用户Id: "tester-id", 表: 读("旧客户.csv", "记录ID,客户名称\nR1,旧公司\n"), 建议器: null });
+    await 写一批(旧.批次Id, 我);
+    // 这次的表里「记录ID」是另一套编号，人在报告上改成「不用」
+    const 首次 = await 试跑({ 来源: "excel", 用户Id: "tester-id", 表: 读("客户.csv", "记录ID,客户名称,联系人\nR1,新公司,张三\n"), 建议器: null });
+    const 再 = await 重新试跑(首次.批次Id, { 列: { customer: { 记录ID: "" } } }, "tester-id");
+    expect(再.报告.提醒.join("\n")).toMatch(/所属客户ID抄自客户表的「记录ID」.*按客户名称挂/);
+    await 写一批(再.批次Id, 我);
+    expect(await 库里联系人()).toEqual(["新公司|张三||"]);
+  });
+
+  it("客户表带联系人、另有一张联系人表：同名、同一家客户的只导一个（按联系人表那条），另提醒", async () => {
+    const 读 = (名: string, csv: string) => 读文件们({ 名, bytes: new TextEncoder().encode(csv) });
+    const 表们 = [
+      ...读("客户.csv", "客户ID,客户名称,联系人,联系人电话\nK1,甲公司,张三,13800000009\nK2,乙公司,张三,13800000003\n"),
+      ...读("联系人.csv", "联系人姓名,所属客户ID,手机\n张三,K1,13800000001\n李四,K1,13800000002\n"),
+    ].map((t) => ({ ...t, 实体: t.名 === "客户.csv" ? ("customer" as const) : ("contact" as const) }));
+    const { 批次Id, 报告 } = await 试跑({ 来源: "excel", 用户Id: "tester-id", 表: 表们, 建议器: null });
+    expect(报告.按类.contact.待写).toBe(3);
+    expect(报告.提醒.join("\n")).toMatch(/「客户\.csv（联系人）」里有 1 个联系人单独的联系人表里也有/);
+    await 写一批(批次Id, 我);
+    // 乙公司的张三只在客户表里，照导
+    expect(await 库里联系人()).toEqual(["甲公司|张三|13800000001|", "甲公司|李四|13800000002|", "乙公司|张三|13800000003|"].sort());
   });
 });
 

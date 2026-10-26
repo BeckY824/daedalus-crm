@@ -15,6 +15,8 @@ import { 规则, 规则开着 } from "@/lib/enterprise/rules";
 import { 读组织, type 组织 } from "@/lib/enterprise/org";
 import { 查完再写 } from "@/lib/check-then-write";
 import { 读改权限, 谁能改的话 } from "@/lib/enterprise/edit-perm";
+import { 企业版 } from "@/lib/enterprise/switch";
+import { 发满额提醒, 读满额提醒, 关掉满额提醒, type 满额提醒 } from "@/lib/enterprise/lead-full-notice";
 import {
   企划线索计数key, 我分出去的, 月份, 本月已分, 满了, 接手问题, 能分配, 能设配额, 能改参与, 线索种类, 计不计数, 配额of, 挑接手人, 挑的理由, 自动分配不参与key,
   type 分出去的线索, type 线,
@@ -100,7 +102,7 @@ async function 分给(
 
 export type 自动分配结果 =
   | { ok: true; toUserId: string; 接手人: string; 已分: number; 配额: number | null; 为什么: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string; 都满额?: true };
 
 /** 不参与名单：Setting 里存的值不是数组（没设、被手改坏）都当没人不参与 */
 function 认名单(v: unknown): string[] {
@@ -125,7 +127,12 @@ export async function 自动分配线索(leadId: string, opts: { line?: 线 | nu
   try {
     const org = await 读组织();
     if (!能分配(org, me)) return { ok: false, error: "只有老板、总管理员、市场管理能分配线索" };
-    return await 自动分给(me, org, leadId, line, kind);
+    const r = await 自动分给(me, org, leadId, line, kind);
+    if (!r.ok && r.都满额) {
+      const lead = await prisma.lead.findFirst({ where: { id: leadId }, select: { name: true } });
+      await 发满额提醒(org, [lead?.name ?? leadId], me.name).catch((e) => console.error("[满额提醒] 没发出去", e));
+    }
+    return r;
   } catch (e) {
     return 不在了(e);
   }
@@ -158,11 +165,12 @@ async function 自动分给(me: SessionUser, org: 组织, leadId: string, line: 
       // 参与的人里有填了配额的（含 0）、只是都分满了 →「都已满额」，提醒去调配额；
       // 参与的人都没填配额、一个参与的都没有，各是另一回事
       const 参与的 = 候选.filter((c) => !不参与.includes(c.userId));
+      if (参与的.some((c) => c.配额 !== null)) {
+        return { ok: false, 都满额: true, error: "都已满额，没有能接的人：线索留在原处，找他们的上级调配额，或者手动分" };
+      }
       return {
         ok: false,
-        error: 参与的.some((c) => c.配额 !== null)
-          ? "都已满额，没有能接的人：线索留在原处，找他们的上级调配额，或者手动分"
-          : 参与的.length
+        error: 参与的.length
             ? "没有能接的人：没填配额，不参与自动分配。找他们的上级填配额，或者手动分"
             : "没有能接的人：都不参与自动分配，或者业务线对不上",
       };
@@ -204,10 +212,30 @@ export async function 批量自动分配(leadIds: string[]): Promise<{ ok: true;
       }
       结果.push({ leadId: id, name: 名.get(id) ?? "（看不到这条）", ...r });
     }
+    // 因都已满额没分出去的，这一次点击合成一条提醒，不按条刷屏
+    // 提醒没发出去不能连累已经分好的结果
+    await 发满额提醒(org, 结果.filter((x) => !x.ok && x.都满额).map((x) => x.name), me.name).catch((e) => console.error("[满额提醒] 没发出去", e));
     return { ok: true, 结果 };
   } catch (e) {
     return 不在了(e);
   }
+}
+
+/** 我的「都已满额」提醒（首页、线索页顶部）。不是企业版 = 没有；规则后来关了也照样给看，关掉为止 */
+export async function 我的满额提醒(): Promise<满额提醒[]> {
+  if (!企业版()) return [];
+  const me = await requireUser();
+  return 读满额提醒(me.id);
+}
+
+/** 关掉我自己的一条提醒 */
+export async function 关满额提醒(id: string): Promise<结果> {
+  if (!企业版() || typeof id !== "string") return { ok: true };
+  const me = await requireUser();
+  await 关掉满额提醒(me.id, id);
+  revalidatePath("/leads");
+  revalidatePath("/dashboard");
+  return { ok: true };
 }
 
 /** 暂停 / 恢复某人参与自动分配（Q-12 默认：老板、总管理员、销售管理能改；直属上级只能看）。手动分配不受影响 */

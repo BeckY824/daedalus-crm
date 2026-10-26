@@ -21,6 +21,8 @@ import type { EChartsCoreOption } from "echarts/core";
 import { useBusiness } from "@/lib/business-client";
 import Chart, { Sparkline } from "@/components/Chart";
 import { RowLink, StatCard, CompanyLogo, UserCell, PageHead } from "@/components/ui";
+import LeadFullNotices from "../leads/LeadFullNotices";
+import type { 满额提醒 } from "@/lib/enterprise/lead-full-notice";
 import EmptyState from "@/components/EmptyState";
 import SentinelCard from "./SentinelCard";
 import type { WatchItem } from "@/lib/sentinel";
@@ -71,8 +73,10 @@ type Props = {
   aiEnabled: boolean;
 };
 
-export default function DashboardView({ 空库, stats, trend, funnel, ranking, tasks, watchlist, watchlistTotal, aiEnabled, 内嵌, 多人 = true }: Props & {
+export default function DashboardView({ 空库, stats, trend, funnel, ranking, tasks, watchlist, watchlistTotal, aiEnabled, 内嵌, 多人 = true, 满额提醒 = [] }: Props & {
   内嵌?: boolean;
+  /** 企业版自动分配因都已满额没分出去的提醒，摆在页头下面（lib/enterprise/lead-full-notice.ts） */
+  满额提醒?: 满额提醒[];
   /** 不止一个负责人。一个人用（桌面端）时卡片说明不写「全团队」——没有团队（2026-10-02 按桌面端复核） */
   多人?: boolean;
 }) {
@@ -182,6 +186,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
     return (
       <>
         {!内嵌 && <PageHead title="首页" subtitle="今天的状态与要推进的事" />}
+        <LeadFullNotices 提醒={满额提醒} />
         <div className="card-soft">
           <EmptyState
             title="还没有可以看的数据"
@@ -202,6 +207,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
         侧栏两条入口会落到两个标题一样的页面上，人分不出自己点的是哪个。
       */}
       {!内嵌 && <PageHead title="首页" subtitle="今天的状态与要推进的事" />}
+      <LeadFullNotices 提醒={满额提醒} />
 
       {/*
         四张指标卡（设计稿 08/DATA·NOW）。原来是线索总数 / 活跃客户数 / 本月新增商机 /

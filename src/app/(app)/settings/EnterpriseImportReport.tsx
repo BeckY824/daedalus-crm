@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { App, Alert, Button, Collapse, Popconfirm, Progress, Select, Space, Table, Tag, Typography } from "antd";
 import { 实体名, 实体顺序, 标准字段, 字段中文, type 实体, type 问题, type 值对照名 } from "@/lib/enterprise-import/types";
 import type { 试跑报告, 映射改动, 报告列 } from "@/lib/enterprise-import/report";
-import { 改映射重新试跑, 丢掉试跑, 正式导入一段, type 企业版概况 } from "./enterprise-import-actions";
+import { 改映射重新试跑, 丢掉试跑, 正式导入一段, 下载对照表, 填回对照表, type 企业版概况 } from "./enterprise-import-actions";
 
 /**
  * 企业版导入的试跑报告：看清这次会写多少、哪些跳过、映射认得对不对；改了映射重新试跑；确认后正式导入。
@@ -41,7 +41,8 @@ export default function EnterpriseImportReport({
 }) {
   const { message, modal } = App.useApp();
   const [改, set改] = useState<映射改动>({});
-  const [忙, set忙] = useState<"重跑" | "导入" | "丢掉" | null>(null);
+  const [忙, set忙] = useState<"重跑" | "导入" | "丢掉" | "对照表" | null>(null);
+  const 选对照表 = useRef<HTMLInputElement>(null);
   const [进度, set进度] = useState<{ 写到: number; 总数: number } | null>(null);
 
   const 改了几处 = useMemo(
@@ -63,6 +64,43 @@ export default function EnterpriseImportReport({
       set改({});
       on改了(r);
       message.success("已按改的重新试跑");
+    } catch (e) {
+      message.error(错话(e));
+    } finally {
+      set忙(null);
+    }
+  }
+
+  /** 对照表：列、阶段这些值、负责人怎么对，导出去给原系统那边的人填，填好传回来直接重新试跑 */
+  async function 下对照表() {
+    set忙("对照表");
+    try {
+      const csv = await 下载对照表(批次Id);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+      a.download = "导入对照表.csv";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      message.error(错话(e));
+    } finally {
+      set忙(null);
+    }
+  }
+
+  async function 传对照表(f: File) {
+    set忙("对照表");
+    try {
+      const fd = new FormData();
+      fd.append("file", f);
+      const r = await 填回对照表(批次Id, fd);
+      if (r.改了) {
+        set改({});
+        on改了(r.报告);
+      }
+      const 话 = r.改了 ? `对照表改了 ${r.改了} 处，已重新试跑` : "对照表和现在的一样，没改";
+      if (r.问题.length) modal.warning({ title: `${话}；有 ${r.问题.length} 行没认出来，没算`, content: <ul style={{ paddingLeft: 18, maxHeight: 320, overflow: "auto" }}>{r.问题.slice(0, 50).map((x) => <li key={x}>{x}</li>)}</ul> });
+      else message.success(话);
     } catch (e) {
       message.error(错话(e));
     } finally {
@@ -189,7 +227,9 @@ export default function EnterpriseImportReport({
                 <Select<实体>
                   size="small"
                   style={{ width: 170 }}
-                  disabled={只读}
+                  // 从客户表里拆出来的联系人：跟着那张表走，改那张表的类别就行
+                  disabled={只读 || !!f.拆自}
+                  title={f.拆自 ? `从「${f.拆自}」里拆出来的，改那张表的类别` : undefined}
                   status={!f.实体 && !改.文件实体?.[f.名] ? "warning" : undefined}
                   placeholder="认不出，请选"
                   value={改.文件实体?.[f.名] ?? f.实体 ?? undefined}
@@ -397,6 +437,23 @@ export default function EnterpriseImportReport({
           <Button disabled={!改了几处 || !!忙} loading={忙 === "重跑"} onClick={() => void 重跑()}>
             按改的重新试跑{改了几处 ? `（改了 ${改了几处} 处）` : ""}
           </Button>
+          <Button disabled={!!忙} loading={忙 === "对照表"} onClick={() => void 下对照表()}>
+            下载对照表
+          </Button>
+          <Button disabled={!!忙 || 改了几处 > 0} title={改了几处 ? "页面上改的还没重新试跑，先试跑或撤掉再传对照表" : undefined} onClick={() => 选对照表.current?.click()}>
+            传回填好的对照表
+          </Button>
+          <input
+            ref={选对照表}
+            type="file"
+            accept=".csv,.xlsx"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) void 传对照表(f);
+            }}
+          />
           <Popconfirm
             title="确认正式导入？"
             description={

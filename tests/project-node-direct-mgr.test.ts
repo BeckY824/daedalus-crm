@@ -3,6 +3,7 @@
  *   - 负责人本人、隔级经理、虚线上级往前推：拦下；直属上级、老板：成，记的是推的人
  *   - 往后退、点结局照旧（负责人本人也能）
  *   - 一个人既是直属又是虚线：按直属算，能推
+ *   - 直属上级能退回、定结果（线索流失写原因）、标异常（只在订单阶段），每次都记节点变更、记的是上级（A3 默认）
  *   - 直属上级账号还是 SALES（组织里设成销售管理不改账号角色）：照样能推，必填节点也能先推
  *   - 组织里的总管理员（账号 MANAGER）：能推所有项目，和老板一样（10-24 用户定）
  *   - 负责人没设直属上级（组织还没配）：和原来一样，本人也能推
@@ -15,7 +16,7 @@ vi.mock("@/lib/sync/client", () => ({ 读团队: () => null }));
 
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
-import { 改节点, 往前推不给, 能改节点, 直属才推 } from "@/lib/project/db";
+import { 改节点, 往前推不给, 能改节点, 直属才推, 异常类别字典 } from "@/lib/project/db";
 import { 读组织 } from "@/lib/enterprise/org";
 import { invalidateSettingsCache, setSetting } from "@/lib/settings";
 import { 默认组织规则 } from "@/lib/project/org-rules";
@@ -87,6 +88,22 @@ describe("企业版推节点只给直属上级", () => {
     await prisma.entMember.update({ where: { userId: 销售.id }, data: { dottedManagerId: 组长.id } });
     const p = await 项目(销售.id);
     expect(await 改节点(组长, p.id, 往前)).toMatchObject({ ok: true });
+  });
+
+  it("直属上级能退回、定结果、标异常（订单阶段），每次都记节点变更，记的是上级", async () => {
+    const 线 = await 项目(销售.id, { node: "线索推进" });
+    expect(await 改节点(组长, 线.id, 往前)).toMatchObject({ ok: true, 变了: true });
+    expect(await 改节点(组长, 线.id, { ...往前, result: "线索流失" }, { 备注: "预算砍了" })).toMatchObject({ ok: true, 变了: true });
+    expect(await 改节点(组长, 线.id, { ...往前, result: "异常状态" }, { categoryId: "stalled" })).toEqual({ ok: false, error: "「异常状态」只能在订单阶段点" });
+    const 单 = await 项目(销售.id, { phase: "订单", node: "生产备货" });
+    await 异常类别字典();
+    expect(await 改节点(组长, 单.id, { phase: "订单", node: "生产备货", result: "异常状态" }, { categoryId: "stalled", 备注: "工厂停工" })).toMatchObject({ ok: true });
+    const 痕 = await prisma.projectNodeLog.findMany({ where: { projectId: { in: [线.id, 单.id] } }, orderBy: [{ at: "asc" }, { id: "asc" }] });
+    expect(痕.map((x) => [x.userId, x.toNode, x.toResult, x.reason])).toEqual([
+      [组长.id, "线索验证", null, null],
+      [组长.id, "线索验证", "线索流失", "预算砍了"],
+      [组长.id, "生产备货", "异常状态", "工厂停工"],
+    ]);
   });
 
   it("直属上级账号是 SALES：照样能推，必填节点也能先推；别人的项目还是改不了", async () => {

@@ -1,5 +1,5 @@
 import { prisma, defaultClient } from "@/lib/prisma";
-import { 限定的我 } from "@/lib/team-scope";
+import { 限定的我, 读的我 } from "@/lib/team-scope";
 import { requireUser } from "@/lib/auth";
 import { OPP_STAGES } from "@/lib/constants";
 import { 负责人口径 } from "@/lib/owners";
@@ -14,6 +14,7 @@ import { getBusiness } from "@/lib/business";
 import { 最近8周, 每周进行中金额, 每周赢单率 } from "@/lib/dashboard-trend";
 import { 客户数, 全部商机 } from "@/lib/dashboard-sql";
 import { 首页待办 } from "@/lib/dashboard-todo";
+import type { 满额提醒 } from "@/lib/enterprise/lead-full-notice";
 
 /**
  * 「现在」这个视图：指标卡、趋势、漏斗、排行、待办、盯盘。
@@ -21,7 +22,7 @@ import { 首页待办 } from "@/lib/dashboard-todo";
  * 内嵌（`内嵌`）= 在「数据」页里，页头由外面那层给，这里不画；
  * 不内嵌 = 它就是没配 AI 的首页，页头写「首页」。
  */
-export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
+export default async function Board({ 内嵌 = false, 满额提醒 }: { 内嵌?: boolean; /** 没配 AI 的首页才给：企业版自动分配都满额的提醒 */ 满额提醒?: 满额提醒[] }) {
   await requireUser();
 
   const now = dayjs();
@@ -32,6 +33,8 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
   // 老板、个人版、企业版没开按组织看 = 不限定：客户数和全部商机在库里直接数 / 连表取，近期待办走短时缓存。三处共用一次判断
   let 判过: Promise<boolean> | undefined;
   const 不限定 = () => (判过 ??= 限定的我(defaultClient).then((我) => !我));
+  // 数客户时读的那组人：和 lib/team-scope 里客户、跟进的读范围同一个（不限定 / 开了互看 = null，虚线上级连带下属）
+  const 读范围 = async () => ((await 不限定()) ? null : 读的我(defaultClient));
 
   const [
     leadTotal,
@@ -77,10 +80,10 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
     */
     (async () => 首页待办(prisma, await 不限定()))(),
     /*
-      近 90 天两条线、本月 / 上月新增、每周新增：不限定（老板、个人版）时在库里按天数好再取回来，
-      业务员照旧取限定后的行算。口径和对拍见 lib/dashboard-sql.ts
+      近 90 天两条线、本月 / 上月新增、每周新增：在库里按天数好再取回来；业务员在 SQL 里带上看得到的那组人
+      （2026-10-26，原来取限定后的行算，企业版开着按组织看要三百多毫秒）。口径和对拍见 lib/dashboard-sql.ts
     */
-    (async () => 客户数(prisma, now, await 不限定()))(),
+    (async () => 客户数(prisma, now, await 读范围()))(),
     prisma.opportunity.count({ where: { status: "WON" } }),
     prisma.opportunity.count({ where: { status: { in: ["WON", "LOST"] } } }),
     // 卡片下方那三条小曲线原本是写死的装饰数据，改成按周真算。
@@ -194,6 +197,7 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
     <DashboardView
       内嵌={内嵌}
       多人={owners.length > 1}
+      满额提醒={满额提醒}
       /**
        * 空库时整页换成一张「从哪开始」——对着空库画四个 0、一条平的折线和全 0 的管道，
        * 既不好看也不给信息，第一次打开的人还以为是坏了。
