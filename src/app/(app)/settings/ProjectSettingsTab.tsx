@@ -7,6 +7,8 @@ import { 加组员角色, 改组员角色, 加项目异常类别, 改项目异�
 import { 上限最大, 时长最大, type 组织规则, type 规则改动 } from "@/lib/project/org-rules";
 import { 节点们 } from "@/lib/project/nodes";
 import { 必填项们, 必填叫法, 能配必填的节点, 建议必填 } from "@/lib/project/required";
+import { 存卡点默认Action } from "@/app/(app)/projects/blocker-actions";
+import { 卡点类型们, 影响等级们, 时限最大, 主体名上限, 主体最多, type 卡点默认 } from "@/lib/project/blocker-rules";
 
 type 字典项 = { id: string; name: string; active: boolean; 用的人: number };
 type 结果 = Promise<{ ok: boolean; error?: string }>;
@@ -24,6 +26,8 @@ export type 项目设置 = {
    * 不是企业版只有老板能改；共享试用区谁都不能改）
    */
   挡: Record<"字典" | "持有上限" | "节点时限" | "必填字段", string | null>;
+  /** 企业版卡点的默认值（每类卡点的时限、阻碍主体的选项）；不是企业版 = null，卡片不出 */
+  卡点默认?: 卡点默认 | null;
 };
 
 /**
@@ -70,6 +74,7 @@ export default function ProjectSettingsTab({ value, 成员 }: { value: 项目设
       {value.组织规则 && <HoldCapCard 规则={value.组织规则.公海} 持有={value.持有} 成员={成员} 挡={value.挡.持有上限} 忙={忙} 跑={跑} />}
       {value.组织规则 && <TimeoutCard 规则={value.组织规则.超时回收} 挡={value.挡.节点时限} 忙={忙} 跑={跑} />}
       {value.组织规则 && <AdvanceCard 规则={value.组织规则.节点推进} 挡={value.挡.必填字段} 忙={忙} 跑={跑} />}
+      {value.卡点默认 && <BlockerDefaultsCard 默认={value.卡点默认} 挡={value.挡.字典} 忙={忙} 跑={跑} />}
     </div>
   );
 }
@@ -352,6 +357,64 @@ function AdvanceCard({
             </Space>
           )}
         </>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * 卡点默认值（企业版）：每类卡点默认几天内解决（发布时没填时限就按这个）、阻碍主体有哪些选项、发布时默认选的类型和影响。
+ * 谁能改跟字典一样
+ */
+function BlockerDefaultsCard({
+  默认, 挡, 忙, 跑,
+}: {
+  默认: 卡点默认; 挡: string | null; 忙: boolean; 跑: (f: () => 结果, 成了?: string) => Promise<boolean>;
+}) {
+  const [天数, set天数] = useState<Record<string, number | null>>(默认.时限天数);
+  const [主体们, set主体们] = useState<string[]>(默认.阻碍主体们);
+  const [类型, set类型] = useState(默认.默认类型);
+  const [影响, set影响] = useState(默认.默认影响);
+  const 改了 =
+    卡点类型们.some((t) => 天数[t] !== 默认.时限天数[t]) ||
+    主体们.join("\n") !== 默认.阻碍主体们.join("\n") || 类型 !== 默认.默认类型 || 影响 !== 默认.默认影响;
+  const 齐了 = 卡点类型们.every((t) => 天数[t] != null) && 主体们.length > 0;
+  const 保存 = () => 跑(() => 存卡点默认Action({ 时限天数: 天数, 阻碍主体们: 主体们, 默认类型: 类型, 默认影响: 影响 }), "已保存");
+  const 行 = { display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" as const };
+
+  return (
+    <Card title="卡点默认值" extra={挡 && <span style={{ color: "var(--text-muted)" }}>{挡}</span>}>
+      <div style={{ color: "var(--text-muted)", marginBottom: 12 }}>
+        在项目沟通记录上发卡点时，没填解决时限就按这里的天数算；阻碍主体从下面的选项里单选。
+      </div>
+      {卡点类型们.map((t) => (
+        <div key={t} style={行}>
+          <span style={{ width: 72 }}>{t}</span>
+          <InputNumber
+            aria-label={`${t}的解决时限`} min={1} max={时限最大} precision={0} suffix="天" style={{ width: 120 }}
+            disabled={!!挡} value={天数[t] ?? null} onChange={(v) => set天数((m) => ({ ...m, [t]: v }))}
+          />
+        </div>
+      ))}
+      <div style={{ ...行, marginTop: 12 }}>
+        <span style={{ width: 72 }}>阻碍主体</span>
+        <Select
+          aria-label="阻碍主体的选项" mode="tags" style={{ flex: "1 1 240px", minWidth: 0 }} disabled={!!挡}
+          value={主体们} maxCount={主体最多} placeholder="输入后回车添加"
+          onChange={(v: string[]) => set主体们([...new Set(v.map((x) => x.trim()).filter((x) => x && x.length <= 主体名上限))])}
+          open={false} tokenSeparators={[",", "，"]}
+        />
+      </div>
+      <div style={行}>
+        <span style={{ width: 72 }}>默认类型</span>
+        <Select aria-label="默认卡点类型" style={{ width: 160 }} disabled={!!挡} value={类型} onChange={set类型} options={卡点类型们.map((t) => ({ value: t, label: t }))} />
+      </div>
+      <div style={行}>
+        <span style={{ width: 72 }}>默认影响</span>
+        <Select aria-label="默认影响" style={{ width: 160 }} disabled={!!挡} value={影响} onChange={set影响} options={影响等级们.map((t) => ({ value: t, label: t }))} />
+      </div>
+      {!挡 && (
+        <Button type="primary" style={{ marginTop: 4 }} disabled={忙 || !改了 || !齐了} onClick={() => void 保存()}>保存</Button>
       )}
     </Card>
   );

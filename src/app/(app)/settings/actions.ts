@@ -12,6 +12,7 @@ import { 月份 } from "@/lib/enterprise/lead-assign";
 import { 停用分拣, 停用方式们, 停用进公海理由, 停用项目进公海理由, type 停用方式 } from "@/lib/offboard-db";
 import { 记换负责人 } from "@/lib/owner-log-db";
 import { 转让痕 } from "@/lib/project/db";
+import { 交接卡点 } from "@/lib/project/blocker";
 import type { Prisma } from "@/generated/prisma";
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
@@ -370,6 +371,8 @@ export async function deactivateUser(id: string, transferToId: string, 方式: �
       await tx.project.updateMany({ where: { id: { in: 分.进公海项目 } }, data: { pooledAt: new Date(), nextStepAt: null } });
       await tx.projectNodeLog.createMany({ data: 们.map((p) => 转让痕(p, me.id, p.ownerId, null, "pool-release", 停用项目进公海理由)) });
     }
+    // 企业版卡点：他手上没解决的转给接手人待接受；项目进了公海的回看板（跟着项目走）
+    await 交接卡点(tx, id, transferToId, me.id, 分.进公海项目);
     await tx.user.update({ where: { id }, data: { active: false } });
     const { 订单项目: _, ...记 } = 分;
     return { ...记, 项目 };

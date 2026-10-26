@@ -40,6 +40,10 @@ const 可写: Record<string, string[]> = {
   // 企业版线索分配（2026-10-24）：leads/assign-actions.ts 的 分配线索 / 设配额
   EntLeadAssign: ["leadId", "toUserId", "line", "kind"],
   EntLeadQuota: ["userId", "quota"],
+  // 企业版卡点（2026-10-26）：projects/blocker-actions.ts 的 发布 / 指认 / 转让 / 改进度 / 解决
+  EntBlocker: ["type", "impact", "obstacle", "description", "dueDays", "assigneeId", "resourceRequest", "progress", "solution", "result"],
+  // 记项目沟通填的下一步时间（projects/actions.ts 记项目沟通Action）
+  EntFollowUpMeta: ["nextAt"],
   Customer: ["name", "phone", "school", "grade", "major", "channelId", "referrerCustomerId", "salesOwnerId", "channelOwnerId", "followStatus", "decisionStatus", "expectedSignAt", "remark"],
   Channel: ["name", "phone", "remark", "channelOwnerId", "active"],
   Lead: ["name", "contact", "phone", "email", "industry", "source", "status", "remark", "ownerId"],
@@ -339,6 +343,18 @@ const 派生: Record<string, Record<string, string>> = {
   },
   FollowUpProject: { followUpId: "哪条沟通记录，记的时候定", projectId: "挂在哪个项目，记的时候定", node: "记这条时项目在哪个节点，系统打上" },
   CustomerCreator: { customerId: "哪位客户，一位一行", userId: "实际建档的人，向导保存那一刻打上，不改", at: "建档那一刻，系统打上" },
+  EntBlocker: {
+    code: "BLK + 日期 + 当天流水，发布时系统生成，不改", projectId: "从哪个项目的沟通发布，发布时定",
+    followUpId: "从哪条沟通发布，发布时定", customerId: "发布那一刻项目的客户，系统照抄", contactId: "发布那一刻项目的联系人，系统照抄",
+    phase: "发布那一刻项目的阶段，系统照抄", dueAt: "发布时间 + 解决时限，系统算",
+    status: "看板 / 待接受 / 处理中 / 已解决，按认领、接受、转让、返回、解决系统写",
+    creatorId: "发布的人，当前登录账号", resolvedAt: "点解决的那一刻，系统写",
+  },
+  EntBlockerLog: {
+    blockerId: "哪个卡点，系统写", userId: "谁做的，当前登录账号", at: "那一刻，系统写", action: "发布 / 指认 / 认领 / 接受 / 转让 / 返回 / 解决 / 改进度 / 离职交接，系统写",
+    fromUserId: "交出去的人，系统写", toUserId: "接过来的人，系统写", note: "返回看板的理由、解决结果等，跟着那一步写；只增不改",
+  },
+  EntFollowUpMeta: { followUpId: "哪条沟通，记的时候定", projectId: "挂在哪个项目，记的时候定", code: "FUL + 日期 + 当天流水，记的时候系统生成" },
   CustomerOwnerLog: {
     customerId: "哪位客户，换负责人时系统写", userId: "谁换的，系统写", at: "换的那一刻，系统写",
     fromOwnerId: "换之前的负责人（历史负责人），系统写", toOwnerId: "换之后的负责人，系统写",

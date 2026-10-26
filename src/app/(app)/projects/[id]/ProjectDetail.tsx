@@ -17,6 +17,8 @@ import { 超时理由 } from "@/lib/project/timeout";
 import { 改项目节点, 勾项目交付, 删除项目, 放回项目公海, 领取项目, 记项目沟通Action } from "../actions";
 import type { 可选成员 } from "@/lib/utils";
 import { ProjectEditModal, ProjectTeamCard, type 组员, type 角色, type 联系人 } from "./ProjectTeam";
+import { BlockerList, PublishBlockerModal, type 卡点卡, type 可选人 } from "../BlockerPanel";
+import type { 卡点默认 } from "@/lib/project/blocker-rules";
 
 export type 项目详情 = {
   id: string; name: string; remark: string | null; amount: number; currency: string;
@@ -54,7 +56,8 @@ export type 项目详情 = {
     id: string; at: string; who: string; from: 位置 | null; to: 位置; reason: string | null; category: string | null;
     kind: "node" | "transfer" | "pool-release" | "pool-claim"; transfer: { from: string; to: string } | null;
   }[];
-  followUps: { id: string; type: string; content: string; occurredAt: string; who: string; node: string }[];
+  /** 企业版：code 是沟通编号（FUL…），提醒按下一步时间算（blocker-rules.ts 时限提醒of），没填下一步时间不给 */
+  followUps: { id: string; type: string; content: string; occurredAt: string; who: string; node: string; code?: string | null; 提醒?: { 级别: "稳" | "拿捏" | "超时"; 文字: string } | null }[];
   members: 组员[];
   /** 删项目时一起删掉的：节点留痕（含转让痕）、项目组、沟通和项目的关联 */
   删前清点: { 留痕: number; 组员: number; 沟通: number };
@@ -119,8 +122,13 @@ function 换人文字(l: 项目详情["logs"][number]): string {
  * 项目详情：顶上是节点进度和「下一步」，中间改节点 / 点结局、勾尾款结清和验收通过，下面是节点变更和挂在这个项目上的沟通。
  * 只有负责人、老板、主管能改；其他人看得到、按钮灰着
  */
+/** 企业版卡点：项目详情上的卡点列表、发卡点要的默认值和可指认的人；不是企业版不给（null） */
+export type 项目卡点 = { 们: 卡点卡[]; 能发: boolean; 默认: 卡点默认; 人们: 可选人[] };
+
+const 提醒色 = { 稳: "green", 拿捏: "gold", 超时: "red" } as const;
+
 export default function ProjectDetail({
-  p, 能改, 候选, 在职, 联系人们, 角色们, 类别们,
+  p, 能改, 候选, 在职, 联系人们, 角色们, 类别们, 卡点 = null,
 }: {
   p: 项目详情;
   能改: boolean;
@@ -130,6 +138,7 @@ export default function ProjectDetail({
   角色们: 角色[];
   /** 在用的异常类别（进异常状态时选） */
   类别们: { id: string; name: string }[];
+  卡点?: 项目卡点 | null;
 }) {
   const router = useRouter();
   const { message } = App.useApp();
@@ -141,6 +150,7 @@ export default function ProjectDetail({
   const [类别, set类别] = useState<string | null>(null);
   const [编辑开着, set编辑开着] = useState(false);
   const [记一条开着, set记一条开着] = useState(false);
+  const [发卡点于, set发卡点于] = useState<string | null>(null);
   const 当前: 位置 = { phase: p.phase, node: p.node, result: p.result };
   const 下 = 下一步(当前);
   const 差 = 交付还差(p);
@@ -360,12 +370,20 @@ export default function ProjectDetail({
               <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                 <FollowTypeCell type={f.type} />
                 <Tag>{f.node}</Tag>
+                {f.code && <span style={{ fontFamily: "monospace", fontSize: 12, color: "var(--text-muted)" }}>{f.code}</span>}
+                {f.提醒 && <Tag color={提醒色[f.提醒.级别]}>{f.提醒.文字}</Tag>}
                 <span style={{ color: "var(--text-muted)", fontSize: 12 }}>{f.who} · {fmtDateTime(f.occurredAt)}</span>
+                {卡点?.能发 && <Button type="link" size="small" style={{ padding: 0 }} onClick={() => set发卡点于(f.id)}>发卡点</Button>}
               </div>
               <div style={{ whiteSpace: "pre-wrap", marginTop: 4, overflowWrap: "anywhere" }}>{f.content}</div>
             </div>
           ))}
         </Card>
+        {卡点 && (
+          <Card title={`卡点（${卡点.们.length}）`} extra={卡点.能发 && <span style={{ color: "var(--text-muted)", fontSize: 12 }}>在沟通记录上点「发卡点」</span>}>
+            <BlockerList 们={卡点.们} 人们={卡点.人们} 空="还没有卡点" />
+          </Card>
+        )}
       </div>
 
       {可改 && 编辑开着 && (
@@ -378,6 +396,8 @@ export default function ProjectDetail({
           联系人们={联系人们}
         />
       )}
+
+      {卡点?.能发 && 发卡点于 && <PublishBlockerModal followUpId={发卡点于} 默认={卡点.默认} 人们={卡点.人们} onClose={() => set发卡点于(null)} />}
 
       {p.能记沟通 && 记一条开着 && <RecordFollowModal p={p} 外贸={外贸精简(b)} onClose={() => set记一条开着(false)} 跑={跑} />}
 

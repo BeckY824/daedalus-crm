@@ -646,6 +646,9 @@ model FollowUp {
   orderNode FollowUpOrder?
   /// 挂在项目某个节点上（2026-10-23 项目模式 1a）。见 FollowUpProject
   projectNode FollowUpProject?
+  /// 企业版：从这条沟通发布的卡点、这条沟通的编号和下次时间（2026-10-26）。见 EntBlocker / EntFollowUpMeta
+  blockers    EntBlocker[]
+  entMeta     EntFollowUpMeta?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -900,6 +903,10 @@ model Project {
   members   ProjectMember[]
   logs      ProjectNodeLog[]
   followUps FollowUpProject[]
+  /// 企业版卡点（2026-10-26）。见 EntBlocker
+  blockers  EntBlocker[]
+  /// 企业版沟通记录编号 / 下次时间（2026-10-26）。见 EntFollowUpMeta
+  followUpMetas EntFollowUpMeta[]
 
   @@index([customerId])
   @@index([ownerId])
@@ -977,6 +984,79 @@ model FollowUpProject {
   project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   /// 记这条时项目在哪个节点
   node       String
+
+  @@index([projectId])
+}
+
+/// 企业版卡点（2026-10-26）：只能从项目上的一条沟通发布。发布后在项目的卡点看板上，
+/// 指认给某位 → 对方在「我的卡点」里接受 / 转让 / 返回看板；看板上的谁都能认领；处理的人填解决方案、结果后算解决。
+/// 每一步记一行 EntBlockerLog（谁、什么时候、从谁到谁）。看得到 = 项目负责人、点了同意的组员、看得到这位客户的人、
+/// 指认给的、发布的；在项目公海里的项目卡点不跟着公开。状态：看板 | 待接受 | 处理中 | 已解决
+model EntBlocker {
+  id              String          @id @default(cuid())
+  /// BLK + yyyyMMdd + 当天 3 位流水，发布时生成
+  code            String          @unique
+  projectId       String
+  project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// 从哪条沟通发布的
+  followUpId      String
+  followUp        FollowUp        @relation(fields: [followUpId], references: [id], onDelete: Cascade)
+  /// 发布那一刻项目的客户、联系人、阶段（照抄，不跟着项目改）
+  customerId      String
+  contactId       String?
+  phase           String
+  /// 暂无卡点 | 轻度卡点 | 中度卡点 | 重要卡点
+  type            String
+  /// 短期不影响 | 项目暂停 | 项目终止 | 可能丢单
+  impact          String
+  /// 阻碍主体，选项在设置 → 项目模式 → 卡点默认值
+  obstacle        String
+  description     String
+  /// 解决时限（天）和按发布时间算出的截止
+  dueDays         Int
+  dueAt           DateTime
+  status          String          @default("看板")
+  /// 现在指认给谁 / 谁在处理；看板上的为空
+  assigneeId      String?
+  creatorId       String
+  resourceRequest String?
+  progress        String?
+  solution        String?
+  result          String?
+  resolvedAt      DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  logs            EntBlockerLog[]
+
+  @@index([projectId, status])
+  @@index([assigneeId, status])
+}
+
+/// 卡点流转（2026-10-26）：publish 发布 / assign 指认 / claim 认领 / accept 接受 / transfer 转让 / return 返回看板 /
+/// resolve 解决 / edit 改进度 / handover 离职交接。from / to 记从谁到谁，note 记返回理由等
+model EntBlockerLog {
+  id         String     @id @default(cuid())
+  blockerId  String
+  blocker    EntBlocker @relation(fields: [blockerId], references: [id], onDelete: Cascade)
+  userId     String
+  at         DateTime   @default(now())
+  action     String
+  fromUserId String?
+  toUserId   String?
+  note       String?
+
+  @@index([blockerId, at])
+}
+
+/// 企业版沟通记录的编号和下次时间（2026-10-26）：FollowUp 不加列，挂一张边表。
+/// code = FUL + yyyyMMdd + 当天 6 位流水；nextAt = 记这条时填的下一步时间，按它给时限提醒
+model EntFollowUpMeta {
+  followUpId String    @id
+  followUp   FollowUp  @relation(fields: [followUpId], references: [id], onDelete: Cascade)
+  projectId  String
+  project    Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  code       String    @unique
+  nextAt     DateTime?
 
   @@index([projectId])
 }

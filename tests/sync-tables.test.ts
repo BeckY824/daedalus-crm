@@ -23,8 +23,8 @@ describe("团队同步清单", () => {
       if (m.名 === "User") continue;
       // 外键：`xxx User @relation(fields: [col], ...)`
       for (const r of m.体.matchAll(/^\s+\w+\s+User\??\s+@relation\([^)]*fields:\s*\[(\w+)\]/gm)) 应有.push(`${m.名}.${r[1]}`);
-      // 没外键的：叫 ownerId / salesOwnerId / channelOwnerId / userId 的 String 列；项目模式（2026-10-23）的 creatorId、xxxById、managerId / xxxManagerId、转让痕的 fromOwnerId / toOwnerId 也是人；企业版线索分配（2026-10-24）的 toUserId / fromUserId / byUserId
-      for (const r of m.体.matchAll(/^\s+((?:owner|salesOwner|channelOwner|fromOwner|toOwner|user|creator|manager|\w+By|\w+Manager|\w+User)Id)\s+String/gm)) 应有.push(`${m.名}.${r[1]}`);
+      // 没外键的：叫 ownerId / salesOwnerId / channelOwnerId / userId 的 String 列；项目模式（2026-10-23）的 creatorId、xxxById、managerId / xxxManagerId、转让痕的 fromOwnerId / toOwnerId 也是人；企业版线索分配（2026-10-24）的 toUserId / fromUserId / byUserId；企业版卡点（2026-10-26）的 assigneeId
+      for (const r of m.体.matchAll(/^\s+((?:owner|salesOwner|channelOwner|fromOwner|toOwner|user|creator|manager|assignee|\w+By|\w+Manager|\w+User)Id)\s+String/gm)) 应有.push(`${m.名}.${r[1]}`);
     }
     const 有 = new Set(指向人的列.map(([t, c]) => `${t}.${c}`));
     expect([...new Set(应有)].filter((x) => !有.has(x)), "改身份会漏改这几列").toEqual([]);

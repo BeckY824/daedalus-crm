@@ -12,6 +12,7 @@ import { 是币种, 默认币种 } from "../currency";
 import { dayjs } from "../utils";
 import { 第一个节点 } from "./nodes";
 import { 登记接着建, type 接着建 } from "./hook";
+import { 记沟通编号 } from "./followup-meta";
 
 export const 项目名上限 = 60;
 export const 备注上限 = 500;
@@ -119,6 +120,7 @@ export function 向导接着建(me: { id: string }, 好: 规整好的, 出参: P
       data: { type: 好.跟进.type, content: 好.跟进.content, occurredAt: 好.跟进.occurredAt, title: "", status: "已完成", customerId, contactId: 联系人.id, ownerId: me.id },
     });
     await tx.followUpProject.create({ data: { followUpId: 跟进.id, projectId: 项目.id, node: 第一个节点.node } });
+    await 记沟通编号(tx, 跟进.id, 项目.id, 好.跟进.nextStepAt);
     await tx.customer.update({ where: { id: customerId }, data: { lastFollowAt: 好.跟进.occurredAt } });
     Object.assign(出参, { contactId: 联系人.id, projectId: 项目.id, followUpId: 跟进.id });
   });

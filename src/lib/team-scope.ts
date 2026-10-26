@@ -230,6 +230,11 @@ export function 限定条件(model: string, 谁们: 谁, 互看读 = false): Rec
         return { userId: 我 };
       case "UnassignedContact":
         return { ownerId: 我 };
+      // 卡点不跟互看放开：同事的客户看得到，卡点还是只给项目上的人（E11）
+      case "EntBlocker":
+        return 看得到的卡点(我, 可见客户(谁们));
+      case "EntBlockerLog":
+        return { blocker: 看得到的卡点(我, 可见客户(谁们)) };
       default:
         return null;
     }
@@ -285,7 +290,14 @@ export function 限定条件(model: string, 谁们: 谁, 互看读 = false): Rec
     case "ProjectMember":
     case "ProjectNodeLog":
     case "FollowUpProject":
+    case "EntFollowUpMeta":
       return { project: 看得到的项目(我, 客户) };
+    // 企业版卡点（10-26）：项目负责人、点了同意的组员、看得到这位客户的、指认给的、发布的；
+    // 项目放在公海里时卡点不跟着公开（E11：无关的人直连接口也拿不到）
+    case "EntBlocker":
+      return 看得到的卡点(我, 客户);
+    case "EntBlockerLog":
+      return { blocker: 看得到的卡点(我, 客户) };
     default:
       return null;
   }
@@ -295,6 +307,11 @@ function 看得到的项目(我: string | { in: string[] }, 客户: Record<strin
   const 或: Record<string, unknown>[] = [{ ownerId: 我 }, { customer: 客户 }, { pooledAt: { not: null } }];
   if (企业版()) 或.push({ members: { some: { userId: 我, inviteStatus: "JOINED" } } });
   return { OR: 或 };
+}
+
+function 看得到的卡点(我: string | { in: string[] }, 客户: Record<string, unknown>) {
+  const 项目 = { OR: [{ ownerId: 我 }, { customer: 客户 }, { members: { some: { userId: 我, inviteStatus: "JOINED" } } }] };
+  return { OR: [{ assigneeId: 我 }, { creatorId: 我 }, { project: 项目 }] };
 }
 
 /** 带 where 的操作。create / upsert 不限（新建的本来就是自己的；upsert 限了会在别人的行上再建一条） */

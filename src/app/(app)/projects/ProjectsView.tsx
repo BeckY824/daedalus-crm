@@ -18,6 +18,7 @@ import { categorical } from "@/lib/palette";
 import type { 项目行, 看板一列 } from "@/lib/project/board";
 import type { 看板列 } from "@/lib/project/nodes";
 import InviteInbox, { type 邀请行 } from "./InviteInbox";
+import { MyBlockersBoard, type 卡点卡 } from "./BlockerPanel";
 
 /** 看板五列的颜色：三个阶段沿用商机管道的蓝绿黄，成功交付粉、没成灰 */
 const 列色: Record<看板列, string> = {
@@ -53,7 +54,7 @@ function 节点文字(r: 项目行) {
  * 看板列头写项目数和按币种分开的金额合计；异常状态的项目留在订单列、左边框标红
  */
 export default function ProjectsView({
-  行, 列: 看板, 取到上限, users, filters, 邀请们 = [],
+  行, 列: 看板, 取到上限, users, filters, 邀请们 = [], 卡点们 = [],
 }: {
   行: 项目行[];
   列: 看板一列[];
@@ -62,6 +63,8 @@ export default function ProjectsView({
   filters: { keyword: string; ownerId: string; pool: string };
   /** 企业版：等我回的项目组邀请（别的版本是空的） */
   邀请们?: 邀请行[];
+  /** 企业版：「我的卡点」看板（指给我的、我项目上等人认领的；别的版本是空的） */
+  卡点们?: 卡点卡[];
 }) {
   const router = useRouter();
   const b = useBusiness();
@@ -126,6 +129,7 @@ export default function ProjectsView({
       />
 
       <InviteInbox 邀请们={邀请们} />
+      <MyBlockersBoard 们={卡点们} />
 
       {看法 === "列表" ? (
         <DataList<项目行>
