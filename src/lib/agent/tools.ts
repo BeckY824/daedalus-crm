@@ -11,7 +11,7 @@ import type { Prisma } from "@/generated/prisma";
 import { scheduleValue, scheduleOrder, earliestScheduled } from "@/lib/schedule-date";
 import { calendarColumns, readCalendarSorted } from "./calendar-query";
 import { 客户筛选条件 } from "@/app/(app)/customers/query";
-import { 客户关键词条件 } from "../search-keyword";
+import { 客户关键词条件, 号码藏着 } from "../search-keyword";
 import type { 页面客户筛选 } from "../ai-page-filters";
 import { 签约归属人 } from "../contract-owner";
 import { 是逾期, 数逾期跟进 } from "../overdue";
@@ -38,7 +38,7 @@ import { 名字在别处, 别处说法, 别处附件, 找人 } from "./find-name
 import type { BusinessConfig } from "../business-config";
 import type { BriefRecord } from "../ai-draft";
 import { 扩同义词 } from "./synonyms";
-import { 校验规格, 说人话, 编译, 表们, 查询表, 分组上限 } from "./query";
+import { 校验规格, 说人话, 编译, 表们, 查询表, 分组上限, 关联们, type 查询规格, type 表名 } from "./query";
 import { buildProposal, describeProposal, missingFields, 可改字段表, 可改字段名单, type Proposal, type ProposalKind } from "./proposals";
 import { FOLLOW_TYPES, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES } from "../constants";
 
@@ -99,6 +99,19 @@ const 日期区间 = (a: unknown, b: unknown) => {
 const 区间条件 = (r: { from?: Dayjs; to?: Dayjs }) =>
   r.from || r.to ? { ...(r.from ? { gte: r.from.startOf("day").toDate() } : {}), ...(r.to ? { lte: r.to.endOf("day").toDate() } : {}) } : null;
 
+/** 规格里有没有用到电话列（筛选、关联上的筛选、排序、分组） */
+function 用到电话(规格: 查询规格, b: BusinessConfig): boolean {
+  const 是号 = (表: 表名, 名: string) => {
+    const 定义 = 查询表(表, b).字段;
+    return (Object.hasOwn(定义, 名) ? 定义[名] : Object.values(定义).find((f) => f.名 === 名))?.列 === "phone";
+  };
+  const 到 = 规格.关联 && 关联们[规格.关联.路径]?.到;
+  return 规格.条件.some((c) => 是号(规格.表, c.字段))
+    || (!!到 && 规格.关联!.条件.some((c) => 是号(到, c.字段)))
+    || (!!规格.排序 && 是号(规格.表, 规格.排序.字段))
+    || (!!规格.分组 && 是号(规格.表, 规格.分组));
+}
+
 export const TOOLS: Tool[] = [
   {
     name: "search_customers",
@@ -124,11 +137,11 @@ export const TOOLS: Tool[] = [
       const 建档条件 = 区间条件(建档);
       const 预签条件 = 区间条件(预签);
       const 号 = 脱敏(ctx);
-      const 页面条件 = ctx.页面筛选 && Object.keys(ctx.页面筛选).length ? await 客户筛选条件(ctx.页面筛选) : null;
+      const 页面条件 = ctx.页面筛选 && Object.keys(ctx.页面筛选).length ? await 客户筛选条件(ctx.页面筛选, ctx.userId) : null;
       if (!页面条件 && !q && !channel && !owner && !status && !decision && !mine && !建档条件 && !预签条件)
         return { summary: "没给条件", data: { error: "query / channelName / ownerName / followStatus / decisionStatus / mine / createdFrom-To / expectedSignFrom-To 至少给一个" } };
       const where = {
-        AND: [await 客户关键词条件(q), ...(页面条件 ? [页面条件] : []), ...(预签条件 ? [{ OR: [
+        AND: [await 客户关键词条件(q, false, ctx.userId), ...(页面条件 ? [页面条件] : []), ...(预签条件 ? [{ OR: [
           { expectedSignOn: { ...(预签.from ? { gte: 预签.from.format("YYYY-MM-DD") } : {}), ...(预签.to ? { lte: 预签.to.format("YYYY-MM-DD") } : {}) } },
           { expectedSignOn: null, expectedSignAt: 预签条件 },
         ] }] : [])],
@@ -311,7 +324,7 @@ export const TOOLS: Tool[] = [
       } catch (e) {
         return { summary: "查询规格不合法", data: { error: e instanceof Error ? e.message : "规格不合法" } };
       }
-      const 页面条件 = ctx.页面筛选 && Object.keys(ctx.页面筛选).length ? await 客户筛选条件(ctx.页面筛选) : undefined;
+      const 页面条件 = ctx.页面筛选 && Object.keys(ctx.页面筛选).length ? await 客户筛选条件(ctx.页面筛选, ctx.userId) : undefined;
       if (页面条件 && (spec.metric === "leads_count" || spec.metric === "lead_conversion")) return { summary: "当前范围是客户", data: { error: "客户页筛选不能用于线索统计。请移除页面上下文后查询线索。" } };
       const rows = await runQuery(spec, ctx.b, 页面条件);
       const months = spec.groupBy === "month" ? [...new Set(rows.map(r => r.label.slice(0, 7)))].slice(-12) : [];
@@ -549,7 +562,8 @@ export const TOOLS: Tool[] = [
       const status = str(args.status, 10);
       const source = str(args.source, 20);
       const where = {
-        ...(q ? { OR: [{ name: { contains: q } }, { contact: { contains: q } }, { phone: { contains: q } }] } : {}),
+        // 电话藏着的人不按号码搜（Y27），不然号码打了码、拿号码一搜还是能对上是哪条
+        ...(q ? { OR: [{ name: { contains: q } }, { contact: { contains: q } }, ...(await 号码藏着(ctx.userId) ? [] : [{ phone: { contains: q } }])] } : {}),
         ...(status ? { status } : {}),
         ...(source ? { source } : {}),
       };
@@ -965,12 +979,15 @@ export const TOOLS: Tool[] = [
       } catch (e) {
         return { summary: "查询写得不对", data: { error: e instanceof Error ? e.message : "查询规格不合法" } };
       }
+      // 电话藏着的人不能按号码筛、排、分组（Y27）：号码打了码，按「电话包含 1234」一筛还是能试出是谁
+      if (用到电话(规格, ctx.b) && (await 号码藏着(ctx.userId)))
+        return { summary: "电话对你不可见", data: { error: "你的字段权限里电话是隐藏的，不能按电话筛选、排序或分组。换别的字段查。" } };
 
       const 话 = `${ctx.页面筛选 && Object.keys(ctx.页面筛选).length ? "当前客户页范围；" : ""}${说人话(规格, ctx.b)}`;
       const compiled = 编译(规格, ctx.b);
       const { orderBy, take } = compiled;
       let where = compiled.where;
-      const 页面条件 = ctx.页面筛选 && Object.keys(ctx.页面筛选).length ? await 客户筛选条件(ctx.页面筛选) : undefined;
+      const 页面条件 = ctx.页面筛选 && Object.keys(ctx.页面筛选).length ? await 客户筛选条件(ctx.页面筛选, ctx.userId) : undefined;
       if (页面条件) {
         if (规格.表 === "客户") where = { AND: [where, 页面条件] };
         else if (["商机", "签约", "联系人", "跟进记录", "跟进计划", "任务"].includes(规格.表)) where = { AND: [where, { customer: { is: 页面条件 } }] };

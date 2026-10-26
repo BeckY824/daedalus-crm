@@ -107,6 +107,9 @@ const 打码: Record<角色, boolean | null> = { 老板: F, 总管理员: F, 经
 
 const 客户id = new Map<string, string>(); // 归属（用户 id 或 "公海"）→ 客户 id
 const 电话前缀 = "1380077";
+/** 关键词搜索、AI 查客户用的词：按名字搜（每位都叫「…的客户」，公海叫「公海客户」）。
+ * 按电话搜对藏电话的角色本来就搜不到（Y27），那条在 enterprise-y26-y27 里单测 */
+const 搜索词 = "客户";
 
 const 签票 = (sub: string) => new SignJWT({}).setProtectedHeader({ alg: "HS256" }).setSubject(sub).setIssuedAt().setExpirationTime("1h").sign(new TextEncoder().encode(readSecret()));
 async function 作为<R>(r: 角色, f: () => Promise<R>): Promise<R> {
@@ -154,11 +157,11 @@ const 拿到: Record<接口, (id: string) => Promise<string | null>> = {
     }
     return null;
   },
-  关键词搜索: (id) => 列表里的号(id, [{ keyword: 电话前缀 }, { keyword: 电话前缀, pool: "1" }]),
+  关键词搜索: (id) => 列表里的号(id, [{ keyword: 搜索词 }, { keyword: 搜索词, pool: "1" }]),
   AI查客户: async (id) => {
     const me = await requireUser();
     const c = ctx(me, await 号码脱敏器());
-    const 搜 = (await TOOL_MAP.get("search_customers")!.run({ query: 电话前缀 }, c)).data as { customers?: { id: string; phone: string | null }[] };
+    const 搜 = (await TOOL_MAP.get("search_customers")!.run({ query: 搜索词 }, c)).data as { customers?: { id: string; phone: string | null }[] };
     const 在搜里 = (搜.customers ?? []).find((x) => x.id === id);
     const 读 = (await TOOL_MAP.get("get_customer")!.run({ id }, c)).data as { 找到?: number; profile?: string };
     // 两条路径口径必须一致：搜得到 ⇔ 读得到，读到的档案里也是同一个号
@@ -287,7 +290,7 @@ describe("电话是否打码（MCP：令牌不带 cookie）", () => {
     const id = 客户id.get(记录归属[role].自己的!)!;
     const 原号 = (await raw.customer.findUniqueOrThrow({ where: { id } })).phone!;
     // 和 api/mcp/route.ts 一样：没有 cookie，只用 以谁的身份 告诉限定层是谁
-    const r = await 以谁的身份(用户[role], () => 跑工具("search_customers", { query: 电话前缀 }, { id: 用户[role], name: role }));
+    const r = await 以谁的身份(用户[role], () => 跑工具("search_customers", { query: 搜索词 }, { id: 用户[role], name: role }));
     const 这位 = (r.data as { customers?: { id: string; phone: string | null }[] }).customers?.find((c) => c.id === id);
     expect(这位?.phone).toBe(mask ? maskPhone(原号) : 原号);
   });
