@@ -1217,3 +1217,33 @@ model EntLeadQuota {
   setById   String
   updatedAt DateTime @updatedAt
 }
+
+/// 企业版「交接中」（2026-10-26，测试清单 D10，迁移 053）：离职交接、转让客户发起后先记一行，
+/// 数据留在原负责人名下，接手人确认了才真转过去；确认前接手人列表里看不到。
+/// 只在企业版且「交接要接手人确认」规则开着时写（lib/enterprise/handover-db.ts）。指向人的列都不建外键
+model EntHandover {
+  id          String    @id @default(cuid())
+  /// 离职 / 转让
+  kind        String
+  /// 原负责人（离职 = 停用的那位）
+  fromUserId  String
+  /// 接手人：只有他能确认
+  toUserId    String
+  /// 谁发起的
+  byUserId    String
+  /// 离职交接的方式（转交 / 公海）；转让为空
+  way         String?
+  /// 转让：要转的客户 id（JSON 数组）；离职：发起时清点到的客户 id，只作对照，确认时按当时重新分
+  customerIds String    @default("[]")
+  /// 发起时清点的个数（JSON），给接手人看「要接几位客户、几个项目」
+  counts      String    @default("{}")
+  /// 待确认 / 已确认 / 已撤回 / 已拒收
+  status      String    @default("待确认")
+  createdAt   DateTime  @default(now())
+  doneAt      DateTime?
+  /// 谁确认 / 撤回 / 拒收的
+  doneById    String?
+
+  @@index([toUserId, status])
+  @@index([fromUserId, status])
+}

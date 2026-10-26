@@ -40,6 +40,7 @@ import type { 带走数, 转走项目预览 } from "@/lib/carry-over";
 import { 带走没做完的, 带走并记下, 还项目, 数转走的项目, type 带走的 } from "@/lib/carry-over-db";
 import { 记换负责人 } from "@/lib/owner-log-db";
 import { 企业版 } from "@/lib/enterprise/switch";
+import { 交接要确认, 交接中的客户 } from "@/lib/enterprise/handover-db";
 import { setOppStatus } from "../opportunities/actions";
 import { 认得 } from "@/lib/project/hook";
 import { 客户的项目数 } from "@/lib/project/db";
@@ -768,6 +769,12 @@ export type BulkResult =
       unchanged: number;
       /** 选中但库里已经没有的条数（多半是被别人删了） */
       missing: number;
+      /**
+       * 企业版「交接中」（规则「交接要接手人确认」，D10）：这么多位发起了交接、等接手人确认，负责人还没换（updated 不算它们）；
+       * 交接已在路上 = 本来就在另一笔交接里、这次没再发起的。规则关着永远不带
+       */
+      交接中?: number;
+      交接已在路上?: number;
     }
   | { ok: false; error: string };
 
@@ -799,6 +806,8 @@ export async function assignSalesOwner(ids: string[], salesOwnerId: string): Pro
 
   // 本来就归他的不算「改动」，分开统计才对得上操作人看到的选中条数
   const already = await prisma.customer.count({ where: { id: { in: ids }, salesOwnerId } });
+  // 企业版「交接中」：转给别人的先不换负责人，等接手人确认（转给自己 = 自己就是接手人，不用确认）
+  if (salesOwnerId !== me.id && (await 交接要确认())) return 发起转让交接(me, ids, salesOwnerId, already);
   await 钉住老签约();
   // 先记下每位原来归谁：他们没做完的活要跟着走（排查 B3）
   const 换人的 = await prisma.customer.findMany({
@@ -829,6 +838,42 @@ export async function assignSalesOwner(ids: string[], salesOwnerId: string): Pro
     ok: true, updated: res.count, unchanged: already, missing: ids.length - res.count - already, 带走, 带过来,
     原值: 换成了.map((c) => ({ id: c.id, 值: c.salesOwnerId })),
   };
+}
+
+/**
+ * 企业版「交接中」的转让（规则「交接要接手人确认」开着、转给别人，测试清单 D10「交接完成前接手人看不到」）：
+ * 负责人先不换，按原负责人一人一行记待确认（EntHandover），接手人在客户页确认了才换，
+ * 联系人、沟通记录、项目、没做完的活照整体转的老规矩一起走（customers/handover-actions.ts 确认交接）。
+ * 已经在另一笔交接里的客户这次不再发起：同一位客户不能同时交给两个人（查和写在同一笔事务里，两人同时发起只成一笔）。
+ * 只读的客户（虚线下属的）上面 虚线只读挡 已经整批拦了；企业版没有互看，这里看得到的就是改得动的
+ */
+async function 发起转让交接(me: { id: string; name: string }, ids: string[], to: string, already: number): Promise<BulkResult> {
+  const b = await getBusiness();
+  const 候选 = await prisma.customer.findMany({ where: { id: { in: ids }, salesOwnerId: { not: to } }, select: { id: true, salesOwnerId: true } });
+  const { 发起, 已在 } = await 看全部(() => 查完再写(async (tx) => {
+    const 已在 = await 交接中的客户(候选.map((c) => c.id), tx);
+    const 按人 = new Map<string, string[]>();
+    for (const c of 候选) if (!已在.has(c.id)) 按人.set(c.salesOwnerId, [...(按人.get(c.salesOwnerId) ?? []), c.id]);
+    const 发起: { id: string; from: string; customerIds: string[] }[] = [];
+    for (const [from, customerIds] of 按人) {
+      const h = await tx.entHandover.create({
+        data: { kind: "转让", fromUserId: from, toUserId: to, byUserId: me.id, customerIds: JSON.stringify(customerIds), counts: JSON.stringify({ 客户: customerIds.length }) },
+      });
+      发起.push({ id: h.id, from, customerIds });
+    }
+    return { 发起, 已在: 已在.size };
+  }));
+  const n = 发起.reduce((a, h) => a + h.customerIds.length, 0);
+  if (n) {
+    const 接手 = (await prisma.user.findUnique({ where: { id: to }, select: { name: true } }))?.name ?? to;
+    await recordAudit({
+      user: me, action: "assign", entity: "Customer",
+      summary: `把 ${n} 名${b.customer}交接给「${接手}」，等对方确认后才换销售负责人`,
+      detail: { ids, salesOwnerId: to, 交接中: true, 交接: 发起.map((h) => ({ id: h.id, 原负责人: h.from, 客户: h.customerIds })) },
+    });
+  }
+  revalidateCustomer();
+  return { ok: true, updated: 0, unchanged: already, missing: ids.length - 候选.length - already, 交接中: n, 交接已在路上: 已在 };
 }
 
 /**

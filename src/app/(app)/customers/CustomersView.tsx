@@ -693,6 +693,13 @@ export default function CustomersView({
                     清空();
                     router.refresh();
                     if (!res.ok) return void message.error(res.error);
+                    // 企业版「交接中」（D10）：负责人还没换，等接手人确认，没有可撤销的
+                    if (res.交接中 !== undefined) {
+                      const 已在 = res.交接已在路上 ? `；${res.交接已在路上} 名已在另一笔交接里，没再发起` : "";
+                      return void (res.交接中
+                        ? message.success(`已发起交接：${res.交接中} 名等 ${o.label} 确认，确认前仍在原负责人名下${已在}`)
+                        : message.info(`没有发起新的交接${已在 || "：选中的都已归 " + o.label}`));
+                    }
                     可撤销提示(res, bulkSummary(res, `已转给 ${o.label}`), assignSalesOwner, () => 撤销改负责人(res.原值 ?? [], o.value, res.带过来));
                   },
                 })),

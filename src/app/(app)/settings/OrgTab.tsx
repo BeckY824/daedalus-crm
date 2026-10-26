@@ -34,7 +34,7 @@ type 结果 = Promise<{ ok: boolean; error?: string }>;
 
 const 总管级 = (r: string) => r === "director" || r === "admin";
 /** 开关的 data-testid：第一条沿用老名字，E2E 在用 */
-const 规则testid: Record<规则名, string> = { 按组织看客户: "org-rule-scope", 线索分配: "org-rule-lead-assign", 字段权限: "org-rule-field-perm" };
+const 规则testid: Record<规则名, string> = { 按组织看客户: "org-rule-scope", 线索分配: "org-rule-lead-assign", 字段权限: "org-rule-field-perm", 交接要确认: "org-rule-handover-confirm" };
 const 级别名 = { 改: "能改", 看: "只能看", 藏: "看不到" } as const;
 /** 「后台设置谁能改」表的列 */
 const 人列: readonly 能改的人[] = ["总管理员", "销售管理", "市场管理", "直属上级", "虚线上级"];

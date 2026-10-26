@@ -1,18 +1,14 @@
 "use server";
 
-import { 转交商机 } from "@/lib/opportunity-activity";
 import { 补来源 } from "@/lib/customer-extra-db";
 
 import { 钉住老签约 } from "@/lib/contract-owner";
-import { 转项目 } from "@/lib/carry-over-db";
 import { 企业版 } from "@/lib/enterprise/switch";
 import { 读组织, 直属上级of } from "@/lib/enterprise/org";
 import { 规则开着 } from "@/lib/enterprise/rules";
-import { 月份 } from "@/lib/enterprise/lead-assign";
-import { 停用分拣, 停用方式们, 停用进公海理由, 停用项目进公海理由, type 停用方式 } from "@/lib/offboard-db";
-import { 记换负责人 } from "@/lib/owner-log-db";
-import { 转让痕 } from "@/lib/project/db";
-import type { Prisma } from "@/generated/prisma";
+import { 停用分拣, 停用方式们, type 停用方式 } from "@/lib/offboard-db";
+import { 离职转给接手人, 离职放进公海 } from "@/lib/offboard-move";
+import { 交接要确认, 离职交接中, 了结 } from "@/lib/enterprise/handover-db";
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
@@ -328,6 +324,10 @@ export async function deactivateUser(id: string, transferToId: string, 方式: �
       error: "这是系统里最后一个管理员，停用后将无人可以管理成员。请先指定另一位管理员。",
     };
   }
+  // 企业版「交接中」：上一次离职交接还没确认，不能再交给第二个人（先撤回再办）
+  if (企业版() && (await 离职交接中(id))) {
+    return { ok: false as const, error: "这位成员的离职交接还在等接手人确认：先在客户页「交接中」里撤回，再重新办" };
+  }
 
   /*
     转交的是「往后要跟的活」，不是历史（2026-10-02 排查 B2，09 月拍板「谁的数据没动，谁的归属就不变」）：
@@ -344,42 +344,18 @@ export async function deactivateUser(id: string, transferToId: string, 方式: �
   const 记分配 = await 规则开着("线索分配");
   // 函数式事务：数组式在托管版的工作区代理下会抛错，而且抛之前已经写了（2026-10-02 排查 A3）。
   // 分拣也放在事务里：清点到写完之间有人改了负责人，不会漏转、错转。一个人名下一两百条，给足时间
+  // 企业版「交接中」（规则「交接要接手人确认」，D10）：给接手人的那部分等他确认，见 lib/enterprise/handover-db.ts
+  if (await 交接要确认()) return 发起离职交接(me, id, transferToId, 方式);
   const 转走了 = await prisma.$transaction(async (tx) => {
     const 分 = await 停用分拣(tx, id, 方式, 企业版());
-    await tx.customer.updateMany({ where: { id: { in: 分.客户 } }, data: { salesOwnerId: transferToId } });
-    // 历史负责人：每位转走的客户记一行「他 → 接手人」（D-36）；进公海的负责人不改，等领的时候再记
-    await 记换负责人(tx, 分.客户.map((customerId) => ({ customerId, from: id, to: transferToId })), me.id, "deactivate");
-    await 转交商机(tx, { id: { in: 分.商机 }, ownerId: id, status: "OPEN" }, transferToId);
-    await tx.task.updateMany({ where: { id: { in: 分.待办 } }, data: { ownerId: transferToId } });
-    await tx.followPlan.updateMany({ where: { id: { in: 分.计划 } }, data: { ownerId: transferToId } });
-    /**
-     * 线索、渠道原本漏了转交：
-     *   线索      —— 留在停用的人名下，列表按负责人筛选时谁都看不到，等于丢了
-     *   渠道负责人 —— Channel.channelOwnerId 还指着停用的人，之后这个渠道新带来的学员会继续算到一个离职的人头上
-     */
-    await tx.lead.updateMany({ where: { id: { in: 分.线索 } }, data: { ownerId: transferToId } });
-    if (记分配) await 记交接分配(tx, 分.线索, id, transferToId, me.id);
-    await tx.channel.updateMany({ where: { id: { in: 分.渠道 } }, data: { channelOwnerId: transferToId } });
-    // 项目：跟着转走的客户整体转（同转让客户，跟着客户转的项目），企业版再加上他负责、挂在别人客户上的
-    const 项目 = 分.项目.length ? await 转项目(tx, { id: { in: 分.项目 }, pooledAt: null }, transferToId, me.id) : [];
-    if (分.进公海客户.length) {
-      await tx.customerPool.createMany({ data: 分.进公海客户.map((customerId) => ({ customerId, userId: me.id, reason: 停用进公海理由 })) });
-    }
-    if (分.进公海项目.length) {
-      const 们 = await tx.project.findMany({ where: { id: { in: 分.进公海项目 } }, select: { id: true, ownerId: true, phase: true, node: true, result: true } });
-      await tx.project.updateMany({ where: { id: { in: 分.进公海项目 } }, data: { pooledAt: new Date(), nextStepAt: null } });
-      await tx.projectNodeLog.createMany({ data: 们.map((p) => 转让痕(p, me.id, p.ownerId, null, "pool-release", 停用项目进公海理由)) });
-    }
+    const 项目 = await 离职转给接手人(tx, 分, id, transferToId, me.id, 记分配);
+    await 离职放进公海(tx, 分, me.id);
     await tx.user.update({ where: { id }, data: { active: false } });
     const { 订单项目: _, ...记 } = 分;
     return { ...记, 项目 };
   }, { timeout: 30_000 });
 
-  if (托管版()) {
-    const t = await resolveCurrentTenant();
-    const link = await prisma.workspaceAccount.findFirst({ where: { userId: id } });
-    if (t && link) await 撤成员(link.accountId, t.workspaceId);
-  }
+  await 撤托管成员(id);
 
   const [被停, 接手] = await Promise.all([
     prisma.user.findUnique({ where: { id }, select: { name: true } }),
@@ -413,23 +389,52 @@ export async function deactivateUser(id: string, transferToId: string, 方式: �
   return { ok: true as const };
 }
 
+async function 撤托管成员(id: string) {
+  if (!托管版()) return;
+  const t = await resolveCurrentTenant();
+  const link = await prisma.workspaceAccount.findFirst({ where: { userId: id } });
+  if (t && link) await 撤成员(link.accountId, t.workspaceId);
+}
+
 /**
- * 企业版「线索分配」开着时，离职转给接手人的线索也记一行分配（EntLeadAssign），和手动分配同一张表：
- * 分配记录里查得到这条线索怎么到了接手人手上。只记还没转化的；不算进接手人当月的分配数（counted=false），
- * 交接来的不占配额；走哪条线不填，种类沿用这条线索最近一次分配的（没分配过 = 营销）
+ * 企业版「交接中」的离职（规则「交接要接手人确认」开着，D10）：成员当场停用（离职的人不能再登录），
+ * 放进公海的那部分当场放；给接手人的那部分先不动、留在他名下，记一行待确认，接手人在客户页确认了
+ * 才按那时候重新分拣、转过去（customers/handover-actions.ts 确认交接）。确认前接手人的列表里看不到这些数据
  */
-async function 记交接分配(tx: Prisma.TransactionClient, 线索: string[], from: string, to: string, by: string) {
-  if (!线索.length) return;
-  const 没转化 = (await tx.lead.findMany({ where: { id: { in: 线索 }, convertedAt: null }, select: { id: true } })).map((l) => l.id);
-  if (!没转化.length) return;
-  const 上次 = new Map<string, string>();
-  for (const r of await tx.entLeadAssign.findMany({ where: { leadId: { in: 没转化 } }, orderBy: { createdAt: "desc" }, select: { leadId: true, kind: true } })) {
-    if (!上次.has(r.leadId)) 上次.set(r.leadId, r.kind);
-  }
-  const 月 = 月份();
-  await tx.entLeadAssign.createMany({
-    data: 没转化.map((leadId) => ({ leadId, toUserId: to, fromUserId: from, byUserId: by, line: null, kind: 上次.get(leadId) ?? "营销", counted: false, month: 月 })),
+async function 发起离职交接(me: Awaited<ReturnType<typeof requireUser>>, id: string, transferToId: string, 方式: 停用方式) {
+  const { 分, 交接 } = await prisma.$transaction(async (tx) => {
+    const 分 = await 停用分拣(tx, id, 方式, true);
+    await 离职放进公海(tx, 分, me.id);
+    const h = await tx.entHandover.create({
+      data: {
+        kind: "离职", fromUserId: id, toUserId: transferToId, byUserId: me.id, way: 方式,
+        customerIds: JSON.stringify(分.客户),
+        counts: JSON.stringify({ 客户: 分.客户.length, 商机: 分.商机.length, 计划和待办: 分.计划.length + 分.待办.length, 线索: 分.线索.length, 渠道: 分.渠道.length, 项目: 分.项目.length }),
+      },
+    });
+    await tx.user.update({ where: { id }, data: { active: false } });
+    return { 分, 交接: h.id };
+  }, { timeout: 30_000 });
+  await 撤托管成员(id);
+
+  const [被停, 接手] = await Promise.all([
+    prisma.user.findUnique({ where: { id }, select: { name: true } }),
+    prisma.user.findUnique({ where: { id: transferToId }, select: { name: true } }),
+  ]);
+  const 进公海 = 分.进公海客户.length + 分.本来在公海.length;
+  await recordAudit({
+    user: me, action: "deactivate", entity: "User", entityId: id,
+    summary: `停用成员「${被停?.name ?? id}」，交接给「${接手?.name ?? transferToId}」，等对方确认后转过去：` +
+      `${分.客户.length} 位客户、${分.商机.length} 个进行中商机、${分.计划.length + 分.待办.length} 条没完成的计划和待办、` +
+      `${分.线索.length} 条线索、${分.渠道.length} 个渠道` + (分.项目.length ? `、${分.项目.length} 个项目` : "") +
+      (方式 === "公海" ? `；${进公海} 位客户已放进公海` + (分.进公海项目.length ? `、${分.进公海项目.length} 个项目已放回项目公海` : "") : ""),
+    detail: { userId: id, transferToId, 方式, 交接, 交接中: true, 进公海客户: 分.进公海客户, 进公海项目: 分.进公海项目 },
   });
+
+  revalidatePath("/settings");
+  revalidatePath("/customers");
+  revalidatePath("/projects");
+  return { ok: true as const, 交接中: true as const };
 }
 
 /** 一次最多停用多少人：和离职交接「200 条一次做完」同一个量 */
@@ -450,14 +455,17 @@ export async function 批量停用(ids: string[], transferToId: string, 方式: 
   if (们.includes(transferToId)) return { ok: false as const, error: "接手人不能在要停用的人里" };
   for (const id of 们) await 能办离职(id);
   const 失败: { id: string; error: string }[] = [];
+  let 交接中 = 0;
   for (const id of 们) {
     const r = await deactivateUser(id, transferToId, 方式).catch((e) => {
       console.error("批量停用失败：", id, e);
       return { ok: false as const, error: "停用没成功，刷新再试" };
     });
     if (!r.ok) 失败.push({ id, error: r.error });
+    else if ("交接中" in r) 交接中++;
   }
-  return { ok: true as const, 停了: 们.length - 失败.length, 失败 };
+  // 交接中只在有的时候给（规则关着、不是企业版时返回值和原来一样）
+  return { ok: true as const, 停了: 们.length - 失败.length, 失败, ...(交接中 ? { 交接中 } : {}) };
 }
 
 /**
@@ -484,6 +492,9 @@ export async function reactivateUser(id: string) {
   const u = typeof id === "string" && id ? await prisma.user.findUnique({ where: { id } }) : null;
   if (!u) return { ok: false as const, error: "这个成员已不存在，请刷新重试" };
   if (u.active) return { ok: true as const };
+  // 企业版「交接中」：人回来了，还没确认的离职交接作废（不然接手人之后一确认，在职的人名下的东西被转走）
+  const 在交接 = 企业版() ? await 离职交接中(id) : null;
+  if (在交接) await 了结(prisma, 在交接.id, "已撤回", me.id);
   // 托管版：停用时撤掉的成员资格要加回来，否则他登录会被告知「没有工作区」
   if (托管版()) {
     const t = await resolveCurrentTenant();

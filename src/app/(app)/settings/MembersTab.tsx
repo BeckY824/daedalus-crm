@@ -153,7 +153,7 @@ export default function MembersTab({
         if (res.失败.length) {
           const 名 = (id: string) => users.find((u) => u.id === id)?.name ?? id;
           message.warning(`停用了 ${res.停了} 位；${res.失败.map((f) => `「${名(f.id)}」${f.error}`).join("；")}`);
-        } else message.success(`已停用 ${res.停了} 位成员`);
+        } else message.success(`已停用 ${res.停了} 位成员` + (res.交接中 ? "，交给接手人的部分等对方在客户页确认后才转过去" : ""));
         set勾了([]);
         router.refresh();
       },
@@ -214,7 +214,10 @@ export default function MembersTab({
       async onOk() {
         const res = await deactivateUser(r.id, target, 方式);
         if (res.ok) {
-          message.success(方式 === "公海" ? "已停用，名下的放进了公海" : "已停用并转交");
+          // 企业版「交接中」：给接手人的那部分等他确认（D10）
+          message.success("交接中" in res
+            ? (方式 === "公海" ? "已停用，该进公海的已放进公海；其余等接手人在客户页确认后才转过去" : "已停用，名下的等接手人在客户页确认后才转过去")
+            : 方式 === "公海" ? "已停用，名下的放进了公海" : "已停用并转交");
           router.refresh();
         } else message.error(res.error);
       },

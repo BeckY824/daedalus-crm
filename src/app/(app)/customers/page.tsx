@@ -2,6 +2,9 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import CustomersView from "./CustomersView";
+import HandoverPending from "./HandoverPending";
+import { 待确认的交接 } from "./handover-actions";
+import { 企业版 } from "@/lib/enterprise/switch";
 import { 负责人候选 } from "@/lib/owners";
 import { 可选渠道 } from "@/lib/options";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
@@ -133,7 +136,10 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
   const 号 = await 号码脱敏器();
   const aiEnabled = await llmEnabled();
 
-  return (
+  // 企业版「交接中」（D10）：等我确认 / 我发起的交接，客户页顶上一条。不是企业版不查、不放
+  const 交接 = 企业版() ? await 待确认的交接() : null;
+
+  const 视图 = (
     <CustomersView
       // 公海里的直接分给同事：只给管理员（团队版的老板）。业务员那边不摆（2026-10-20）
       能分配公海={管全队客户(me.role)}
@@ -184,5 +190,13 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
       旧职位={[...new Set(旧职位)]}
       国家们={用着的国家.map((x) => x.country!).filter(Boolean)}
     />
+  );
+  // 没有等确认的交接就只放列表，和原来一样
+  if (!交接 || (!交接.等我确认.length && !交接.我发起的.length)) return 视图;
+  return (
+    <>
+      <HandoverPending {...交接} />
+      {视图}
+    </>
   );
 }
