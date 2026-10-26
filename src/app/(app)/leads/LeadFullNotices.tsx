@@ -23,10 +23,12 @@ export default function LeadFullNotices({ 提醒, style }: { 提醒: 满额提�
           key={x.id}
           type="warning"
           showIcon
-          closable
-          onClose={() => {
-            set关了((s) => new Set(s).add(x.id));
-            void 关满额提醒(x.id);
+          closable={{
+            "aria-label": "关闭这条满额提醒",
+            onClose: () => {
+              set关了((s) => new Set(s).add(x.id));
+              void 关满额提醒(x.id);
+            },
           }}
           title={`自动分配：${x.条数} 条线索因都已满额没分出去`}
           description={`${x.线索.slice(0, 列几条).join("、")}${x.条数 > 列几条 ? ` 等 ${x.条数} 条` : ""}（${x.谁点的} ${smartTime(x.at)} 点的）。线索留在原处：找销售的上级调配额，或者手动分`}
