@@ -15,6 +15,7 @@ import { 改节点, 勾交付, 加角色, 改角色, 加异常类别, 改异常�
 import { 合上改动, type 规则改动 } from "@/lib/project/org-rules";
 import { 读组织规则, 生效组织规则, 存组织规则 } from "@/lib/project/org-rules-store";
 import { 企业版 } from "@/lib/enterprise/switch";
+import { 挡改设置, type 设置项名 } from "@/lib/enterprise/edit-perm";
 import { 记这个项目的自动推进, 客户存了推项目 } from "@/lib/project/auto-advance";
 import { 读团队 } from "@/lib/sync/client";
 import { 要写原因, type 位置 } from "@/lib/project/nodes";
@@ -290,13 +291,28 @@ export async function 移出项目组员(memberId: string) {
   } catch (e) { return 不在了(e); }
 }
 
-/** 企业版组织规则（持有上限等）：不是企业版改不了；只有老板能改，每条默认关（lib/project/org-rules.ts） */
+/**
+ * 这次改动碰到的每一块都得能改：公海 = 持有上限，超时回收 = 节点时限，节点推进 = 必填字段
+ * （「后台设置谁能改」，lib/enterprise/edit-perm-table.ts；老板总能改）
+ */
+async function 挡组织规则(me: { id: string; role: string }, 改: 规则改动): Promise<string | null> {
+  const 块: [keyof 规则改动, 设置项名, string][] = [["公海", "持有上限", "项目持有上限"], ["超时回收", "节点时限", "各节点时限"], ["节点推进", "必填字段", "节点必填字段"]];
+  for (const [k, 项, 叫法] of 块) {
+    if (改?.[k] === undefined) continue;
+    const 挡 = await 挡改设置(me, 项);
+    if (挡) return `${叫法}${挡}`;
+  }
+  return null;
+}
+
+/** 企业版组织规则（持有上限等）：不是企业版改不了；谁能改见 挡组织规则，每条默认关（lib/project/org-rules.ts） */
 export async function 改组织规则(改: 规则改动) {
   try {
     const me = await requireUser();
     if (!(await 开着())) return 没开;
     if (!企业版()) return { ok: false as const, error: "组织规则是企业版的功能" };
-    if (me.role !== "ADMIN") return { ok: false as const, error: "组织规则只有老板能改" };
+    const 挡 = await 挡组织规则(me, 改);
+    if (挡) return { ok: false as const, error: 挡 };
     const 新 = 合上改动(await 读组织规则(), 改);
     if ("error" in 新) return { ok: false as const, error: 新.error };
     await 存组织规则(新);
@@ -322,7 +338,8 @@ export async function 预览超时回收(改: 规则改动) {
     const me = await requireUser();
     if (!(await 开着())) return 没开;
     if (!企业版()) return { ok: false as const, error: "组织规则是企业版的功能" };
-    if (me.role !== "ADMIN") return { ok: false as const, error: "组织规则只有老板能改" };
+    const 挡 = await 挡组织规则(me, 改);
+    if (挡) return { ok: false as const, error: 挡 };
     const 新 = 合上改动(await 读组织规则(), 改);
     if ("error" in 新) return { ok: false as const, error: 新.error };
     return { ok: true as const, 个数: await 超时预览(新), 团队: !!读团队() };

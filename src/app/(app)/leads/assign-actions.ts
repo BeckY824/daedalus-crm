@@ -14,6 +14,7 @@ import { getSetting, invalidateSettingsCache } from "@/lib/settings";
 import { 规则, 规则开着 } from "@/lib/enterprise/rules";
 import { 读组织, type 组织 } from "@/lib/enterprise/org";
 import { 查完再写 } from "@/lib/check-then-write";
+import { 读改权限, 谁能改的话 } from "@/lib/enterprise/edit-perm";
 import { 企业版 } from "@/lib/enterprise/switch";
 import { 发满额提醒, 读满额提醒, 关掉满额提醒, type 满额提醒 } from "@/lib/enterprise/lead-full-notice";
 import {
@@ -112,7 +113,7 @@ async function 不参与名单(): Promise<string[]> {
 }
 
 /**
- * 自动分配（D-38）：在职、能接这条线、参与自动分配、填了配额（不是 0）、本月没分满的人里，挑本月已分最少的；并列给最早进池的。
+ * 自动分配（D-38）：在职、能接这条线、参与自动分配、填了配额（不是 0）、本月没分满的人里，挑「本月已分 / 配额」比例最低的；并列给最早进池的。
  * 挑中以后走 分给()，配额、留痕和手动分一样；挑完到落库之间他被别人分满了，就顺延到下一个人。
  * 成了带上接手人、分完以后本月已分几条、配额、为什么挑他，界面直接拿去提示
  */
@@ -282,7 +283,8 @@ export async function 设配额(userId: string, quota: number | null): Promise<�
   try {
     const org = await 读组织();
     if (!org.成员.has(userId)) return { ok: false, error: "这个人不在组织里，或者已经停用" };
-    if (!能设配额(org, me, userId)) return { ok: false, error: "只有他的直属上级、虚线上级，或者老板、总管理员能设配额" };
+    const 改权限 = await 读改权限();
+    if (!能设配额(org, me, userId, 改权限)) return { ok: false, error: `线索配额${谁能改的话(改权限, "线索配额")}` };
     if (quota === null) await prisma.entLeadQuota.deleteMany({ where: { userId } });
     else await prisma.entLeadQuota.upsert({ where: { userId }, update: { quota, setById: me.id }, create: { userId, quota, setById: me.id } });
     const 人 = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
@@ -291,6 +293,7 @@ export async function 设配额(userId: string, quota: number | null): Promise<�
       summary: quota === null ? `取消 ${人?.name ?? userId} 的线索配额` : `把 ${人?.name ?? userId} 的线索配额设成每月 ${quota} 条`,
     });
     revalidatePath("/leads");
+    revalidatePath("/settings");
     return { ok: true };
   } catch (e) {
     return 不在了(e);
@@ -327,7 +330,8 @@ export async function 本月分配情况(): Promise<分配情况 | null> {
   const org = await 读组织();
   const 全看 = 能分配(org, me) || 能改参与(org, me);
   const 改参与 = 能改参与(org, me);
-  const 人们 = [...org.成员.values()].filter((m) => 接手问题(org, m.userId, null) === null && (全看 || 能设配额(org, me, m.userId)));
+  const 改权限 = await 读改权限();
+  const 人们 = [...org.成员.values()].filter((m) => 接手问题(org, m.userId, null) === null && (全看 || 能设配额(org, me, m.userId, 改权限)));
   const ids = 人们.map((m) => m.userId);
   const 月 = 月份();
   const [计数, 配额, 持有, 名字, 不参与] = await Promise.all([
@@ -350,6 +354,6 @@ export async function 本月分配情况(): Promise<分配情况 | null> {
     .map((m) => ({
       userId: m.userId, name: 人.get(m.userId)!.name, line: m.line,
       已分: 数.get(m.userId) ?? 0, 配额: 额.get(m.userId) ?? null, 持有: 持.get(m.userId) ?? 0,
-      参与: !停.has(m.userId), 能设配额: 能设配额(org, me, m.userId), 能改参与: 改参与,
+      参与: !停.has(m.userId), 能设配额: 能设配额(org, me, m.userId, 改权限), 能改参与: 改参与,
     }));
 }

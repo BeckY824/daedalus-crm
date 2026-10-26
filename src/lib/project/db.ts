@@ -12,6 +12,7 @@ import { 持有上限of, type 组织规则 } from "./org-rules";
 import { 企业版 } from "@/lib/enterprise/switch";
 import { 读组织, 直属上级of, 管理员类别of, type 组织 } from "@/lib/enterprise/org";
 import { 规则开着 } from "@/lib/enterprise/rules";
+import { 挡改设置 } from "@/lib/enterprise/edit-perm";
 import { 生效组织规则 } from "./org-rules-store";
 import { 超时回收日, 已超时, 超时理由, 超时起点 } from "./timeout";
 import { getSetting, setSetting } from "../settings";
@@ -99,6 +100,15 @@ export async function 角色字典(db: Prisma.TransactionClient = prisma) {
   return db.projectRole.findMany({ orderBy: [{ sort: "asc" }, { createdAt: "asc" }] });
 }
 
+/**
+ * 两本字典谁能改：不是企业版只有老板（和项目模式开关同一条规矩）；
+ * 企业版按「后台设置谁能改」的「异常类别、组员角色字典」一行，默认老板和总管理员（B2 第 6 条，10-26）
+ */
+async function 挡字典(me: 谁, 叫法: string): Promise<string | null> {
+  const 挡 = await 挡改设置(me, "字典");
+  return 挡 && `${叫法}${挡}`;
+}
+
 function 规整角色名(name: unknown): string | { error: string } {
   const n = typeof name === "string" ? name.trim() : "";
   if (!n) return { error: "角色名不能空着" };
@@ -106,9 +116,10 @@ function 规整角色名(name: unknown): string | { error: string } {
   return n;
 }
 
-/** 加一个角色，排在最后。只有老板能改字典（和项目模式开关同一条规矩） */
+/** 加一个角色，排在最后。谁能改见 挡字典 */
 export async function 加角色(me: 谁, name: unknown): Promise<结果 & { id?: string }> {
-  if (me.role !== "ADMIN") return { ok: false, error: "组员角色只有老板能改" };
+  const 挡 = await 挡字典(me, "组员角色");
+  if (挡) return { ok: false, error: 挡 };
   const n = 规整角色名(name);
   if (typeof n !== "string") return { ok: false, ...n };
   return 查完再写(async (tx) => {
@@ -127,7 +138,8 @@ export async function 加角色(me: 谁, name: unknown): Promise<结果 & { id?:
 
 /** 改角色名 / 停用 / 启用。不删：删了的只停用，已经用它的组员不丢 */
 export async function 改角色(me: 谁, id: string, patch: { name?: unknown; active?: boolean }): Promise<结果> {
-  if (me.role !== "ADMIN") return { ok: false, error: "组员角色只有老板能改" };
+  const 挡 = await 挡字典(me, "组员角色");
+  if (挡) return { ok: false, error: 挡 };
   const data: { name?: string; active?: boolean } = {};
   if (patch.name !== undefined) {
     const n = 规整角色名(patch.name);
@@ -167,9 +179,10 @@ function 规整类别名(name: unknown): string | { error: string } {
   return n;
 }
 
-/** 加一个异常类别，排在最后。只有老板能改字典；停用过的同名类别重新启用 */
+/** 加一个异常类别，排在最后。谁能改见 挡字典；停用过的同名类别重新启用 */
 export async function 加异常类别(me: 谁, name: unknown): Promise<结果 & { id?: string }> {
-  if (me.role !== "ADMIN") return { ok: false, error: "异常类别只有老板能改" };
+  const 挡 = await 挡字典(me, "异常类别");
+  if (挡) return { ok: false, error: 挡 };
   const n = 规整类别名(name);
   if (typeof n !== "string") return { ok: false, ...n };
   return 查完再写(async (tx) => {
@@ -187,7 +200,8 @@ export async function 加异常类别(me: 谁, name: unknown): Promise<结果 & 
 
 /** 改类别名 / 停用 / 启用。不删：停用的不能再选，已经在用它的项目不丢 */
 export async function 改异常类别(me: 谁, id: string, patch: { name?: unknown; active?: boolean }): Promise<结果> {
-  if (me.role !== "ADMIN") return { ok: false, error: "异常类别只有老板能改" };
+  const 挡 = await 挡字典(me, "异常类别");
+  if (挡) return { ok: false, error: 挡 };
   const data: { name?: string; active?: boolean } = {};
   if (patch.name !== undefined) {
     const n = 规整类别名(patch.name);
