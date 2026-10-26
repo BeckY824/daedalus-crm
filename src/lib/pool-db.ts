@@ -7,6 +7,7 @@ import { getBusiness } from "@/lib/business";
 import { getSetting, setSetting } from "@/lib/settings";
 import { recordAudit } from "@/lib/audit";
 import { 读团队 } from "@/lib/sync/client";
+import { 看全部 } from "@/lib/team-scope";
 import { dayjs } from "@/lib/utils";
 import { 不掉公海的状态, 公海截止, 自动理由 } from "@/lib/pool";
 
@@ -19,19 +20,30 @@ const 扫过键 = "poolSweptOn";
  *
  * **团队模式下每台只扫自己名下的**：自己的跟进本机最全。扫别人的，可能同事刚写的跟进还没拉到，
  * 就把他正在谈的人扔进了公海。一个库多人（托管版、自部署）大家看的是同一份数据，扫全部。
+ *
+ * 扫多大一片只看 读团队()，不看打开页面的人看得到多少（D12，同项目超时回收 Y18）：查、写都包在 看全部() 里。
+ * 原来不包：企业版按组织看客户开着时，请求带着打开页面那个人的范围，低权限的人先打开，只扫到自己 + 下属的客户，
+ * 却记成「全公司今天扫过了」，别人名下该掉的当天都不掉；团队版业务员（互看关着）先打开也一样只扫到自己的。
+ * 「今天扫过了」也只记扫过的那一片：团队模式只扫了自己名下的，记在自己的号上（同 Y18），不挡同一台上别人
  */
 export async function 自动掉公海(me: { id: string; name: string }, 今: Date = new Date()): Promise<number> {
+  return 看全部(() => 按天扫(me, 今));
+}
+
+async function 按天扫(me: { id: string; name: string }, 今: Date): Promise<number> {
   const b = await getBusiness();
   if (!b.poolDays) return 0;
   const 今天 = dayjs(今).format("YYYY-MM-DD");
-  if ((await getSetting<string>(扫过键)) === 今天) return 0;
+  const 只扫 = 读团队() ? me.id : undefined;
+  const 键 = 只扫 ? `${扫过键}:${只扫}` : 扫过键;
+  if ((await getSetting<string>(键)) === 今天) return 0;
 
   const 截止 = 公海截止(b.poolDays, 今);
   const 要掉 = await prisma.customer.findMany({
     where: {
       pool: null,
       followStatus: { notIn: [...不掉公海的状态] },
-      ...(读团队() ? { salesOwnerId: me.id } : {}),
+      ...(只扫 ? { salesOwnerId: 只扫 } : {}),
       OR: [{ lastFollowAt: { lt: 截止 } }, { lastFollowAt: null, createdAt: { lt: 截止 } }],
       // 领走以后也从领的那天重新算：领走当天没跟进，第二天不会又被扫回去（复查）
       AND: [{ OR: [{ claim: null }, { claim: { at: { lt: 截止 } } }] }],
@@ -51,7 +63,7 @@ export async function 自动掉公海(me: { id: string; name: string }, 今: Dat
       detail: { ids: 要掉.map((c) => c.id), poolDays: b.poolDays },
     });
   }
-  await setSetting(扫过键, 今天);
+  await setSetting(键, 今天);
   return 要掉.length;
 }
 

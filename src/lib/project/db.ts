@@ -20,6 +20,8 @@ import { recordAudit } from "../audit";
 import { 读团队 } from "../sync/client";
 import { dayjs } from "../utils";
 import { 看全部 } from "../team-scope";
+import { 公海规则 } from "@/lib/enterprise/pool-rules";
+import { 单项目客户跟进公海, 单项目客户跟着领 } from "@/lib/enterprise/pool-link";
 
 type 谁 = { id: string; role: string };
 type 结果 = { ok: true } | { ok: false; error: string };
@@ -444,8 +446,11 @@ export async function 放回公海(me: 谁, projectId: string): Promise<结果> 
     if (p.pooledAt) return { ok: false as const, error: "这个项目已经在公海里了" };
     if (me.id !== p.ownerId) return { ok: false as const, error: "只有项目负责人能放回公海" };
     if (!(能进公海的阶段 as readonly string[]).includes(p.phase)) return { ok: false as const, error: "订单阶段的项目不能放回公海" };
-    await tx.project.update({ where: { id: p.id }, data: { pooledAt: new Date(), nextStepAt: null } });
+    const 现在 = new Date();
+    await tx.project.update({ where: { id: p.id }, data: { pooledAt: 现在, nextStepAt: null } });
     await 记转让(tx, p, me.id, p.ownerId, null, "pool-release");
+    // 企业版：客户名下只有这一个项目，客户也一起进客户公海（pool-link.ts）
+    await 单项目客户跟进公海(tx, p, me.id, 现在);
     return { ok: true as const };
   });
 }
@@ -467,11 +472,14 @@ export async function 领取公海项目(me: 谁, projectId: string): Promise<�
       ? 领走了 : { ok: false as const, error: "这个项目已经不在了，刷新看看" };
     if (!p.pooledAt) return 领走了;
     if (!(await 在职(tx, me.id))) return { ok: false as const, error: "账号已停用" };
-    if (!企业版() && me.id === p.ownerId) return { ok: false as const, error: "自己放回公海的项目不能自己领回" };
+    // 企业版能不能领回看 公海规则（10-27 会上可能改）
+    if (!(企业版() && 公海规则.原负责人能领回) && me.id === p.ownerId) return { ok: false as const, error: "自己放回公海的项目不能自己领回" };
     const 超 = await 超上限(tx, 规则, me.id, p);
     if (超) return { ok: false as const, error: 超 };
     await tx.project.update({ where: { id: p.id }, data: { ownerId: me.id, pooledAt: null } });
     await 记转让(tx, p, me.id, p.ownerId, me.id, "pool-claim");
+    // 企业版：客户在客户公海里、名下只有这一个项目，客户一起领过来（pool-link.ts）
+    await 单项目客户跟着领(tx, p.customerId, me.id);
     return { ok: true as const };
   });
 }
@@ -520,6 +528,9 @@ export async function 超时预览(规则: 组织规则, 今: Date = new Date())
  * 扫、收都包在 看全部() 里：企业版网页上是谁打开页面就带着谁的范围（按组织看客户），低权限的人先触发时
  * 只查得到自己 + 下属的项目，却记成全公司扫过（质量 3700 复测）。扫多大一片只看上面的 只扫
  */
+/** 超时收回提醒的标题结尾。这条提醒是给原负责人的：客户跟着换人时不跟着转（carry-over-db 带走一位） */
+export const 收回提醒尾 = "已回到项目公海";
+
 export async function 公海超时收回(me: { id: string; name: string }, 今: Date = new Date()): Promise<number> {
   return 看全部(() => 按规则收回(me, 今));
 }
@@ -541,9 +552,10 @@ async function 按规则收回(me: { id: string; name: string }, 今: Date): Pro
       if (!现 || 现.ownerId !== p.ownerId || !超时了(规则, 现, 今)) return false;
       await tx.project.update({ where: { id: p.id }, data: { pooledAt: 今, nextStepAt: null } });
       await 记转让(tx, p, me.id, p.ownerId, null, "pool-release", 超时理由);
+      await 单项目客户跟进公海(tx, p, null, 今);
       await tx.task.create({
         data: {
-          title: `项目「${p.name}」在「${p.node}」超过处理时长没跟进，已回到项目公海`,
+          title: `项目「${p.name}」在「${p.node}」超过处理时长没跟进，${收回提醒尾}`,
           dueAt: 今, dueOn: dayjs(今).format("YYYY-MM-DD"), dueHasTime: false,
           customerId: p.customerId, ownerId: p.ownerId,
         },
