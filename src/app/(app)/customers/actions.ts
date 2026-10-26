@@ -11,7 +11,7 @@ import { 查完再写 } from "@/lib/check-then-write";
 import { 钉住老签约 } from "@/lib/contract-owner";
 import { revalidatePath } from "next/cache";
 import { prisma, defaultClient } from "@/lib/prisma";
-import { 看全部, 看得到, 读的我, 同事的客户, 只读话, 虚线只读挡, type 谁 } from "@/lib/team-scope";
+import { 看全部, 看得到, 读的我, 限定的我, 同事的客户, 只读话, 虚线只读挡, type 谁 } from "@/lib/team-scope";
 import { 同事撞号说法, type 查重种类 } from "@/lib/sync/dedupe";
 import { 问同事 } from "@/lib/sync/dedupe-client";
 import { requireUser } from "@/lib/auth";
@@ -630,10 +630,21 @@ async function 删除依赖错误(db: Prisma.TransactionClient, ids: string[], �
   return `以下${客户叫法}仍是其他档案的推荐来源或业绩归属，删除会断开推荐链，整批已阻止：${visible.filter(c => idsBlocked.has(c.id)).map(c => c.name).join("、")}。请先调整下游档案的推荐人或业绩归属，再删除。`;
 }
 
+/**
+ * 老板关了「业务员能删客户」（2026-10-26，防离职前删客户同步给全队）：业务员（团队里、不是老板）删不了，只能退回公海。
+ * 老板、一个人用、没进团队的都不挡
+ */
+async function 业务员不能删(b: { salesCanDelete?: boolean; customer: string }): Promise<string | null> {
+  if (b.salesCanDelete !== false || !(await 限定的我(defaultClient))) return null;
+  return `老板关掉了「业务员能删${b.customer}」：不想跟了可以退回公海；确实要删，请老板或业务主管来删`;
+}
+
 /** 先提示阻塞对象，避免让人走完不可恢复确认后才被拦。执行时仍在事务内再查。 */
 export async function 客户删除预检(ids: string[]): Promise<{ ok: true } | { ok: false; error: string }> {
   await requireUser();
   const b = await getBusiness();
+  const 不能删 = await 业务员不能删(b);
+  if (不能删) return { ok: false, error: 不能删 };
   // 虚线下属的客户：在「确认删除…不能恢复」之前就说清楚，不等删完报「已经在别处删掉了」
   const 虚线 = await 虚线只读挡(defaultClient, ids);
   if (虚线) return { ok: false, error: 虚线 };
@@ -649,6 +660,8 @@ export async function deleteCustomers(
   const me = await requireUser();
   const b = await getBusiness();
   if (!ids.length) return { ok: true, deleted: 0, 留下联系人: 0 };
+  const 不能删 = await 业务员不能删(b);
+  if (不能删) return { ok: false, error: 不能删 };
   const 虚线 = await 虚线只读挡(defaultClient, ids);
   if (虚线) return { ok: false, error: 虚线 };
 

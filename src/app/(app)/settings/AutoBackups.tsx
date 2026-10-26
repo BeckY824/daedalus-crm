@@ -3,12 +3,15 @@
 import { useEffect, useState } from "react";
 import { App, Button } from "antd";
 import dayjs from "dayjs";
+import BackupRescue from "./BackupRescue";
+import { 读备份列表 } from "./team-actions";
 
 /**
  * 设置 → 桌面端 →「本机数据」里那一列自动备份（2026-10-04，D-078 / J-242）。
  * 备份本身由壳在每次起本地服务前做（desktop/auto-backup.js）：每天第一次一份留 7 份、升级前一份留 3 份。
  * 这里只负责看得见、点得回：恢复前当前库会先另存一份「恢复前」，恢复错了还能再恢复回来。
  * 老版本的壳没有这两个口子，那时整块不出现。
+ * 每天那份另有「只捞回删掉的客户」（2026-10-26，BackupRescue）：不整库恢复，只把那天有、现在没有的客户补回来。只给老板 / 业务主管 / 个人版。
  */
 export type 自动备份项 = { 文件名: string; 类型: "每天" | "升级前" | "恢复前" | "合并前"; 时间: string; 大小: number };
 
@@ -20,6 +23,8 @@ export default function AutoBackups() {
   const { modal, message } = App.useApp();
   const [列表, set列表] = useState<自动备份项[] | null>(null);
   const [有口子, set有口子] = useState(false);
+  const [能捞, set能捞] = useState<Set<string>>(new Set());
+  const [捞, set捞] = useState<{ 文件: string; 何时: string } | null>(null);
 
   useEffect(() => {
     const s = window.desktopShell;
@@ -30,6 +35,7 @@ export default function AutoBackups() {
         set列表(x);
       })
       .catch(() => set列表([]));
+    void 读备份列表().then((x) => set能捞(new Set(x.map((b) => b.文件)))).catch(() => undefined);
   }, []);
 
   if (!有口子) return null;
@@ -64,6 +70,11 @@ export default function AutoBackups() {
                 {项.类型 === "升级前" && 说升级(项.文件名) ? ` · ${说升级(项.文件名)}` : ""}
               </span>
               <span className="auto-backups-size">{说大小(项.大小)}</span>
+              {能捞.has(项.文件名) && (
+                <Button size="small" onClick={() => set捞({ 文件: 项.文件名, 何时: dayjs(项.时间).format("M 月 D 日") })}>
+                  只捞回删掉的客户
+                </Button>
+              )}
               <Button size="small" onClick={() => 恢复(项)}>
                 恢复
               </Button>
@@ -71,6 +82,7 @@ export default function AutoBackups() {
           ))}
         </ul>
       )}
+      {捞 && <BackupRescue 文件={捞.文件} 何时={捞.何时} onClose={() => set捞(null)} />}
     </div>
   );
 }

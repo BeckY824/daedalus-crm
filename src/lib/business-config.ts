@@ -64,6 +64,11 @@ export type BusinessConfig = {
    * 默认关；关着时界面和老逻辑一处不变。和整个 business 一样只有老板（总管理）能改、随团队同步
    */
   projectMode: boolean;
+  /**
+   * 业务员能不能删客户（2026-10-26）：默认能（和以前一样）。老板关掉后业务员只能把客户退回公海，删除只有老板能做；
+   * 防业务员离职前把自己的客户删了同步给全队。和整个 business 一样只有老板能改、随团队同步。一个人用时不摆、不起作用
+   */
+  salesCanDelete: boolean;
 };
 
 export const DEFAULT_BUSINESS: BusinessConfig = {
@@ -85,6 +90,7 @@ export const DEFAULT_BUSINESS: BusinessConfig = {
   currency: "CNY",
   poolDays: 0,
   projectMode: false,
+  salesCanDelete: true,
 };
 
 /**
@@ -109,6 +115,7 @@ export const BUSINESS_PRESETS: Record<string, BusinessConfig> = {
     currency: "CNY",
     poolDays: 0,
     projectMode: false,
+    salesCanDelete: true,
   },
   外贸出口: {
     brief:
@@ -132,6 +139,7 @@ export const BUSINESS_PRESETS: Record<string, BusinessConfig> = {
     currency: "USD",
     poolDays: 0,
     projectMode: false,
+    salesCanDelete: true,
   },
 };
 
@@ -370,5 +378,6 @@ export function mergeBusiness(partial: Partial<BusinessConfig> | null | undefine
     currency: 规整币种(p.currency, (p.template === "trade" || (p.template == null && 推断模版(p) === "trade")) ? "USD" : "CNY"),
     poolDays: 公海天数(p.poolDays),
     projectMode: p.projectMode === true,
+    salesCanDelete: p.salesCanDelete !== false,
   };
 }

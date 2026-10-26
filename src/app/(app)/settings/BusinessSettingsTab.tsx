@@ -51,7 +51,7 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
     // 摆着这一项时清空 = 不开（存 0）；没摆时表单里没有它，照原值存回去，别悄悄关掉（表单公海天数，T-044 有用例）
     try {
       // 项目模式同理：没摆（一个人用）时照原值存回去
-      const res = await saveBusinessSettings({ ...v, poolDays: 表单公海天数(v.poolDays, 多人, value.poolDays), projectMode: 多人 ? v.projectMode === true : value.projectMode });
+      const res = await saveBusinessSettings({ ...v, poolDays: 表单公海天数(v.poolDays, 多人, value.poolDays), projectMode: 多人 ? v.projectMode === true : value.projectMode, salesCanDelete: 多人 ? v.salesCanDelete !== false : value.salesCanDelete });
       if (res.ok) {
         set套了(null);
         message.success(res.补了来源 ? `已保存，全站措辞已更新；${res.补了来源} 位${v.customer ?? "客户"}的来源从渠道 / 线索补了过来` : "已保存，全站措辞已更新");
@@ -79,7 +79,7 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
     const 叫法 = Object.fromEntries(RELABELABLE_STATUSES.map((k) => [k, 预设.statusLabels?.[k] ?? ""]));
     // 阶段名同理，五个都显式填：从外贸切回通用时「询盘」这套要清掉
     const 阶段叫法 = Object.fromEntries(OPP_STAGES.map((k) => [k, 预设.stageLabels?.[k] ?? ""]));
-    form.setFieldsValue({ ...预设, statusLabels: 叫法, stageLabels: 阶段叫法, poolDays: form.getFieldValue("poolDays") ?? value.poolDays, projectMode: form.getFieldValue("projectMode") ?? value.projectMode });
+    form.setFieldsValue({ ...预设, statusLabels: 叫法, stageLabels: 阶段叫法, poolDays: form.getFieldValue("poolDays") ?? value.poolDays, projectMode: form.getFieldValue("projectMode") ?? value.projectMode, salesCanDelete: form.getFieldValue("salesCanDelete") ?? value.salesCanDelete });
     set套了(名);
   }
   function 放弃() {
@@ -147,6 +147,16 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
             label="项目模式"
             valuePropName="checked"
             extra={`打开后侧栏多一项「项目」，新建${value.customer}、线索、商机改走建档向导，一单生意从线索到交付记在一个项目里；已有的线索、商机、订单照旧。开关全团队一份；项目本身暂时只存在建它的那台电脑上，还不在团队里同步，同事那边看不到、也领不到公海里的项目。手机端暂时还按原来的方式新建。`}
+          >
+            <Switch />
+          </Form.Item>
+        )}
+        {多人 && (
+          <Form.Item
+            name="salesCanDelete"
+            label={`业务员能删${value.customer}`}
+            valuePropName="checked"
+            extra={`关掉后业务员不能删${value.customer}，不想跟了只能退回公海；只有你和业务主管能删。防有人离职前把自己的${value.customer}删掉、同步给全队。同事删掉、同步过来的，在「设置 → 团队」的「同事删掉的${value.customer}」里留 30 天，能找回。`}
           >
             <Switch />
           </Form.Item>
