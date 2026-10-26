@@ -1,10 +1,10 @@
 /**
  * 企业版沟通记录编号（2026-10-26）：项目上的每条沟通记一个 FUL + yyyyMMdd + 6 位当天流水，和这条的下一步时间
  * （时限提醒按它算，见 blocker-rules.ts 时限提醒of）。项目上记沟通、建档向导的首条跟进都走这里。
- * 只用传进来的 tx；不是企业版什么都不写
+ * 只用传进来的 tx；不是企业版什么都不写。
+ * 建档向导（客户端组件 ProjectWizard 引 wizard.ts）也引这里，所以不能带 prisma：读编号的 沟通编号们 在 blocker.ts
  */
 import type { Prisma } from "@/generated/prisma";
-import { prisma } from "../prisma";
 import { 企业版 } from "@/lib/enterprise/switch";
 import { 沟通编号前缀, 拼编号, 编号日, 下一个流水 } from "./blocker-rules";
 
@@ -22,11 +22,4 @@ export async function 记沟通编号(
   const code = 拼编号(沟通编号前缀, now, 下一个流水(最大[0]?.code, 沟通编号前缀, now), 6);
   await tx.entFollowUpMeta.create({ data: { followUpId, projectId, code, nextAt } });
   return code;
-}
-
-/** 项目详情里每条沟通的编号和下一步时间（不是企业版给空的） */
-export async function 沟通编号们(followUpIds: string[]): Promise<Map<string, { code: string; nextAt: Date | null }>> {
-  if (!企业版() || !followUpIds.length) return new Map();
-  const 们 = await prisma.entFollowUpMeta.findMany({ where: { followUpId: { in: followUpIds } }, select: { followUpId: true, code: true, nextAt: true } });
-  return new Map(们.map((m) => [m.followUpId, { code: m.code, nextAt: m.nextAt }]));
 }

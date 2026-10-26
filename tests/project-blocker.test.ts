@@ -18,7 +18,7 @@ import {
   发布卡点, 指认卡点, 认领卡点, 接受卡点, 转让卡点, 返回卡点, 改卡点进度, 解决卡点, 交接卡点, 项目的卡点, 我的卡点, 卡点可选的人,
   存卡点默认, 读卡点默认, 离职交接理由, 能发卡点,
 } from "@/lib/project/blocker";
-import { 沟通编号们 } from "@/lib/project/followup-meta";
+import { 沟通编号们 } from "@/lib/project/blocker";
 import { 时限提醒of, 编号日, 规整发布, 默认卡点默认 } from "@/lib/project/blocker-rules";
 import { invalidateSettingsCache, setSetting } from "@/lib/settings";
 

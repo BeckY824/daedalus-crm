@@ -423,3 +423,10 @@ export async function 卡点可选的人(me: 谁, projectId: string): Promise<{ 
     return us.map((u) => ({ id: u.id, name: u.name || u.email }));
   });
 }
+
+/** 项目详情里每条沟通的编号和下一步时间（不是企业版给空的） */
+export async function 沟通编号们(followUpIds: string[]): Promise<Map<string, { code: string; nextAt: Date | null }>> {
+  if (!企业版() || !followUpIds.length) return new Map();
+  const 们 = await prisma.entFollowUpMeta.findMany({ where: { followUpId: { in: followUpIds } }, select: { followUpId: true, code: true, nextAt: true } });
+  return new Map(们.map((m) => [m.followUpId, { code: m.code, nextAt: m.nextAt }]));
+}

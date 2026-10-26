@@ -10,8 +10,7 @@ import { 读组织 } from "@/lib/enterprise/org";
 import { 生效组织规则 } from "@/lib/project/org-rules-store";
 import { 超时回收日, 超时起点 } from "@/lib/project/timeout";
 import { dayjs } from "@/lib/utils";
-import { 沟通编号们 } from "@/lib/project/followup-meta";
-import { 项目的卡点, 能发卡点, 读卡点默认, 卡点可选的人, 卡点给界面 } from "@/lib/project/blocker";
+import { 项目的卡点, 能发卡点, 读卡点默认, 卡点可选的人, 卡点给界面, 沟通编号们 } from "@/lib/project/blocker";
 import { 时限提醒of } from "@/lib/project/blocker-rules";
 import ProjectDetail, { type 项目详情, type 项目卡点 } from "./ProjectDetail";
 
