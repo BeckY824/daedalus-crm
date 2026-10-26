@@ -240,15 +240,19 @@ function WizardBody({ users, 要下一步, 企业版, 全名, 旧 }: { users: �
             </Space.Compact>
           ), true)}
           {企查 && 已查 === 查过键(d, true) && (
-            企查.ok && 企查.状态 === "首次录入" ? <Alert type="success" showIcon title={企查.提示} />
+            企查.ok && 企查.状态 === "首次录入" ? <Alert type="success" showIcon title={企查.提示} description={企查.归属地 ? `归属地：${企查.归属地}` : undefined} />
             : !企查.ok ? <Alert type="warning" showIcon title={企查.提示} />
             : (
               <Alert
                 type="error"
                 showIcon
                 title={企查.提示}
-                description={企查.撞?.id ? (
-                  <span><Link href={`/customers/${企查.撞.id}`}>{企查.撞.name}</Link>{企查.撞.school ? ` · ${企查.撞.school}` : ""} · 在 {企查.撞.salesOwnerName} 名下</span>
+                description={企查.撞?.id || 企查.归属地 ? (
+                  <span>
+                    {企查.撞?.id && <><Link href={`/customers/${企查.撞.id}`}>{企查.撞.name}</Link>{企查.撞.school ? ` · ${企查.撞.school}` : ""} · 在 {企查.撞.salesOwnerName} 名下</>}
+                    {企查.撞?.id && 企查.归属地 ? " · " : ""}
+                    {企查.归属地 ? `归属地：${企查.归属地}` : ""}
+                  </span>
                 ) : undefined}
               />
             )
