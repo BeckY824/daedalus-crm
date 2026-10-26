@@ -17,6 +17,8 @@ import { 超时理由 } from "@/lib/project/timeout";
 import { 改项目节点, 勾项目交付, 删除项目, 放回项目公海, 领取项目, 记项目沟通Action } from "../actions";
 import type { 可选成员 } from "@/lib/utils";
 import { ProjectEditModal, ProjectTeamCard, type 组员, type 角色, type 联系人 } from "./ProjectTeam";
+import { ProjectCommissionCard } from "./ProjectCommission";
+import type { 提成卡 } from "@/lib/project/commission";
 
 export type 项目详情 = {
   id: string; name: string; remark: string | null; amount: number; currency: string;
@@ -56,6 +58,8 @@ export type 项目详情 = {
   }[];
   followUps: { id: string; type: string; content: string; occurredAt: string; who: string; node: string }[];
   members: 组员[];
+  /** 企业版提成卡：不是企业版、我看不了（不是组长 / 组员 / 管理员 / 上级）= null，卡片不出 */
+  提成: 提成卡 | null;
   /** 删项目时一起删掉的：节点留痕（含转让痕）、项目组、沟通和项目的关联 */
   删前清点: { 留痕: number; 组员: number; 沟通: number };
 };
@@ -333,6 +337,12 @@ export default function ProjectDetail({
       <div style={{ marginBottom: 16 }}>
         <ProjectTeamCard projectId={p.id} 组员们={p.members} 角色们={角色们} 在职={在职} 能改={可改} 忙={忙} 跑={跑} 企业版={p.企业版} 组长={p.ownerName} />
       </div>
+
+      {p.提成 && (
+        <div style={{ marginBottom: 16 }}>
+          <ProjectCommissionCard key={`${p.提成.项目底价}-${p.提成.实际?.固定于 ?? ""}`} projectId={p.id} t={p.提成} 忙={忙} 跑={跑} />
+        </div>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16 }}>
         <Card title="节点变更">

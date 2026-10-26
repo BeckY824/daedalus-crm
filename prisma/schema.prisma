@@ -897,9 +897,12 @@ model Project {
   /// 有结局的那一刻；回到进行中就清掉
   closedAt             DateTime?
 
-  members   ProjectMember[]
-  logs      ProjectNodeLog[]
-  followUps FollowUpProject[]
+  members             ProjectMember[]
+  logs                ProjectNodeLog[]
+  followUps           FollowUpProject[]
+  /// 企业版提成（迁移 051）：提成表一份、组长分给组员的比例
+  entCommission       EntCommission?
+  entCommissionSplits EntCommissionSplit[]
 
   @@index([customerId])
   @@index([ownerId])
@@ -1216,4 +1219,42 @@ model EntLeadQuota {
   /// 最后一次是谁设的
   setById   String
   updatedAt DateTime @updatedAt
+}
+
+/// 企业版提成表（2026-10-26，迁移 051）：每个项目一份。成交金额就是 Project.amount（同币种），这里只存人填的项目底价，
+/// 和赢单（商机 → 订单）那一刻按当时的比例算出来固定的实际提成。比例存 Setting（entCommissionRates），算法在 lib/project/commission.ts。
+/// 只在企业版写；退回商机清掉固定的那几列，再赢单按那时的比例重算。指向人的列不建外键
+model EntCommission {
+  projectId        String    @id
+  project          Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// 项目底价（对方表里的「项目底价」）；null = 还没填，赢单时没填就先不固定，填上那一刻再固定
+  basePrice        Float?
+  /// 最后改底价的人
+  updatedById      String?
+  /// 实际提成固定下来的时间；null = 还没赢单（只显示预估）
+  fixedAt          DateTime?
+  /// 固定那一刻的成交金额（Project.amount）、底价、两个比例（百分数，2 = 2%）、算出的提成合计
+  fixedDeal        Float?
+  fixedBase        Float?
+  fixedRateBase    Float?
+  fixedRatePremium Float?
+  fixedTotal       Float?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+/// 企业版提成分配（2026-10-26，迁移 051）：组长（项目负责人）分给已进组（JOINED）组员的百分比，合计 ≤ 100，剩下的归组长。
+/// 组长自己不占一行；人退组 / 没同意时他那一行不算，那份回到组长。指向人的列不建外键
+model EntCommissionSplit {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  /// 百分数，0 < percent ≤ 100，最多两位小数
+  percent   Float
+  /// 最后一次是谁分的
+  setById   String
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, userId])
 }

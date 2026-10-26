@@ -7,6 +7,8 @@ import { 加组员角色, 改组员角色, 加项目异常类别, 改项目异�
 import { 上限最大, 时长最大, type 组织规则, type 规则改动 } from "@/lib/project/org-rules";
 import { 节点们 } from "@/lib/project/nodes";
 import { 必填项们, 必填叫法, 能配必填的节点, 建议必填 } from "@/lib/project/required";
+import { 改提成比例 } from "@/app/(app)/projects/commission-actions";
+import { 提成比例问题, type 提成比例 } from "@/lib/project/commission";
 
 type 字典项 = { id: string; name: string; active: boolean; 用的人: number };
 type 结果 = Promise<{ ok: boolean; error?: string }>;
@@ -24,6 +26,10 @@ export type 项目设置 = {
    * 不是企业版只有老板能改；共享试用区谁都不能改）
    */
   挡: Record<"字典" | "持有上限" | "节点时限" | "必填字段", string | null>;
+  /** 企业版提成比例 A（底价）/ B（溢价），百分数；不是企业版 = null，卡片不出（服务端读的 企业版()） */
+  提成比例: 提成比例 | null;
+  /** 老板、总管理员能改提成比例 */
+  能改提成比例: boolean;
 };
 
 /**
@@ -70,6 +76,7 @@ export default function ProjectSettingsTab({ value, 成员 }: { value: 项目设
       {value.组织规则 && <HoldCapCard 规则={value.组织规则.公海} 持有={value.持有} 成员={成员} 挡={value.挡.持有上限} 忙={忙} 跑={跑} />}
       {value.组织规则 && <TimeoutCard 规则={value.组织规则.超时回收} 挡={value.挡.节点时限} 忙={忙} 跑={跑} />}
       {value.组织规则 && <AdvanceCard 规则={value.组织规则.节点推进} 挡={value.挡.必填字段} 忙={忙} 跑={跑} />}
+      {value.提成比例 && <RatesCard 比例={value.提成比例} 能改={value.能改提成比例} 忙={忙} 跑={跑} />}
     </div>
   );
 }
@@ -352,6 +359,42 @@ function AdvanceCard({
             </Space>
           )}
         </>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * 提成比例（企业版）：底价提成 = 项目底价 × A，溢价提成 = 项目溢价 × B。老板、总管理员能改，每次改动进操作记录。
+ * 改了以后没赢单的项目预估马上按新比例算；已经赢单的实际提成不变
+ */
+function RatesCard({
+  比例, 能改, 忙, 跑,
+}: {
+  比例: 提成比例; 能改: boolean; 忙: boolean; 跑: (f: () => 结果, 成了?: string) => Promise<boolean>;
+}) {
+  const [A, setA] = useState<number | null>(比例.底价比例);
+  const [B, setB] = useState<number | null>(比例.溢价比例);
+  const 问题 = 提成比例问题({ 底价比例: A ?? undefined, 溢价比例: B ?? undefined });
+  const 改了 = A !== 比例.底价比例 || B !== 比例.溢价比例;
+  return (
+    <Card title="提成比例" extra={!能改 && <span style={{ color: "var(--text-muted)" }}>只有老板、总管理员能改</span>}>
+      <div style={{ color: "var(--text-muted)", marginBottom: 12 }}>
+        底价提成 = 项目底价 × 底价比例；溢价提成 =（成交金额 − 项目底价）× 溢价比例，成交金额低于底价时溢价算 0。改了以后，还没赢单的项目按新比例预估；已经赢单的实际提成不变。
+      </div>
+      <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
+        <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+          底价比例
+          <InputNumber<number> aria-label="底价提成比例" min={0} max={100} precision={2} suffix="%" style={{ width: 120 }} disabled={!能改} value={A} onChange={(v) => setA(v)} />
+        </span>
+        <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+          溢价比例
+          <InputNumber<number> aria-label="溢价提成比例" min={0} max={100} precision={2} suffix="%" style={{ width: 120 }} disabled={!能改} value={B} onChange={(v) => setB(v)} />
+        </span>
+      </div>
+      {能改 && 改了 && 问题 && <div style={{ color: "var(--danger-text)", marginBottom: 8 }}>{问题}</div>}
+      {能改 && (
+        <Button type="primary" disabled={忙 || !改了 || !!问题} onClick={() => void 跑(() => 改提成比例({ 底价比例: A!, 溢价比例: B! }), "已保存提成比例")}>保存</Button>
       )}
     </Card>
   );

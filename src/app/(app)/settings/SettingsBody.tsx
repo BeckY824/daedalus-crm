@@ -19,6 +19,7 @@ import { getSetting } from "@/lib/settings";
 import { 读改权限, 能改设置, 谁能改的话, type 设置项名 } from "@/lib/enterprise/edit-perm";
 import type { 组织架构 } from "./OrgTab";
 import { 本月分配情况 } from "../leads/assign-actions";
+import { 读提成比例, 能改提成比例 } from "@/lib/project/commission-db";
 
 /**
  * 设置的正文（服务端组件，负责取数）。**两条路由共用它**：
@@ -68,7 +69,9 @@ export default async function SettingsBody() {
         企业版() ? 读组织规则() : null,
         // 每人手上的线索 / 商机项目数，和 lib/project/db.ts 持有数 同一个口径
         !企业版() ? [] : prisma.project.groupBy({ by: ["ownerId"], where: { pooledAt: null, result: null, phase: { in: [...能进公海的阶段] } }, _count: { _all: true } }),
-      ]).then(([角色, 用量, 类别, 类别用量, 组织规则, 持有]) => {
+        // 提成比例 A / B 只企业版有：别的版本不读、卡片不出
+        企业版() ? 读提成比例() : null,
+      ]).then(([角色, 用量, 类别, 类别用量, 组织规则, 持有, 提成比例]) => {
         const 用 = new Map(用量.map((x) => [x.roleId, x._count._all]));
         const 类别用 = new Map(类别用量.map((x) => [x.exceptionCategoryId, x._count._all]));
         return {
@@ -76,6 +79,8 @@ export default async function SettingsBody() {
           类别们: 类别.map((c) => ({ id: c.id, name: c.name, active: c.active, 用的人: 类别用.get(c.id) ?? 0 })),
           组织规则,
           持有: Object.fromEntries(持有.map((x) => [x.ownerId, x._count._all])),
+          提成比例,
+          能改提成比例: false,
         };
       })
     : null;
@@ -136,7 +141,7 @@ export default async function SettingsBody() {
 
   return (
     <SettingsView
-      项目设置={项目设置}
+      项目设置={项目设置 && { ...项目设置, 能改提成比例: !!项目设置.提成比例 && !共享区 && 能改提成比例(me, org) }}
       组织架构={组织架构}
       me={me}
       /**
