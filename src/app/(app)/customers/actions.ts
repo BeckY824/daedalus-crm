@@ -40,6 +40,8 @@ import type { 带走数, 转走项目预览 } from "@/lib/carry-over";
 import { 带走没做完的, 带走并记下, 还项目, 数转走的项目, type 带走的 } from "@/lib/carry-over-db";
 import { 记换负责人 } from "@/lib/owner-log-db";
 import { 企业版 } from "@/lib/enterprise/switch";
+import { 验号码 } from "@/lib/enterprise/contact-format";
+import { 企业号码查重, 全公司查号, 撞号结论, 记号码 } from "@/lib/enterprise/contact-dedupe";
 import { setOppStatus } from "../opportunities/actions";
 import { 认得 } from "@/lib/project/hook";
 import { 客户的项目数 } from "@/lib/project/db";
@@ -95,6 +97,12 @@ export type CustomerInput = {
   channelOwnerId?: string | null;
   /** 外贸档案（2026-10-05，外贸模版的表单才交）：国家、WhatsApp、微信、邮箱、来源。不给 = 不碰 */
   extra?: Partial<Record<keyof 外贸档案, string | null>>;
+  /**
+   * 企业版建档向导选了号码类型的那个号码（2026-10-26，lib/enterprise/contact-format.ts）。
+   * 只在 企业版() 下、新建时认：按类型验格式、全公司查重；记进联系方式子表 ContactMethod，老列照写（手机号当电话存，邮箱 / 微信存进 CustomerExtra）。
+   * 开关关着、编辑时一律不看
+   */
+  企业号码?: { 类型: string; 值: string } | null;
 };
 
 /** 编辑框里可改的那部分字段，用作并发比对的基准快照 */
@@ -189,6 +197,20 @@ export async function saveCustomer(input: CustomerInput, 接着?: unknown): Prom
   if (改前) await 钉住老签约();
 
   /*
+    企业版建档选了号码类型的（2026-10-26，测试清单 B2–B8）：先按类型验格式，再全公司查重（客户、联系人、旺旺号都比），
+    撞了照对方系统的提示原文挡下。选的是手机号就当电话用（下面电话那套照走）；选别的类型的，这位可以没有电话。
+    开关关着这段整个不走：交了 企业号码 也不看，电话照旧必填
+  */
+  const 企号 = 企业版() && !改前 && input.企业号码 ? 验号码(input.企业号码.类型, input.企业号码.值) : null;
+  if (企号 && !企号.ok) return { ok: false, error: 企号.提示 };
+  if (企号) {
+    const 结论 = await 企业号码查重(prisma, 企号, me.id, await 读的我(defaultClient));
+    if (结论.状态 !== "首次录入") return { ok: false, error: 结论.提示 };
+  }
+  const 企号别的 = 企号?.ok === true && 企号.类型 !== "手机号";
+  const 交的电话 = 企号?.ok && 企号.类型 === "手机号" ? 企号.值 : input.phone;
+
+  /*
     电话：和导入、表单同一条规矩（lib/phone.ts）。新建必填；编辑时原来有号码的不许清空，
     原来就没有的可以继续空着。**原样没动的号码不重新规整**——库里老数据的写法
     不该因为人改了一下备注就被悄悄换掉，留痕里平白多一条「手机号」。
@@ -197,9 +219,9 @@ export async function saveCustomer(input: CustomerInput, 接着?: unknown): Prom
   /*
     外贸：电话空着、填了 WhatsApp 的，WhatsApp 号就当电话认人（二审：海外客户常常只有 WhatsApp，和导入同一条规矩）
   */
-  const 填的电话 = !String(input.phone ?? "").trim() && b.template === "trade" && typeof input.extra?.whatsapp === "string" && !input.extra.whatsapp.includes("*")
+  const 填的电话 = !String(交的电话 ?? "").trim() && b.template === "trade" && typeof input.extra?.whatsapp === "string" && !input.extra.whatsapp.includes("*")
     ? input.extra.whatsapp
-    : input.phone;
+    : 交的电话;
   const 原号 = String(认回打码号(填的电话, 改前?.phone) ?? "").trim();
   /*
     外贸：电话、WhatsApp 都没有的，按邮箱认人（2026-10-07 拍板，lib/email-dedupe.ts）。没交 extra 的（别的入口）当邮箱没动，用库里那格
@@ -221,7 +243,7 @@ export async function saveCustomer(input: CustomerInput, 接着?: unknown): Prom
   const 按邮箱认 = 外贸 && !原号 && Boolean(交的邮箱);
   const 按微信认 = 外贸 && !原号 && !交的邮箱 && Boolean(交的微信);
   const 按阿里认 = 外贸 && !原号 && !交的邮箱 && !交的微信 && Boolean(交的阿里);
-  const 电话 = 改前 && 原号 === 改前.phone ? { ok: true as const, phone: 改前.phone } : 查电话(原号, { 必填: 改前 ? Boolean(改前.phone) : !按邮箱认 && !按微信认 && !按阿里认 });
+  const 电话 = 改前 && 原号 === 改前.phone ? { ok: true as const, phone: 改前.phone } : 查电话(原号, { 必填: 改前 ? Boolean(改前.phone) : !按邮箱认 && !按微信认 && !按阿里认 && !企号别的 });
   if (!电话.ok) return { ok: false, error: 外贸 && !改前 && !原号 ? 外贸至少一种 : 电话.error };
   const phone = 电话.phone;
   // 按邮箱 / 微信认的那位（没有电话）把两样都清空，就再也认不出是谁了：不许，和「原来有号码的不许清空」同一条
@@ -397,11 +419,18 @@ export async function saveCustomer(input: CustomerInput, 接着?: unknown): Prom
         const dup = await 看全部(async () => tx.customer.findFirst({ where: await 同邮箱条件(tx, 交的邮箱), select: 撞到的字段 }));
         if (dup) return { 撞号: dup } as const;
       }
+      // 企业版选了号码类型的：事务里再全公司比一次（同上，两个窗口同时建）
+      if (企号) {
+        const ids = await 全公司查号(tx, 企号.类型, 企号.值, 企号.键);
+        if (ids.length) return { 企撞: ids } as const;
+      }
       const created = await tx.customer.create({ data });
-      await 写外贸档案(tx, created.id, 档案.data, false);
+      await 写外贸档案(tx, created.id, { ...档案.data, ...(企号?.类型 === "邮箱" ? { email: 企号.值 } : 企号?.类型 === "微信" ? { wechat: 企号.值 } : {}) }, false);
+      if (企号) await 记号码(tx, created.id, null, 企号);
       if (认得(接着)) await 接着(tx, created.id);
       return { created } as const;
     });
+    if ("企撞" in 建了 && 建了.企撞) return { ok: false, error: (await 撞号结论(prisma, 建了.企撞, me.id, await 读的我(defaultClient))).提示 };
     if ("撞号" in 建了 && 建了.撞号) return { ok: false, error: 撞号说法(phone ? `手机号 ${phone}` : `邮箱 ${交的邮箱}`, 建了.撞号, await 读的我(defaultClient), b.customer) };
     const { created } = 建了;
     await recordAudit({

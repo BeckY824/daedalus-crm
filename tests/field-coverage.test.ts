@@ -297,6 +297,16 @@ const 派生: Record<string, Record<string, string>> = {
     count: "快照里几条对照",
     data: "切换那一刻的全部对照和原始记录，留档，不给改",
   },
+  // 企业版联系方式子表（2026-10-26）：建档时照客户 / 联系人上的号系统写，人改号码改的是原来那几格
+  ContactMethod: {
+    customerId: "哪位客户，建档时系统写",
+    contactId: "哪位联系人的号；客户本身的号为空，建档时系统写",
+    kind: "号码类型，照建档时选的写",
+    value: "规整后的号，照建档时填的写",
+    numberKey: "查重用的规整值，从号算出来",
+    formatStatus: "格式校验结果，系统判",
+    region: "号码归属地，从离线号段库算出来",
+  },
   /*
     商机 / 订单的附件（2026-10-22 D-24，lib/attachments.ts）：文件存进去以后不再改，要换就是删了再传。
     传的时候 POST /api/attachments 落一整行，之后只能 DELETE，没有改的入口

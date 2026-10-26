@@ -157,6 +157,8 @@ model Customer {
   projects      Project[]
   creator       CustomerCreator?
   ownerLogs     CustomerOwnerLog[]
+  /// 企业版联系方式子表（migrations/054）。见 ContactMethod
+  contactMethods ContactMethod[]
 
   @@index([phone])
   @@index([salesOwnerId])
@@ -234,6 +236,8 @@ model Contact {
   followUps FollowUp[]
   /// 作为主联系人的项目（2026-10-23 项目模式 1a）
   projects  Project[]
+  /// 企业版联系方式子表里挂在这位身上的号（migrations/054）
+  contactMethods ContactMethod[]
 
   @@index([customerId])
 }
@@ -1207,6 +1211,34 @@ model EntLeadAssign {
   @@index([toUserId, month])
   @@index([fromUserId])
   @@index([leadId])
+}
+
+/// 企业版联系方式子表（2026-10-26，测试清单 B1 / B5 / B8，融合对照 §2 / §8.1 B1，migrations/054）。一行一个号。
+/// 企业版建档向导写：选了号码类型的那个号（contactId 空）+ 联系人那一步的电话 / 邮箱 / 微信（挂 contactId）。
+/// 全公司查重按 kind + numberKey 比（lib/enterprise/contact-dedupe.ts）。老号码还在 Customer.phone / Contact / CustomerExtra，
+/// 这一版照写老列、查重两边都比；以后一次性回填进来再改成只读这张表（PR 说明里写了怎么迁）
+model ContactMethod {
+  id           String   @id @default(cuid())
+  customerId   String
+  customer     Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// 挂在哪位联系人上；空 = 客户本身的号（建档时选了号码类型的那个）。联系人删了号还留在客户上
+  contactId    String?
+  contact      Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  /// phone / email / wechat / wangwang（lib/enterprise/contact-dedupe.ts 的 号码库类型）
+  kind         String
+  /// 规整后存的样子（验号码 的 值：国内手机 11 位、国外 +区号…；旺旺去掉空格和符号，保留 : 子账号）
+  value        String
+  /// 查重比对用的规整值（验号码 的 键：手机去掉 +，邮箱 / 微信 / 旺旺小写）
+  numberKey    String
+  /// 格式结果：ok = 过了 验号码；以后回填老数据时验不过的记 验号码 的状态（格式错误 / 无法识别），不挡、只标
+  formatStatus String   @default("ok")
+  /// 归属地（手机号才有：国内按离线号段「省 市 运营商」，国外是国家名；lib/enterprise/phone-region.ts）
+  region       String?
+  createdAt    DateTime @default(now())
+
+  @@index([customerId])
+  @@index([contactId])
+  @@index([kind, numberKey])
 }
 
 /// 企业版每人每月最多接几条分配的线索。没有这一行 = 不限。直属上级、虚线上级、总管理员、老板能设
