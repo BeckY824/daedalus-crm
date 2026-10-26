@@ -31,6 +31,8 @@ const 跳过构建 = process.argv.includes("--no-build");
 const 构建期环境 = {
   ...process.env,
   NEXT_TELEMETRY_DISABLED: "1",
+  // 打包机（macOS runner 7GB）上 next build 默认堆上限不够，0.46.29 两次都 heap out of memory
+  NODE_OPTIONS: [process.env.NODE_OPTIONS, "--max-old-space-size=6144"].filter(Boolean).join(" "),
   DATABASE_URL: `file:${path.join(os.tmpdir(), "desktop-build.db").replaceAll("\\", "/")}`,
   CONTROL_DATABASE_URL: `file:${path.join(os.tmpdir(), "desktop-build-control.db").replaceAll("\\", "/")}`,
   // next build 跑的是 NODE_ENV=production，而 auth.ts 在模块顶层就校验密钥长度，
