@@ -8,9 +8,11 @@ import { 负责人候选 } from "@/lib/owners";
 import { 企业版 } from "@/lib/enterprise/switch";
 import { 读组织 } from "@/lib/enterprise/org";
 import { 生效组织规则 } from "@/lib/project/org-rules-store";
-import { 超时回收日, 超时起点 } from "@/lib/project/timeout";
+import { 超时回收日, 超时起点, 超时理由, 系统 } from "@/lib/project/timeout";
+import { 停用项目进公海理由 } from "@/lib/offboard-db";
+import { 拦原负责人, 原负责人不能领回提示 } from "@/lib/enterprise/pool-rules";
 import { dayjs } from "@/lib/utils";
-import ProjectDetail, { type 项目详情 } from "./ProjectDetail";
+import ProjectDetail, { type 项目详情, type 放回方式 } from "./ProjectDetail";
 
 export const dynamic = "force-dynamic";
 
@@ -54,7 +56,13 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   for (const x of [p.balanceSettledById, p.acceptancePassedById]) if (x) 人id.add(x);
   const 人 = await prisma.user.findMany({ where: { id: { in: [...人id] } }, select: { id: true, name: true } });
   const 名 = new Map(人.map((u) => [u.id, u.name]));
-  const 叫 = (uid: string | null) => (uid ? 名.get(uid) ?? "已不在的成员" : null);
+  // 超时回收记在「系统」名下（timeout.ts 系统，QA #16），不是真成员
+  const 叫 = (uid: string | null) => (uid ? (uid === 系统.id ? 系统.name : 名.get(uid) ?? "已不在的成员") : null);
+  // 怎么进的公海：超时系统收的 / 办停用时放的（操作人是办的那位管理员，不是离职的人）/ 有人手动放回（QA #14）
+  const 认放回 = (reason: string | null): 放回方式 => (reason === 超时理由 ? "超时" : reason === 停用项目进公海理由 ? "停用" : "手动");
+  const 最近放回 = 公海 ? p.logs.find((l) => l.kind === "pool-release") : undefined;
+  // 企业版「非原负责人均可领取」：原负责人看得到领取按钮、灰着（pool-rules.ts）
+  const 原负责人领不回 = 公海 && me.id === p.ownerId && 拦原负责人();
 
   // 企业版超时回收：线索 / 商机阶段记沟通要填下一步时间；算出哪天会自动回公海（和 lib/project/db.ts 公海超时收回 同一个起点）
   const 要下一步 = 规则.超时回收.开 && !p.result && (能进公海的阶段 as readonly string[]).includes(p.phase);
@@ -78,8 +86,10 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     // 下一步时间只有日子：在服务端按业务日排成 YYYY-MM-DD，和回收日同一个钟，浏览器在别的时区也不差一天
     nextStepAt: p.nextStepAt ? dayjs(p.nextStepAt).format("YYYY-MM-DD") : null, 回收日, 要下一步, 能记沟通, 必填, 不给推, 能改节点: 节点能改,
     能放公海: !公海 && me.id === p.ownerId && (能进公海的阶段 as readonly string[]).includes(p.phase),
-    // 企业版里放回去的那位也能领回；别的版本照旧不能自己领回
-    能领取: 公海 && (企业 || me.id !== p.ownerId),
+    // 原负责人领不回（企业版按 pool-rules.ts，别的版本本来就不能自己领回）；企业版按钮灰着摆、别的版本照旧不摆
+    能领取: 公海 && (企业 ? !原负责人领不回 : me.id !== p.ownerId),
+    领取不给: 原负责人领不回 ? 原负责人不能领回提示 : null,
+    进公海: 最近放回 ? { 方式: 认放回(最近放回.reason), 谁: 叫(最近放回.userId)! } : null,
     balanceSettled: p.balanceSettled, balanceSettledBy: 叫(p.balanceSettledById), balanceSettledAt: p.balanceSettledAt?.toISOString() ?? null,
     acceptancePassed: p.acceptancePassed, acceptancePassedBy: 叫(p.acceptancePassedById), acceptancePassedAt: p.acceptancePassedAt?.toISOString() ?? null,
     logs: p.logs.map((l) => ({
@@ -89,6 +99,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
       category: l.categoryId ? 类别名.get(l.categoryId) ?? "已不在的类别" : null,
       kind: l.kind === "transfer" || l.kind === "pool-release" || l.kind === "pool-claim" ? l.kind : "node",
       transfer: l.kind === "node" ? null : { from: 叫(l.fromOwnerId) ?? "没人", to: 叫(l.toOwnerId) ?? "没人" },
+      ...(l.kind === "pool-release" ? { 放回方式: 认放回(l.reason) } : {}),
     })),
     followUps: (露 ? p.followUps : [])
       .map((f) => ({ id: f.followUp.id, type: f.followUp.type, content: f.followUp.content, occurredAt: f.followUp.occurredAt.toISOString(), who: 叫(f.followUp.ownerId)!, node: f.node }))

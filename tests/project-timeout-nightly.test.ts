@@ -78,7 +78,7 @@ describe("夜里定时扫", () => {
     await 走一分钟(); // 00:05
     expect(await 在公海(p.id)).toBe(true);
     const log = await prisma.projectNodeLog.findFirstOrThrow({ where: { projectId: p.id } });
-    expect(log).toMatchObject({ kind: "pool-release", fromOwnerId: 乙, toOwnerId: null, reason: 超时理由, userId: 老板.id });
+    expect(log).toMatchObject({ kind: "pool-release", fromOwnerId: 乙, toOwnerId: null, reason: 超时理由, userId: "system" }); // QA #16：记「系统」，不记打开页面 / 跑定时的那位
     expect(await prisma.task.count({ where: { ownerId: 乙 } })).toBe(1);
     expect(await prisma.auditLog.count({ where: { action: "pool", entity: "Project" } })).toBe(1);
   });
@@ -88,7 +88,10 @@ describe("夜里定时扫", () => {
     expect(await 夜里扫超时(时("2026-10-25 00:05"))).toBe(1);
     expect(await 在公海(早.id)).toBe(true);
 
-    const 晚 = await 项目("2026-10-01 10:00");
+    // 换一位客户：客户名下只有「早」一个项目，早回公海时客户也跟着进了客户公海（企业版单项目客户，pool-link.ts），
+    // 公海里的客户名下的项目不再扫
+    const 另一位 = (await prisma.customer.create({ data: { name: "客户乙", phone: "13800000002", salesOwnerId: 乙 } })).id;
+    const 晚 = await 项目("2026-10-01 10:00", { customerId: 另一位 });
     const 之前 = { 留痕: await prisma.projectNodeLog.count(), 待办: await prisma.task.count(), 日志: await prisma.auditLog.count() };
     expect(await 夜里扫超时(时("2026-10-25 03:00"))).toBe(0);
     expect(await 公海超时收回(老板, 时("2026-10-25 09:00"))).toBe(0);

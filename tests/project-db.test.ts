@@ -2,7 +2,7 @@
  * 团队版项目模式 1a 的读写（lib/project/db.ts）+ 业务员看得到哪些项目（lib/team-scope.ts）。
  * 钉的是总控 10-23 的规则：每改一次节点留一行、往前只能一步、成功交付两项都勾才让点、异常要选类别（备注可空）、
  * 恢复 = 再改节点；组员角色、异常类别字典只有老板能改、停用不删；项目跟客户走，负责人自己的也看得到；
- * 项目公海（线索 / 商机阶段负责人放回、谁都能领、都留痕；企业版里放回的人也能领回、有持有上限，
+ * 项目公海（线索 / 商机阶段负责人放回、谁都能领、都留痕；企业版里原负责人领不回（10-26 定稿）、有持有上限，
  * 不是企业版（CRM_ENTERPRISE 不设）时 Setting 里开着也不生效、放回的人不能自己领回）；建档人谁都改不了。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -259,22 +259,19 @@ describe("项目公海", () => {
     expect(log).toMatchObject({ kind: "pool-release", userId: 乙.id, fromOwnerId: 乙.id, toOwnerId: null, toNode: "潜客培育" });
   });
 
-  it("放回去的人在公海里改不了，但能自己领回；别人领了就是新负责人，留痕；领走后别人再领拦", async () => {
+  it("放回去的人在公海里改不了，原负责人也领不回（10-26 定稿）；别人领了就是新负责人，留痕；领走后别人再领拦", async () => {
     const p = await 项目(乙.id);
     await 放回公海(乙, p.id);
     expect(await 改节点(乙, p.id, { phase: "线索", node: "线索验证" })).toMatchObject({ ok: false, error: expect.stringContaining("公海") });
     expect(await 改项目(乙, p.id, { name: "改个名" })).toMatchObject({ ok: false, error: expect.stringContaining("公海") });
-    expect(await 领取公海项目(乙, p.id)).toEqual({ ok: true });
-    expect(await prisma.project.findUniqueOrThrow({ where: { id: p.id } })).toMatchObject({ ownerId: 乙.id, pooledAt: null });
-    await 放回公海(乙, p.id);
+    expect(await 领取公海项目(乙, p.id)).toEqual({ ok: false, error: "原负责人不能领回" });
+    expect(await prisma.project.findUniqueOrThrow({ where: { id: p.id } })).toMatchObject({ ownerId: 乙.id });
     expect(await 领取公海项目(丙, p.id)).toEqual({ ok: true });
     expect(await 领取公海项目(老板, p.id)).toMatchObject({ ok: false, error: expect.stringContaining("领走") });
     expect(await 领取公海项目(乙, p.id)).toMatchObject({ ok: false, error: expect.stringContaining("领走") });
     expect(await prisma.project.findUniqueOrThrow({ where: { id: p.id } })).toMatchObject({ ownerId: 丙.id, pooledAt: null });
     const logs = await prisma.projectNodeLog.findMany({ where: { projectId: p.id }, orderBy: { at: "asc" } });
     expect(logs.map((l) => [l.kind, l.userId, l.fromOwnerId, l.toOwnerId])).toEqual([
-      ["pool-release", 乙.id, 乙.id, null],
-      ["pool-claim", 乙.id, 乙.id, 乙.id],
       ["pool-release", 乙.id, 乙.id, null],
       ["pool-claim", 丙.id, 乙.id, 丙.id],
     ]);

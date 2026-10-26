@@ -29,9 +29,13 @@ export type 项目详情 = {
   phase: string; node: string; result: string | null;
   /** 异常状态时：选的异常类别名、备注（可空） */
   exceptionReason: string | null; exceptionCategory: string | null;
-  /** 在项目公海里；能放公海 = 我是负责人且在线索 / 商机阶段；能领取 = 在公海里，且（企业版 或 不是我放回去的） */
+  /** 在项目公海里；能放公海 = 我是负责人且在线索 / 商机阶段；能领取 = 在公海里，且我不是原负责人（企业版按 pool-rules.ts） */
   pooled: boolean; 能放公海: boolean; 能领取: boolean;
-  /** 服务端读的 企业版()：放回公海的说法跟着它走（企业版能自己领回） */
+  /** 企业版原负责人领不回时那句话：领取按钮照样摆、灰着，悬停给这句；null = 不用灰 */
+  领取不给: string | null;
+  /** 在公海里时最近一次怎么进来的（ownerName 这时是原负责人）：谁放的、超时系统收 / 办停用时放 / 手动放回 */
+  进公海: { 方式: 放回方式; 谁: string } | null;
+  /** 服务端读的 企业版()：放回公海的说法跟着它走 */
   企业版: boolean;
   /**
    * 企业版超时回收：nextStepAt 是最近一次沟通填的下一步时间（服务端排好的 YYYY-MM-DD）；回收日 = 哪天没人跟进就自动回公海（null = 不会）；
@@ -53,6 +57,8 @@ export type 项目详情 = {
   logs: {
     id: string; at: string; who: string; from: 位置 | null; to: 位置; reason: string | null; category: string | null;
     kind: "node" | "transfer" | "pool-release" | "pool-claim"; transfer: { from: string; to: string } | null;
+    /** pool-release 才有：超时系统收的、办停用时放的（who 是办的那位）、手动放回 */
+    放回方式?: 放回方式;
   }[];
   followUps: { id: string; type: string; content: string; occurredAt: string; who: string; node: string }[];
   members: 组员[];
@@ -107,12 +113,29 @@ function 去处们(当前: 位置, 不能往前 = false) {
   });
 }
 
-/** 节点变更里换负责人那几种行怎么说 */
+/** 项目怎么进的公海（page.tsx 按理由分）：超时 = 系统收的；停用 = 管理员办停用时放的；手动 = 有人放回 */
+export type 放回方式 = "超时" | "停用" | "手动";
+
+/** 节点变更里换负责人那几种行怎么说。放回公海按真正的操作人说（QA #14：超时是系统、停用是办的那位管理员，不是原负责人） */
 function 换人文字(l: 项目详情["logs"][number]): string {
   const t = l.transfer ?? { from: "没人", to: "没人" };
-  if (l.kind === "pool-release") return l.reason === 超时理由 ? `${t.from} 的项目超时没跟进，自动回到项目公海` : `${t.from} 把项目放回项目公海`;
+  if (l.kind === "pool-release") {
+    // 老数据没带方式的按理由认超时
+    const 方式 = l.放回方式 ?? (l.reason === 超时理由 ? "超时" : "手动");
+    if (方式 === "超时") return `${t.from} 的项目超时没跟进，系统自动收回到项目公海`;
+    if (方式 === "停用") return `${l.who} 办成员停用，把 ${t.from} 的项目放回项目公海`;
+    return l.who === t.from ? `${t.from} 把项目放回项目公海` : `${l.who} 把 ${t.from} 的项目放回项目公海`;
+  }
   if (l.kind === "pool-claim") return `${t.to} 从项目公海领取，成为负责人`;
   return `负责人从 ${t.from} 转给 ${t.to}`;
+}
+
+/** 负责人那一行括号里：怎么进的公海 */
+function 进公海说法(进: 项目详情["进公海"], 原负责人: string): string {
+  if (!进) return "";
+  if (进.方式 === "超时") return " · 超时没跟进，系统自动收回";
+  if (进.方式 === "停用") return ` · 成员停用，${进.谁} 放回`;
+  return 进.谁 === 原负责人 ? " · 自己放回的" : ` · ${进.谁} 放回的`;
 }
 
 /**
@@ -207,15 +230,17 @@ export default function ProjectDetail({
     <div style={{ maxWidth: 960 }}>
       <PageHead
         title={p.name}
-        subtitle={`负责人 ${p.ownerName} · ${p.creatorName} 建于 ${fmtDateTime(p.createdAt)}`}
+        subtitle={`${p.pooled ? `在项目公海里 · 原负责人 ${p.ownerName}` : `负责人 ${p.ownerName}`} · ${p.creatorName} 建于 ${fmtDateTime(p.createdAt)}`}
         extra={
           <Space wrap>
             {p.能放公海 && (
-              <Popconfirm title="放回项目公海？" description={p.企业版 ? "放回去以后谁都能领，你自己也能再领回来；你会记成这个项目的历史负责人" : "放回去以后谁都能领，你自己不能再领回来"} okText="放回公海" onConfirm={() => void 跑(() => 放回项目公海(p.id), "已放回项目公海")}>
+              <Popconfirm title="放回项目公海？" description={p.企业版 ? "放回去以后同事都能领，你作为原负责人不能再领回来；你会记成这个项目的历史负责人" : "放回去以后谁都能领，你自己不能再领回来"} okText="放回公海" onConfirm={() => void 跑(() => 放回项目公海(p.id), "已放回项目公海")}>
                 <Button disabled={忙}>放回公海</Button>
               </Popconfirm>
             )}
             {p.能领取 && <Button type="primary" disabled={忙} onClick={() => void 跑(() => 领取项目(p.id), "已领取，你是这个项目的负责人了")}>领取</Button>}
+            {/* 企业版原负责人：按钮摆着、灰着，悬停说为什么（接口也拦，lib/project/db.ts 领取公海项目） */}
+            {!p.能领取 && p.领取不给 && <Tooltip title={p.领取不给}><Button type="primary" disabled>领取</Button></Tooltip>}
             {能改 && (
               <Popconfirm title="删除这个项目？" description={删除说明(p.删前清点, b.customer)} okText="删除" okButtonProps={{ danger: true }} onConfirm={() => void 删()}>
                 <Button danger disabled={忙}>删除项目</Button>
@@ -226,7 +251,7 @@ export default function ProjectDetail({
       />
 
       {p.pooled && (
-        <Alert type="info" showIcon style={{ marginBottom: 16 }} title="这个项目在项目公海里" description={p.能领取 ? "领取了你就是负责人，可以接着推节点" : "是你放回去的，等同事领取"} />
+        <Alert type="info" showIcon style={{ marginBottom: 16 }} title="这个项目在项目公海里" description={p.能领取 ? "领取了你就是负责人，可以接着推节点" : p.领取不给 ? `你是原负责人，${p.领取不给}，等同事领取` : "是你放回去的，等同事领取"} />
       )}
 
       {异常 && (
@@ -287,7 +312,8 @@ export default function ProjectDetail({
           <div style={行样}><span style={键样}>{b.customer}</span>{p.customer ? <CustomerLink id={p.customer.id} name={p.customer.name} company={p.customer.school} /> : <span style={{ color: "var(--text-muted)" }}>领取后显示</span>}</div>
           {p.contact && <div style={行样}><span style={键样}>联系人</span>{p.contact.name}{p.contact.position ? ` · ${p.contact.position}` : ""}</div>}
           <div style={行样}><span style={键样}>金额</span>{金额(p.amount, p.currency)}</div>
-          <div style={行样}><span style={键样}>负责人</span>{p.pooled ? <span>在公海里<span style={{ color: "var(--text-muted)" }}>（{p.ownerName} 放回的）</span></span> : p.ownerName}</div>
+          {/* 在公海里时 ownerName 是原负责人：不写成「负责人 X」，也不把系统收回说成 X 放回的（QA #14） */}
+          <div style={行样}><span style={键样}>负责人</span>{p.pooled ? <span>在公海里<span style={{ color: "var(--text-muted)" }}>（原负责人 {p.ownerName}{进公海说法(p.进公海, p.ownerName)}）</span></span> : p.ownerName}</div>
           {p.historyOwners.length > 0 && (
             <div style={行样}><span style={键样}>历史</span><span style={{ minWidth: 0, overflowWrap: "anywhere" }} title="历史负责人：把这个项目放回过公海的人">{p.historyOwners.join("、")}</span></div>
           )}

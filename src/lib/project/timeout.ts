@@ -13,6 +13,12 @@ import type { 组织规则 } from "./org-rules";
 
 export const 超时理由 = "超过节点处理时长没跟进，自动回到项目公海";
 
+/**
+ * 超时回收是系统做的：节点留痕（ProjectNodeLog.userId）、操作日志记在「系统」名下，不记在谁碰巧打开了页面、或夜扫找的那位老板名下（QA #16）。
+ * 两列都不建外键（指向人的列），id 不是真成员；界面上按这个 id 显示「系统」
+ */
+export const 系统 = { id: "system", name: "系统" } as const;
+
 export type 超时项目 = {
   phase: string;
   node: string;

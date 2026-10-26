@@ -78,7 +78,7 @@ export default function ProjectsView({
     { title: b.customer, key: "customer", width: 180, render: (_, r) => (r.customerName == null ? <span style={{ color: "var(--text-muted)" }}>{领了再看}</span> : <CustomerLink id={r.customerId} name={r.customerName} />) },
     { title: "节点", key: "node", width: 170, render: (_, r) => 节点文字(r) },
     { title: "金额", key: "amount", width: 130, align: "right", render: (_, r) => 金额(r.amount, r.currency) },
-    ...(不问归属 ? [] : [{ title: "负责人", key: "owner", width: 110, render: (_: unknown, r: 项目行) => (r.pooled ? <Tag title={`${r.ownerName} 放回的`}>公海</Tag> : <UserCell name={r.ownerName} />) }]),
+    ...(不问归属 ? [] : [{ title: "负责人", key: "owner", width: 110, render: (_: unknown, r: 项目行) => (r.pooled ? <Tag title={`原负责人 ${r.ownerName}`}>公海</Tag> : <UserCell name={r.ownerName} />) }]),
     { title: "最近更新", key: "updatedAt", width: 120, render: (_, r) => fmtDate(r.updatedAt) },
   ];
 

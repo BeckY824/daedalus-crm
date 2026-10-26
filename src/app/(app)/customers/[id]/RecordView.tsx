@@ -8,6 +8,7 @@ import { 只读上下文 } from "./read-only";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Alert, Button, Drawer, Dropdown, Input, Space, Tag, Avatar, Checkbox, Tooltip, App, Select, Typography } from "antd";
+import { 原负责人不能领回提示 } from "@/lib/enterprise/pool-rules";
 import {
   DownOutlined,
   EditOutlined,
@@ -106,6 +107,7 @@ export default function RecordView({
   aiEnabled,
   已收藏 = false,
   能放公海 = false,
+  原负责人领不回 = false,
   只读: 只读档 = false,
   换负责人记录 = [],
 }: RecordProps) {
@@ -490,7 +492,9 @@ export default function RecordView({
         {customer.pool && (
           <span className="rec-tags-n rec-pool">
             <Tag className="pool-tag" title={customer.pool.reason === "手动" ? "手动放进公海" : customer.pool.reason}>{公海标签(customer.salesOwnerName)}</Tag>
-            <Button size="small" type="link" icon={<UserAddOutlined />} onClick={() => void 公海动作("领取")}>领取</Button>
+            {原负责人领不回
+              ? <Tooltip title={原负责人不能领回提示}><Button size="small" type="link" icon={<UserAddOutlined />} disabled>领取</Button></Tooltip>
+              : <Button size="small" type="link" icon={<UserAddOutlined />} onClick={() => void 公海动作("领取")}>领取</Button>}
           </span>
         )}
         {/* 一个数都没有就不出现：「预计签约 —」占着一行却什么也没说 */}

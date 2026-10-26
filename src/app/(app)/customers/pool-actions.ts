@@ -16,6 +16,8 @@ import { 钉住老签约 } from "@/lib/contract-owner";
 import { 带走并记下, 还项目, type 带走的 } from "@/lib/carry-over-db";
 import { 记换负责人 } from "@/lib/owner-log-db";
 import type { 带走数 } from "@/lib/carry-over";
+import { 拦原负责人, 原负责人不能领回提示 } from "@/lib/enterprise/pool-rules";
+import { 领客户带走公海项目 } from "@/lib/enterprise/pool-link";
 
 export type 公海结果 =
   | {
@@ -80,10 +82,15 @@ export async function 领取(ids: string[]): Promise<公海结果> {
   const me = await requireUser();
   const b = await getBusiness();
   if (!ids.length) return { ok: true, updated: 0, unchanged: 0, 没权限: 0 };
+  // 企业版「非原负责人均可领取」（pool-rules.ts，10-26 定稿）：公海里负责人一直留着原来那位，是他的就不让他自己领回
+  const 不能领 = 拦原负责人()
+    ? new Set((await 看全部(() => prisma.customer.findMany({ where: { id: { in: ids }, salesOwnerId: me.id, pool: { isNot: null } }, select: { id: true } }))).map((c) => c.id))
+    : new Set<string>();
+  if (不能领.size && 不能领.size === new Set(ids).size) return { ok: false, error: 原负责人不能领回提示 };
   // 换负责人之前先把老签约「签约那一刻是谁的」钉住（排查 X1，和批量分配一样）
   await 钉住老签约();
   const 领到: { id: string; 值: string }[] = [];
-  for (const id of [...new Set(ids)]) {
+  for (const id of [...new Set(ids)].filter((x) => !不能领.has(x))) {
     /*
       看全部（团队版业务员，lib/team-scope.ts）：业务员能领，是因为这位在公海里；删掉公海那一行之后、负责人改成我之前，
       他在业务员眼里「不见了」——限定着读会读不到、返回 null，公海那一行却已经删了：客户出了公海、没归任何领的人（2026-10-04 五人实测）。
@@ -111,15 +118,18 @@ export async function 领取(ids: string[]): Promise<公海结果> {
     });
     if (原 !== null) 领到.push({ id, 值: 原 });
   }
-  if (!领到.length) return { ok: true, updated: 0, unchanged: ids.length, 没权限: 0 };
+  if (!领到.length) return { ok: true, updated: 0, unchanged: ids.length - 不能领.size, 没权限: 不能领.size };
   const { 数: 带走, 记下: 带过来 } = await 带走并记下(领到.map((x) => ({ customerId: x.id, 旧: x.值 })), me.id, me.id, "claim");
+  // 企业版：名下放在项目公海里的项目一起归我（领客户即领项目，pool-link.ts）
+  const 公海项目 = await 领客户带走公海项目(领到.map((x) => x.id), me.id, me.id);
+  if (公海项目.length) 带走.项目 = (带走.项目 ?? 0) + 公海项目.length;
   await recordAudit({
     user: me, action: "claim", entity: "Customer", entityId: 领到.length === 1 ? 领到[0].id : null,
     summary: `从公海领取 ${领到.length} 名${b.customer}`,
     detail: { ids: 领到.map((x) => x.id), 原负责人: 领到.map((x) => ({ id: x.id, salesOwnerId: x.值 })) },
   });
   刷新(ids);
-  return { ok: true, updated: 领到.length, unchanged: ids.length - 领到.length, 没权限: 0, 带走, 原负责人: 领到, 带过来 };
+  return { ok: true, updated: 领到.length, unchanged: ids.length - 领到.length - 不能领.size, 没权限: 不能领.size, 带走, 原负责人: 领到, 带过来 };
 }
 
 /**
@@ -155,6 +165,8 @@ export async function 分配公海(ids: string[], userId: string): Promise<公�
   }
   if (!分到.length) return { ok: true, updated: 0, unchanged: ids.length, 没权限: 0 };
   const { 数: 带走, 记下: 带过来 } = await 带走并记下(分到.map((x) => ({ customerId: x.id, 旧: x.值 })), 给.id, me.id, "pool-assign");
+  const 公海项目 = await 领客户带走公海项目(分到.map((x) => x.id), 给.id, me.id);
+  if (公海项目.length) 带走.项目 = (带走.项目 ?? 0) + 公海项目.length;
   await recordAudit({
     user: me, action: "assign", entity: "Customer", entityId: 分到.length === 1 ? 分到[0].id : null,
     summary: `把公海里 ${分到.length} 名${b.customer}分给「${给.name}」`,

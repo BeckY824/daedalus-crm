@@ -1,7 +1,7 @@
 import type { Prisma } from "@/generated/prisma";
 import { 转交商机 } from "@/lib/opportunity-activity";
 import { prisma } from "@/lib/prisma";
-import { 记转让, 转让痕 } from "@/lib/project/db";
+import { 记转让, 转让痕, 收回提醒尾 } from "@/lib/project/db";
 import { 看全部 } from "@/lib/team-scope";
 import { 记换负责人, type 换负责人种类 } from "@/lib/owner-log-db";
 import { 预览列几个, type 带走数, type 转走项目预览 } from "@/lib/carry-over";
@@ -96,17 +96,7 @@ export async function 带走并记下(换: { customerId: string; 旧: string }[]
       看全部（团队版业务员，lib/team-scope.ts）：业务员把自己的客户交给同事，客户一换负责人他就看不到了，
       限定着查会漏掉这位客户上的商机（商机跟着客户可见），活带不过去（2026-10-04 五人实测）。要转哪几条由上面的条件定，不靠限定
     */
-    const [计划, 待办, 商机, 项目] = await 看全部(() => prisma.$transaction(async (tx) => {
-      const 计划 = (await tx.followPlan.findMany({ where: { customerId, ownerId: 旧, done: false }, select: { id: true } })).map((x) => x.id);
-      const 待办 = (await tx.task.findMany({ where: { customerId, ownerId: 旧, done: false }, select: { id: true } })).map((x) => x.id);
-      const 商机 = (await tx.opportunity.findMany({ where: { customerId, ownerId: 旧, status: "OPEN" }, select: { id: true } })).map((x) => x.id);
-      if (计划.length) await tx.followPlan.updateMany({ where: { id: { in: 计划 } }, data: { ownerId: 新 } });
-      if (待办.length) await tx.task.updateMany({ where: { id: { in: 待办 } }, data: { ownerId: 新 } });
-      if (商机.length) await 转交商机(tx, { id: { in: 商机 } }, 新);
-      const 项目 = await 转项目(tx, 跟着客户转的项目(customerId), 新, 操作人);
-      await 记换负责人(tx, [{ customerId, from: 旧, to: 新 }], 操作人, kind);
-      return [计划, 待办, 商机, 项目];
-    }));
+    const { 计划, 待办, 商机, 项目 } = await 看全部(() => prisma.$transaction((tx) => 带走一位(tx, customerId, 旧, 新, 操作人, kind)));
     数.计划和待办 += 计划.length + 待办.length;
     数.商机 += 商机.length;
     数.项目 = (数.项目 ?? 0) + 项目.length;
@@ -116,4 +106,21 @@ export async function 带走并记下(换: { customerId: string; 旧: string }[]
     记下.商机.push(...商机);
   }
   return { 数, 记下 };
+}
+
+/**
+ * 带走并记下 里一位客户的那一段，放在调用方自己的事务里做（企业版领项目公海时客户一起领过来，
+ * 项目和客户在同一笔事务里换人；事务里不能再开事务）。调用方自己管限定（要转哪几条由条件定，不靠限定）
+ */
+export async function 带走一位(tx: Prisma.TransactionClient, customerId: string, 旧: string, 新: string, 操作人: string, kind: 换负责人种类) {
+  const 计划 = (await tx.followPlan.findMany({ where: { customerId, ownerId: 旧, done: false }, select: { id: true } })).map((x) => x.id);
+  // 超时收回的提醒是给原负责人的，不跟着转（企业版单项目客户随项目进了公海，领客户时提醒别落到新负责人头上）
+  const 待办 = (await tx.task.findMany({ where: { customerId, ownerId: 旧, done: false, NOT: { title: { endsWith: 收回提醒尾 } } }, select: { id: true } })).map((x) => x.id);
+  const 商机 = (await tx.opportunity.findMany({ where: { customerId, ownerId: 旧, status: "OPEN" }, select: { id: true } })).map((x) => x.id);
+  if (计划.length) await tx.followPlan.updateMany({ where: { id: { in: 计划 } }, data: { ownerId: 新 } });
+  if (待办.length) await tx.task.updateMany({ where: { id: { in: 待办 } }, data: { ownerId: 新 } });
+  if (商机.length) await 转交商机(tx, { id: { in: 商机 } }, 新);
+  const 项目 = await 转项目(tx, 跟着客户转的项目(customerId), 新, 操作人);
+  await 记换负责人(tx, [{ customerId, from: 旧, to: 新 }], 操作人, kind);
+  return { 计划, 待办, 商机, 项目 };
 }
