@@ -279,16 +279,22 @@ export function 限定条件(model: string, 谁们: 谁, 互看读 = false): Rec
     case "ContractWin":
       return { opportunity: { customer: 客户 }, contract: { customer: 客户 } };
     // 项目模式 1a（2026-10-23）：项目跟客户走；负责人不是这位客户的销售时，自己负责的项目也看得到；
-    // 放在项目公海里的谁都看得到（才能领）
+    // 放在项目公海里的谁都看得到（才能领）。企业版（10-26）：点了同意的组员也看得到，只是邀请着的不算
     case "Project":
-      return { OR: [{ ownerId: 我 }, { customer: 客户 }, { pooledAt: { not: null } }] };
+      return 看得到的项目(我, 客户);
     case "ProjectMember":
     case "ProjectNodeLog":
     case "FollowUpProject":
-      return { project: { OR: [{ ownerId: 我 }, { customer: 客户 }, { pooledAt: { not: null } }] } };
+      return { project: 看得到的项目(我, 客户) };
     default:
       return null;
   }
+}
+
+function 看得到的项目(我: string | { in: string[] }, 客户: Record<string, unknown>) {
+  const 或: Record<string, unknown>[] = [{ ownerId: 我 }, { customer: 客户 }, { pooledAt: { not: null } }];
+  if (企业版()) 或.push({ members: { some: { userId: 我, inviteStatus: "JOINED" } } });
+  return { OR: 或 };
 }
 
 /** 带 where 的操作。create / upsert 不限（新建的本来就是自己的；upsert 限了会在别人的行上再建一条） */

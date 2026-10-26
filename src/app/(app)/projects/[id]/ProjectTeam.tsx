@@ -83,11 +83,11 @@ export function ProjectEditModal({
 }
 
 /**
- * 项目组：谁在组里、各自什么角色。能管项目的人加人、换角色、移出；1a 拉进来就算进组，
- * 进组邀请（已邀请 / 没接受）是 1b 的事，这里只把状态显示出来
+ * 项目组：谁在组里、各自什么角色。能管项目的人加人、换角色、移出；团队版拉进来就算进组。
+ * 企业版（10-26）= 发邀请，对方在项目列表上点同意才进组；没接受的可以再邀一次；组长 = 项目负责人
  */
 export function ProjectTeamCard({
-  projectId, 组员们, 角色们, 在职, 能改, 忙, 跑,
+  projectId, 组员们, 角色们, 在职, 能改, 忙, 跑, 企业版 = false, 组长,
 }: {
   projectId: string;
   组员们: 组员[];
@@ -96,15 +96,18 @@ export function ProjectTeamCard({
   能改: boolean;
   忙: boolean;
   跑: 跑法;
+  企业版?: boolean;
+  组长?: string;
 }) {
   const [加谁, set加谁] = useState<string | undefined>();
   const [加角色, set加角色] = useState<string | undefined>();
-  const 在组 = new Set(组员们.map((m) => m.userId));
+  const 在组 = new Set(组员们.filter((m) => !(企业版 && m.inviteStatus === "DECLINED")).map((m) => m.userId));
   const 可加 = 在职.filter((u) => !在组.has(u.id));
   const 不能改 = 能改 ? undefined : "只有项目负责人、老板或主管能改";
 
   return (
     <Card title="项目组">
+      {企业版 && 组长 && <div style={{ marginBottom: 8 }}>组长：{组长}</div>}
       {组员们.length === 0 && <div style={{ color: "var(--text-muted)", marginBottom: 8 }}>还没有拉人进项目组</div>}
       {组员们.map((m) => (
         <div key={m.id} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, minWidth: 0 }}>
@@ -147,13 +150,13 @@ export function ProjectTeamCard({
             disabled={!加谁 || 忙}
             onClick={async () => {
               if (!加谁) return;
-              if (await 跑(() => 加项目组员(projectId, 加谁, 加角色 ?? null), "已加进项目组")) {
+              if (await 跑(() => 加项目组员(projectId, 加谁, 加角色 ?? null), 企业版 ? "已发邀请，等对方同意" : "已加进项目组")) {
                 set加谁(undefined);
                 set加角色(undefined);
               }
             }}
           >
-            加进来
+            {企业版 ? "邀请" : "加进来"}
           </Button>
         </Space.Compact>
       )}

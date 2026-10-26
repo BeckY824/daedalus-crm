@@ -15,10 +15,11 @@ import { 验号码 } from "@/lib/enterprise/contact-format";
 import { 验联系人号码, 企业号码查重, 全公司查号, 撞号结论, 记号码, 联系人号码撞了 } from "@/lib/enterprise/contact-dedupe";
 import { 登记接着建 } from "@/lib/project/hook";
 import { 规整向导, 向导接着建, type 建好的, type 向导联系人, type 向导项目, type 向导跟进 } from "@/lib/project/wizard";
-import { 改节点, 勾交付, 加角色, 改角色, 加异常类别, 改异常类别, 删项目, 交付项们, 改项目, 加组员, 换组员角色, 移出组员, 放回公海, 领取公海项目, 超上限, 记项目沟通, 超时预览, 公海超时收回, type 交付项 } from "@/lib/project/db";
+import { 改节点, 勾交付, 加角色, 改角色, 加异常类别, 改异常类别, 删项目, 交付项们, 改项目, 加组员, 回邀请, 换组员角色, 移出组员, 放回公海, 领取公海项目, 超上限, 记项目沟通, 超时预览, 公海超时收回, type 交付项 } from "@/lib/project/db";
 import { 合上改动, type 规则改动 } from "@/lib/project/org-rules";
 import { 读组织规则, 生效组织规则, 存组织规则 } from "@/lib/project/org-rules-store";
 import { 企业版 } from "@/lib/enterprise/switch";
+import { 看全部 } from "@/lib/team-scope";
 import { 挡改设置, type 设置项名 } from "@/lib/enterprise/edit-perm";
 import { 记这个项目的自动推进, 客户存了推项目 } from "@/lib/project/auto-advance";
 import { 读团队 } from "@/lib/sync/client";
@@ -277,7 +278,8 @@ export async function 编辑项目(projectId: string, patch: 向导项目 & { co
 
 async function 组员说法(projectId: string, userId: string) {
   const [p, u] = await Promise.all([
-    prisma.project.findUnique({ where: { id: projectId }, select: { name: true } }),
+    // 回邀请的人同意前看不到项目：这里只取名字写日志
+    看全部(() => prisma.project.findUnique({ where: { id: projectId }, select: { name: true } })),
     prisma.user.findUnique({ where: { id: userId }, select: { name: true } }),
   ]);
   return `项目「${p?.name ?? ""}」的项目组：${u?.name ?? "已不在的成员"}`;
@@ -289,10 +291,26 @@ export async function 加项目组员(projectId: string, userId: string, roleId?
     if (!(await 开着())) return 没开;
     const r = await 加组员(me, projectId, userId, roleId);
     if (r.ok) {
-      await recordAudit({ user: me, action: "create", entity: "ProjectMember", entityId: projectId, summary: `加进${await 组员说法(projectId, userId)}` });
+      const 邀请 = 企业版() && userId !== me.id;
+      await recordAudit({ user: me, action: "create", entity: "ProjectMember", entityId: projectId, summary: `${邀请 ? "邀请进" : "加进"}${await 组员说法(projectId, userId)}` });
       刷新项目(projectId);
     }
     return r;
+  } catch (e) { return 不在了(e); }
+}
+
+/** 企业版：被邀请的人点同意 / 拒绝 */
+export async function 回项目邀请(memberId: string, 同意: boolean) {
+  try {
+    const me = await requireUser();
+    if (!(await 开着())) return 没开;
+    if (!企业版()) return { ok: false as const, error: "项目组邀请是企业版的功能" };
+    const r = await 回邀请(me, memberId, 同意 === true);
+    if (r.ok && r.projectId) {
+      await recordAudit({ user: me, action: "update", entity: "ProjectMember", entityId: r.projectId, summary: `${同意 === true ? "同意加入" : "拒绝加入"}${await 组员说法(r.projectId, me.id)}` });
+      刷新项目(r.projectId);
+    }
+    return r.ok ? { ok: true as const } : r;
   } catch (e) { return 不在了(e); }
 }
 
