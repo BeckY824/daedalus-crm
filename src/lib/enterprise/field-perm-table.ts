@@ -26,6 +26,23 @@ export type 字段配置 = Partial<Record<字段名, Partial<Record<业务角色
 
 export const 字段权限key = "enterprise.field_perm";
 
+/**
+ * 推荐表（清单 ② 的默认建议，10-25 定稿草案的 20 个 ★ 格；三张清单 A1：对方定之前先照这个跑）。
+ * 不自动生效：设置页「字段权限」卡片点「用推荐表」填进草稿，保存后还要打开「字段权限」规则才管用。
+ * 渠道运营、市场管理的「销售负责人」保持能改：分配给销售按这个字段拦，锁了就分不了线索。
+ */
+export const 推荐字段配置: 字段配置 = {
+  电话: { project_ops: "看" },
+  销售负责人: { project_ops: "看" },
+  渠道负责人: { sales: "看", project_ops: "看" },
+  跟进状态: { project_ops: "看" },
+  决策状态: { channel_ops: "看", marketing_mgr: "看", project_ops: "看" },
+  预计签约: { channel_ops: "看", marketing_mgr: "看", project_ops: "看" },
+  商机金额: { channel_ops: "看", marketing_mgr: "看", project_ops: "看" },
+  商机阶段: { channel_ops: "看", marketing_mgr: "看", project_ops: "看" },
+  商机负责人: { channel_ops: "看", marketing_mgr: "看", project_ops: "看" },
+};
+
 /** 客户表的列 → 字段权限里的字段（saveCustomer / patchCustomer 用）；外贸档案的 WhatsApp 也是号码 */
 export const 客户列字段: Record<string, 字段名> = {
   phone: "电话",

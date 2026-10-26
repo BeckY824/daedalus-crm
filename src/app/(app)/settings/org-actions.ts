@@ -8,7 +8,7 @@
  */
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth";
+import { requireUser, type SessionUser } from "@/lib/auth";
 import { recordAudit } from "@/lib/audit";
 import { 不在了 } from "@/lib/not-there";
 import { setSetting } from "@/lib/settings";
@@ -18,6 +18,7 @@ import { 忘掉企业版范围 } from "@/lib/enterprise/visibility";
 import { 读组织, 建组织, 管理员类别of, 部门挪动问题, 上级设置问题, type 组织部门 } from "@/lib/enterprise/org";
 import { 是业务角色, 角色名, type 业务角色 } from "@/lib/sync/dept-policy";
 import { 规整字段配置, 字段权限key } from "@/lib/enterprise/field-perm";
+import { 挡改设置, 规整改权限, 改权限key, 设置项, 设置项们, 谁能改, type 设置项名 } from "@/lib/enterprise/edit-perm";
 
 type 结果 = { ok: true } | { ok: false; error: string };
 
@@ -193,15 +194,44 @@ export async function 设规则(on: boolean, 名: 规则名 = "按组织看客�
   }
 }
 
+/** 「后台设置谁能改」里管的那几样（字段权限表等）：企业版、不在共享区，再按表查；能改给 me，不能改给那句话 */
+async function 能改这项(项: 设置项名): Promise<{ me: SessionUser } | { error: string }> {
+  if (!企业版()) return { error: "这是企业版组织架构里的设置" };
+  const me = await requireUser();
+  const { 当前是共享区 } = await import("@/lib/shared-ws/current");
+  if (await 当前是共享区()) return { error: "共享试用区不能改后台设置" };
+  const 挡 = await 挡改设置(me, 项);
+  return 挡 ? { error: `${设置项[项].名}${挡}` } : { me };
+}
+
 /** 存「角色 × 字段」表（规则「字段权限」开着才生效）；交来的先规整，只存和默认不一样的格 */
 export async function 设字段权限(配置: unknown): Promise<结果> {
-  const who = await 能改的人();
-  if (!who) return 不能改;
+  const who = await 能改这项("字段权限");
+  if ("error" in who) return { ok: false, error: who.error };
   try {
     const 存 = 规整字段配置(配置);
     await setSetting(字段权限key, 存);
     const 格数 = Object.values(存).reduce((n, 行) => n + Object.keys(行 ?? {}).length, 0);
     await recordAudit({ user: who.me, action: "update", entity: "Setting", entityId: 字段权限key, summary: `改字段权限表（${格数} 格不是「能改」）`, detail: 存 });
+    改完了();
+    return { ok: true };
+  } catch (e) {
+    return 不在了(e);
+  }
+}
+
+/**
+ * 存「后台设置谁能改」表（B2 第 6 条，10-26）：六样后台设置各由哪几类人改，没存的项 = 默认建议。
+ * 只有老板和总管理员能改这张表本身（和组织架构同一道门）。
+ */
+export async function 设改权限(配置: unknown): Promise<结果> {
+  const who = await 能改的人();
+  if (!who) return 不能改;
+  try {
+    const 存 = 规整改权限(配置);
+    await setSetting(改权限key, 存);
+    const 说 = 设置项们.map((项) => `${设置项[项].名}：${["老板", ...谁能改(存, 项)].join("、")}`).join("；");
+    await recordAudit({ user: who.me, action: "update", entity: "Setting", entityId: 改权限key, summary: `改后台设置谁能改（${说}）`, detail: 存 });
     改完了();
     return { ok: true };
   } catch (e) {

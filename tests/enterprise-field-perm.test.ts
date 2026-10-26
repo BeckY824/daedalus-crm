@@ -17,7 +17,7 @@ import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
 import { setSetting } from "@/lib/settings";
 import { 规则 } from "@/lib/enterprise/rules";
-import { 规整字段配置, 字段级别of, 改不了的话, 字段权限of, 字段权限key } from "@/lib/enterprise/field-perm";
+import { 规整字段配置, 字段级别of, 改不了的话, 字段权限of, 字段权限key, 推荐字段配置 } from "@/lib/enterprise/field-perm";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
 import { patchCustomer, assignSalesOwner, bulkFollowStatus } from "@/app/(app)/customers/actions";
 import { saveOpportunity, moveStage } from "@/app/(app)/opportunities/actions";
@@ -59,6 +59,19 @@ describe("纯函数", () => {
     const 级别 = (n: Parameters<typeof 字段级别of>[1]) => 字段级别of(配置, n, "sales");
     expect(改不了的话(级别, ["客户备注"])).toBeNull();
     expect(改不了的话(级别, ["客户备注", "跟进状态", "跟进状态"])).toBe("你的角色不能改「跟进状态」（设置 → 组织架构 → 字段权限）");
+  });
+
+  it("推荐表：20 格全是「看」，规整原样留下；备注谁都能改，渠道、市场的销售负责人能改（分配要用）", () => {
+    const 格 = Object.values(推荐字段配置).flatMap((行) => Object.values(行 ?? {}));
+    expect(格).toHaveLength(20);
+    expect(new Set(格)).toEqual(new Set(["看"]));
+    expect(规整字段配置(推荐字段配置)).toEqual(推荐字段配置);
+    expect(推荐字段配置.客户备注).toBeUndefined();
+    expect(字段级别of(推荐字段配置, "销售负责人", "channel_ops")).toBe("改");
+    expect(字段级别of(推荐字段配置, "渠道负责人", "sales")).toBe("看");
+    for (const r of ["director", "admin", "sales_mgr"] as const) {
+      expect(Object.values(推荐字段配置).some((行) => 行?.[r])).toBe(false);
+    }
   });
 });
 

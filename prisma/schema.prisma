@@ -1200,7 +1200,7 @@ model EntLeadAssign {
   kind       String   @default("营销")
   /// 算不算进接手人当月的分配数（配额按它数）
   counted    Boolean  @default(true)
-  /// YYYY-MM（服务器本地时间），按月清零就是只数本月这一格
+  /// YYYY-MM（业务钟：企业版北京时间），按月清零就是只数本月这一格
   month      String
   createdAt  DateTime @default(now())
 

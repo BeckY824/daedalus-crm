@@ -15,7 +15,9 @@
  */
 import type { Prisma } from "@/generated/prisma";
 import { prisma, defaultClient } from "@/lib/prisma";
-import { 管理员类别of, 直属上级of, 虚线上级of, type 组织 } from "./org-core";
+import { businessDayjs } from "@/lib/business-clock";
+import { 管理员类别of, type 组织 } from "./org-core";
+import { 能改设置, type 改权限配置 } from "./edit-perm-table";
 
 export const 线索种类 = ["营销", "营销企划"] as const;
 export type 线索种类 = (typeof 线索种类)[number];
@@ -24,9 +26,12 @@ export type 线 = "内贸" | "外贸";
 /** 营销企划线索算不算进当月分配数：Setting 里存 JSON true / false，没存 = 算（10-24 计数细节未定，先和营销线索一样） */
 export const 企划线索计数key = "enterprise.lead_assign.plan_counted";
 
-/** 本月是哪一格：按服务器本地时间（企业版部署包里 TZ 默认 Asia/Shanghai），月初零点换格 = 每月清零 */
+/**
+ * 本月是哪一格：按业务钟（企业版固定北京时间，lib/business-clock），北京月初零点换格 = 每月清零。
+ * 不看服务器 TZ：部署包里 TZ 没设成 Asia/Shanghai 时，月末那 8 小时会记到下个月
+ */
 export function 月份(d = new Date()): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  return businessDayjs(d).format("YYYY-MM");
 }
 
 /** 能接分配线索的业务角色：销售、销售管理 */
@@ -39,11 +44,12 @@ export function 能分配(org: 组织, 我: { id: string; role: string }): boole
   return 类 === "总管理员" || 类 === "市场管理";
 }
 
-/** 能给 目标 设配额的人：他的直属上级、虚线上级，或者老板、总管理员 */
-export function 能设配额(org: 组织, 我: { id: string; role: string }, 目标: string): boolean {
-  if (我.role === "ADMIN") return true;
-  if (管理员类别of(org, 我.id) === "总管理员") return true;
-  return 直属上级of(org, 目标) === 我.id || 虚线上级of(org, 目标) === 我.id;
+/**
+ * 能给 目标 设配额的人：按「后台设置谁能改」的「线索分配配额」一行（edit-perm-table.ts），
+ * 默认他的直属上级、虚线上级（B2 第 6 条默认建议，10-26），老板总能改。
+ */
+export function 能设配额(org: 组织, 我: { id: string; role: string }, 目标: string, 配置: 改权限配置 = {}): boolean {
+  return 能改设置(org, 我, "线索配额", 配置, 目标);
 }
 
 /** 这条线索能不能分给 接手人：返回出错原因，null = 可以 */
@@ -77,26 +83,31 @@ function 可挑(候选: 候选人[], 不参与: ReadonlySet<string>, 查满: boo
   return 候选.filter((c) => !不参与.has(c.userId) && 有配额(c.配额) && !(查满 && 满了(c.已分, c.配额)));
 }
 
+/** 本月已分 / 配额 谁的比例低：交叉相乘比，不做除法，3/9 和 1/3 判成一样。可挑的人配额都 > 0 */
+const 比例差 = (a: 候选人, b: 候选人) => a.已分 * b.配额! - b.已分 * a.配额!;
+
 /**
- * 自动分配挑谁（D-38）：去掉不参与的、没填配额的、（这一条算数时）分满的，挑本月已分最少的；
- * 一样多给最早进分配池的。EntMember 没记进池时间，先按建号时间算；再一样按 id，结果不随查询顺序变
+ * 自动分配挑谁（D-38，10-26 定成 A7 默认）：去掉不参与的、没填配额的、（这一条算数时）分满的，
+ * 挑「本月已分 / 配额」比例最低的；比例一样给最早进分配池的。EntMember 没记进池时间，先按建号时间算；
+ * 再一样按 id，结果不随查询顺序变
  */
 export function 挑接手人(候选: 候选人[], 不参与: ReadonlySet<string>, 查满: boolean): string | null {
   const 可 = 可挑(候选, 不参与, 查满);
-  可.sort((a, b) => a.已分 - b.已分 || a.进池.getTime() - b.进池.getTime() || (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0));
+  可.sort((a, b) => 比例差(a, b) || a.进池.getTime() - b.进池.getTime() || (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0));
   return 可[0]?.userId ?? null;
 }
 
 /**
  * 挑中 谁 的理由，给界面上的结果提示用（「为什么是他」）。和 挑接手人 用同一套筛法：
- * 这一条不算数时不看满没满（没填配额的照样不挑）；并列最少时说明是按进池先后给的
+ * 这一条不算数时不看满没满（没填配额的照样不挑）；比例并列时说明是按进池先后给的
  */
 export function 挑的理由(候选: 候选人[], 不参与: ReadonlySet<string>, 查满: boolean, 谁: string): string {
   const 可 = 可挑(候选, 不参与, 查满);
   const 他 = 可.find((c) => c.userId === 谁);
   if (!他) return "";
-  const 并列 = 可.filter((c) => c.已分 === 他.已分).length;
-  const 理由 = 并列 > 1 ? `本月已分最少（${他.已分} 条，和 ${并列 - 1} 人并列，先给最早进分配池的）` : `本月已分最少（${他.已分} 条）`;
+  const 并列 = 可.filter((c) => 比例差(c, 他) === 0).length;
+  const 比 = `${他.已分}/${他.配额}`;
+  const 理由 = 并列 > 1 ? `本月已分 / 配额比例最低（${比}，和 ${并列 - 1} 人并列，先给最早进分配池的）` : `本月已分 / 配额比例最低（${比}）`;
   return 查满 ? 理由 : `${理由}；这条不算数，不占配额`;
 }
 
