@@ -4,6 +4,7 @@
  * 虚线上级只能看（改、转、在下面加跟进都拦）；老板、总管理员看全部；没认出人只看公海；后台任务不限定。
  * 虚线上级批量改负责人：客户改不动，客户下面的项目、待办也不能被带走（一周模拟 D2 查出来的）。
  * 虚线下属的客户被挡时说对原因：批量转 / 删 / 放公海 / 批量状态不报「已不存在」，编辑不用团队版的话（10-25 实测 F4 / F5）。
+ * 看板客户数在库里带范围数（dashboard-sql），和限定后取行的一样（2026-10-26）。
  * 用拷出来的一份库、显式单连接，不碰共用的测试库。
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
@@ -37,6 +38,8 @@ import { 规则 } from "@/lib/enterprise/rules";
 import { 虚线只读话 } from "@/lib/enterprise/visibility";
 import { assignSalesOwner, deleteCustomers, 客户删除预检, bulkFollowStatus, patchCustomer, saveCustomer } from "@/app/(app)/customers/actions";
 import { 放进公海 } from "@/app/(app)/customers/pool-actions";
+import { 客户数, 取行数 } from "@/lib/dashboard-sql";
+import { dayjs } from "@/lib/utils";
 
 const 老板 = "e_boss";
 const 总管 = "e_dir";
@@ -187,6 +190,16 @@ describe("规则开着", () => {
     忘掉企业版范围();
     expect(await 作为(外人, 名单)).toEqual(["G公海"]);
     await raw.user.update({ where: { id: 外人 }, data: { active: true } });
+  });
+
+  it("看板客户数：照 Board 拿 读的我 当范围在库里数，和限定后取行的一样（虚线链、公海、没认出人）", async () => {
+    const now = dayjs();
+    for (const 谁 of [经理, 小王, 小张, 外人, "ghost"]) {
+      const 范围 = await 作为(谁, () => 读的我(raw));
+      expect(范围, 谁).not.toBeNull();
+      expect(await 作为(谁, () => 客户数(raw, now, 范围)), 谁).toEqual(await 作为(谁, () => 取行数(db, now)));
+    }
+    expect((await 作为(经理, async () => 客户数(raw, now, await 读的我(raw)))).本月新增).toBe(5);
   });
 
   it("没有请求（后台任务）不限定", async () => {
