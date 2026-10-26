@@ -15,11 +15,12 @@ import { 负责人候选, 唯一负责人 } from "@/lib/owners";
 import { 看全部 } from "@/lib/team-scope";
 import { 号键 } from "@/lib/phone";
 import { 不掉公海的状态, 公海截止 } from "@/lib/pool";
+import { AI补清洗, 去掉AI清洗, 格式说明键, 同一家说明键, type 清洗器 } from "./ai-clean";
 import { 预演, type 预演计数 } from "./apply";
 import { 清洗, 数一数, 名键, type 本地索引, type 清洗结果 } from "./clean";
 import { 成记录, 拆联系人, 拆出的客户ID列, type 读出的表 } from "./excel";
 import { 猜映射, 说明键, 值对照, 值说法, 进备注, type 建议器, type 成员, type 表概要 } from "./mapping";
-import { 实体顺序, 字段中文, 实体名, type 来源, type 实体, type 映射, type 原始记录, type 问题, type 待写, type 值对照名, type 列映射 } from "./types";
+import { 实体顺序, 字段中文, 实体名, 格式类们, type 格式类, type 来源, type 实体, type 映射, type 原始记录, type 问题, type 待写, type 值对照名, type 列映射 } from "./types";
 
 /** 报告里最多列多少条问题（存进库的那份）；总数另记，界面上说「还有 N 条没列出」 */
 const 问题上限 = 5000;
@@ -49,6 +50,12 @@ export type 试跑报告 = {
     值: { 名: 值对照名; 叫法: string; 原值: string; 我们的值: string; 说明?: 说明 }[];
     负责人: { 写法: string; 成员Id: string; 成员名: string; 说明?: 说明 }[];
     默认负责人: { id: string; 名: string };
+  };
+  /** AI 清洗补认的（和人在报告里改的）：格式 = 规则认不出的格子认成了什么；同一家 = 名字很像的两家是不是同一家 */
+  清洗?: {
+    /** 认作 空 = 不认，原值照样进备注 */
+    格式: { 类: 格式类; 原值: string; 认作: string; 说明?: 说明 }[];
+    同一家: { 键: string; 前: string; 后: string; 是: boolean; 说明?: 说明 }[];
   };
   样例: Partial<Record<实体, Omit<待写, "原始" | "指纹">[]>>;
   /** 开了自动掉公海才有 */
@@ -106,6 +113,8 @@ export type 试跑参数 = {
   建议器?: 建议器 | null;
   已有映射?: 映射 | null;
   留AI?: boolean;
+  /** AI 清洗：不传 = 按环境和 Key 自己选；null = 这次不问（重新试跑，上次认的照用） */
+  清洗器?: 清洗器 | null;
   /** 重新试跑：覆盖这个批次，不另开 */
   批次Id?: string;
   /** 首次全量（默认）还是增量同步（sync.ts 照已认的映射拉一次变化） */
@@ -151,7 +160,10 @@ export async function 试跑(p: 试跑参数): Promise<试跑结果> {
     ? 去掉拆出的重复联系人(能用的表.flatMap((t) => 成记录(挂客户的表(t, m, 提醒), t.实体, m.列[t.实体] ?? {})), 能用的表, m, 提醒)
     : (p.记录 ?? []);
 
-  // 3) 清洗
+  // 3) 清洗：规则认不出的格子先问一次 AI（补认的落进 m.格式 / m.同一家，按规则再认一遍才用），再按映射洗
+  // 没说用哪个清洗器、又明说了不用 AI 猜映射（每小时增量同步、测试）：也不问 AI 清洗
+  const 补 = await AI补清洗(记录, m, p.清洗器 !== undefined ? p.清洗器 : p.建议器 === null ? null : undefined);
+  提醒.push(...补.提醒);
   const 结果 = 清洗(记录, m, await 读本地索引(p.来源));
 
   // 4) 公海
@@ -252,6 +264,12 @@ export type 映射改动 = {
   默认负责人Id?: string;
   /** 文件名 → 哪一类 */
   文件实体?: Record<string, 实体>;
+  /** 格子认作什么：类 → 原值 → 认作（空串 = 不认，照规则进备注） */
+  格式?: Partial<Record<格式类, Record<string, string>>>;
+  /** 两家是不是同一家：键 `前一家名键|后一家名键` */
+  同一家?: Record<string, boolean>;
+  /** 整块不采用 AI 清洗：AI 补的拿掉，人改过的留着 */
+  不采用AI清洗?: boolean;
 };
 
 /** 改映射后重新试跑：只能改还在 preview 的批次 */
@@ -275,6 +293,7 @@ export async function 重新试跑(批次Id: string, 改: 映射改动, 用户Id
     建议器: null,
     已有映射: m,
     留AI: true,
+    清洗器: null,
     批次Id,
     类型: 批.kind === "sync" ? "sync" : "full",
   });
@@ -309,6 +328,17 @@ export function 合并改动(已有: 映射 | null, 改: 映射改动): 映射 |
     m.说明[说明键.人(w)] = "手动";
   }
   if (改.默认负责人Id) m.默认负责人Id = 改.默认负责人Id;
+  if (改.不采用AI清洗) 去掉AI清洗(m);
+  for (const 类 of 格式类们) {
+    for (const [v, to] of Object.entries(改.格式?.[类] ?? {})) {
+      ((m.格式 ??= {})[类] ??= {})[v] = to.trim() || null;
+      m.说明[格式说明键(类, v)] = "手动";
+    }
+  }
+  for (const [k, 是] of Object.entries(改.同一家 ?? {})) {
+    (m.同一家 ??= {})[k] = 是;
+    m.说明[同一家说明键(k)] = "手动";
+  }
   return m;
 }
 
@@ -401,6 +431,22 @@ function 成报告(p: {
   const 名字 = new Map(p.候选.map((u) => [u.id, u.name]));
   const 负责人 = Object.entries(m.负责人).map(([w, id]) => ({ 写法: w, 成员Id: id, 成员名: id ? (名字.get(id) ?? "") : "", 说明: 说[说明键.人(w)] }));
 
+  const 清洗: NonNullable<试跑报告["清洗"]> = { 格式: [], 同一家: [] };
+  for (const 类 of 格式类们) {
+    for (const [v, to] of Object.entries(m.格式?.[类] ?? {})) {
+      // null = 人定了不认（照原样进备注），也列出来，好改回去
+      清洗.格式.push({ 类, 原值: v, 认作: to ?? "", 说明: 说[格式说明键(类, v)] });
+    }
+  }
+  // 名键 → 原来的写法（报告给人看的是原名）
+  const 原名 = new Map<string, string>();
+  for (const w of 结果.待写) if (w.实体 === "customer") 原名.set(名键(String(w.值.name ?? "")), String(w.值.name ?? ""));
+  for (const [k, 是] of Object.entries(m.同一家 ?? {})) {
+    const i = k.indexOf("|");
+    const [a, b] = [k.slice(0, i), k.slice(i + 1)];
+    清洗.同一家.push({ 键: k, 前: 原名.get(a) ?? a, 后: 原名.get(b) ?? b, 是, 说明: 说[同一家说明键(k)] });
+  }
+
   const 样例: 试跑报告["样例"] = {};
   for (const w of 结果.待写) {
     const a = (样例[w.实体] ??= []);
@@ -426,6 +472,7 @@ function 成报告(p: {
     问题总数: 结果.问题.length,
     问题分类,
     映射: { 列, 值, 负责人, 默认负责人: { id: m.默认负责人Id, 名: 名字.get(m.默认负责人Id) ?? "" } },
+    清洗,
     样例,
     公海: p.公海,
     预演: null,

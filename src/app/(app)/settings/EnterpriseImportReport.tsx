@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { App, Alert, Button, Collapse, Popconfirm, Progress, Select, Space, Table, Tag, Typography } from "antd";
-import { 实体名, 实体顺序, 标准字段, 字段中文, type 实体, type 问题, type 值对照名 } from "@/lib/enterprise-import/types";
+import { App, Alert, Button, Checkbox, Collapse, Input, Popconfirm, Progress, Select, Space, Table, Tag, Typography } from "antd";
+import { 实体名, 实体顺序, 标准字段, 字段中文, type 实体, type 格式类, type 问题, type 值对照名 } from "@/lib/enterprise-import/types";
 import type { 试跑报告, 映射改动, 报告列 } from "@/lib/enterprise-import/report";
 import { 改映射重新试跑, 丢掉试跑, 正式导入一段, 下载对照表, 填回对照表, type 企业版概况 } from "./enterprise-import-actions";
 
@@ -51,7 +51,10 @@ export default function EnterpriseImportReport({
       Object.values(改.列 ?? {}).reduce((n, x) => n + Object.keys(x ?? {}).length, 0) +
       Object.values(改.值 ?? {}).reduce((n, x) => n + Object.keys(x ?? {}).length, 0) +
       Object.keys(改.负责人 ?? {}).length +
-      (改.默认负责人Id !== undefined ? 1 : 0),
+      (改.默认负责人Id !== undefined ? 1 : 0) +
+      Object.values(改.格式 ?? {}).reduce((n, x) => n + Object.keys(x ?? {}).length, 0) +
+      Object.keys(改.同一家 ?? {}).length +
+      (改.不采用AI清洗 ? 1 : 0),
     [改],
   );
 
@@ -153,6 +156,12 @@ export default function EnterpriseImportReport({
   const 改列 = (e: 实体, 表头: string, 字段: string) => set改((x) => ({ ...x, 列: { ...x.列, [e]: { ...x.列?.[e], [表头]: 字段 } } }));
   const 改值 = (名: 值对照名, 原值: string, 值: string) => set改((x) => ({ ...x, 值: { ...x.值, [名]: { ...x.值?.[名], [原值]: 值 } } }));
   const 改人 = (写法: string, id: string) => set改((x) => ({ ...x, 负责人: { ...x.负责人, [写法]: id } }));
+  const 改格式 = (类: 格式类, 原值: string, to: string) => set改((x) => ({ ...x, 格式: { ...x.格式, [类]: { ...x.格式?.[类], [原值]: to } } }));
+  const 改同一家 = (键: string, 是: boolean) => set改((x) => ({ ...x, 同一家: { ...x.同一家, [键]: 是 } }));
+
+  // 老批次的报告没有这一块
+  const 清洗 = 报告.清洗 ?? { 格式: [], 同一家: [] };
+  const 谁认 = (手动: boolean, 说明?: string) => (手动 ? <Tag color="blue">手动</Tag> : 说明 ? <Tag color={说明色[说明]}>{说明}</Tag> : null);
 
   const 列表格 = (e: 实体, 列们: 报告列[]) => {
     const 选项 = [
@@ -377,6 +386,83 @@ export default function EnterpriseImportReport({
                         { title: "谁认的", width: 80, render: (_, v) => (改.值?.[v.名]?.[v.原值] !== undefined ? <Tag color="blue">手动</Tag> : v.说明 ? <Tag color={说明色[v.说明]}>{v.说明}</Tag> : null) },
                       ]}
                     />
+                  ),
+                },
+              ]
+            : []),
+          ...(清洗.格式.length + 清洗.同一家.length
+            ? [
+                {
+                  key: "清洗",
+                  label: `AI 清洗认的（${清洗.格式.length + 清洗.同一家.length}）`,
+                  children: (
+                    <Space orientation="vertical" size={10} style={{ display: "flex" }}>
+                      <Typography.Text type="secondary">
+                        只补规则认不出的格子：AI 认的还要按规则再认一遍才用，认不出的照原样进备注。不对就在这里改，或整块不采用。
+                      </Typography.Text>
+                      <Checkbox disabled={只读} checked={!!改.不采用AI清洗} onChange={(e) => set改((x) => ({ ...x, 不采用AI清洗: e.target.checked || undefined }))}>
+                        整块不采用 AI 认的（人改过的留着）
+                      </Checkbox>
+                      {清洗.格式.length > 0 && (
+                        <Table
+                          rowKey={(f) => `${f.类}-${f.原值}`}
+                          size="small"
+                          pagination={{ pageSize: 20, showSizeChanger: false, hideOnSinglePage: true }}
+                          dataSource={清洗.格式}
+                          title={() => <b>格子认作什么</b>}
+                          columns={[
+                            { title: "", width: 64, dataIndex: "类" },
+                            { title: "原来写的", render: (_, f) => <Typography.Text ellipsis>{f.原值}</Typography.Text> },
+                            {
+                              title: "认作",
+                              width: 220,
+                              render: (_, f) => (
+                                <Input
+                                  size="small"
+                                  style={{ width: 200 }}
+                                  disabled={只读}
+                                  placeholder="不认，进备注"
+                                  value={改.格式?.[f.类]?.[f.原值] ?? f.认作}
+                                  onChange={(e) => 改格式(f.类, f.原值, e.target.value)}
+                                />
+                              ),
+                            },
+                            { title: "谁认的", width: 80, render: (_, f) => 谁认(改.格式?.[f.类]?.[f.原值] !== undefined, f.说明) },
+                          ]}
+                        />
+                      )}
+                      {清洗.同一家.length > 0 && (
+                        <Table
+                          rowKey="键"
+                          size="small"
+                          pagination={{ pageSize: 20, showSizeChanger: false, hideOnSinglePage: true }}
+                          dataSource={清洗.同一家}
+                          title={() => <b>名字很像的两家</b>}
+                          columns={[
+                            { title: "前一家", render: (_, g) => <Typography.Text ellipsis>{g.前}</Typography.Text> },
+                            { title: "后一家", render: (_, g) => <Typography.Text ellipsis>{g.后}</Typography.Text> },
+                            {
+                              title: "是不是同一家",
+                              width: 160,
+                              render: (_, g) => (
+                                <Select
+                                  size="small"
+                                  style={{ width: 140 }}
+                                  disabled={只读}
+                                  value={改.同一家?.[g.键] ?? g.是}
+                                  options={[
+                                    { value: true, label: "同一家，合成一条" },
+                                    { value: false, label: "不是，分开导" },
+                                  ]}
+                                  onChange={(v) => 改同一家(g.键, v)}
+                                />
+                              ),
+                            },
+                            { title: "谁认的", width: 80, render: (_, g) => 谁认(改.同一家?.[g.键] !== undefined, g.说明) },
+                          ]}
+                        />
+                      )}
+                    </Space>
                   ),
                 },
               ]

@@ -10,13 +10,17 @@
  *   - 同一批里同号、外部 ID 不同 → 认作同一家，后一条并进前一条（名字不同另提醒）；名字很像但号不同 → 疑似重名，照写、提醒
  *   - 联系人 / 商机 / 跟进挂客户：先认所属客户 ID，再认客户名（本批里唯一、或我们这边唯一）；认不出整条跳过
  *   - 客户：对照表里有 → 落到那条；没导过但我们这边有同号客户 → 连上它（只补空格子）；否则新建
+ *   - 规则认不出的格子先查 m.格式（AI 清洗补认的 / 人在报告里改的，见 ai-clean.ts），查到的照规则再认一遍才用；
+ *     m.同一家 认作同一家的两家客户，后一家并进前一家。并进去的那条空着的格子、别名、另一个号带到前一条上
+ *   - 电话格里写的是邮箱 / 微信 / WhatsApp 的放进对应的格子；一格几个号的第一个当电话，其余进备注
  */
 import { createHash } from "node:crypto";
-import { FOLLOW_TYPES, OPP_STAGES, STAGE_PROBABILITY } from "../constants";
+import { CUSTOMER_SOURCES, FOLLOW_TYPES, OPP_STAGES, STAGE_PROBABILITY, TRADE_SOURCES } from "../constants";
+import { 国家候选 } from "../customer-extra";
 import { 认日期 } from "../import/plan";
 import { 查电话, 号键 } from "../phone";
 import { 拆多人, 进备注, 输单 } from "./mapping";
-import { 实体顺序, 必填, 实体名, 字段中文, type 原始记录, type 实体, type 映射, type 问题, type 待写 } from "./types";
+import { 实体顺序, 必填, 实体名, 字段中文, type 原始记录, type 实体, type 映射, type 问题, type 待写, type 格式类 } from "./types";
 
 /** 我们这边已有的东西，调用方从库里查好传进来。键都已规整过（见下面的 名键 / 号键） */
 export type 本地索引 = {
@@ -52,10 +56,10 @@ export function 公司名键(s: string): string {
 
 export type 清洗结果 = { 待写: 待写[]; 问题: 问题[] };
 
-type 标准 = { 值: Record<string, string>; 附加: string[] };
+export type 标准 = { 值: Record<string, string>; 附加: string[] };
 
 /** 一条原始记录按列映射拆成：标准字段的值（同一字段多列时取第一格有值的）+ 要拼进备注的「表头：值」 */
-function 拆(r: 原始记录, 列: Record<string, string>): 标准 {
+export function 拆(r: 原始记录, 列: Record<string, string>): 标准 {
   const 值: Record<string, string> = {};
   const 附加: string[] = [];
   for (const [h, raw] of Object.entries(r.字段)) {
@@ -82,12 +86,18 @@ function 认是否(v: string): boolean {
   return /^(是|y|yes|true|1|√|✓|主|主要|关键)$/i.test(v.trim());
 }
 
-/** 金额：去掉货币符号、千分位、「元」，「万」乘一万。认不出返回 null */
+const 全角数字 = (s: string) => s.replace(/[０-９．]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
+
+/** 金额：去掉货币符号、千分位、「元 / 元整 / 整」，「k / 千 / 万 / 亿」乘上去，全角数字也认。认不出返回 null */
 export function 认金额(v: string): number | null {
-  let s = v.trim().replace(/[,，\s]/g, "").replace(/^(¥|￥|\$|US\$|RMB|CNY|USD)/i, "").replace(/(元|人民币|rmb|cny|usd)$/i, "");
+  let s = 全角数字(v.trim())
+    .replace(/[,，\s]/g, "")
+    .replace(/^(¥|￥|\$|US\$|RMB|CNY|USD)/i, "")
+    .replace(/(元整|整|元|人民币|rmb|cny|usd)$/i, "");
   let 倍 = 1;
-  if (/万$/.test(s)) {
-    倍 = 10000;
+  const 单位 = /(k|千|万|亿)$/i.exec(s);
+  if (单位) {
+    倍 = { k: 1000, 千: 1000, 万: 10000, 亿: 100000000 }[单位[1].toLowerCase() as "k"] ?? 1;
     s = s.slice(0, -1);
   }
   if (!/^-?\d+(\.\d+)?$/.test(s)) return null;
@@ -125,6 +135,24 @@ export function 认时间(v: string): Date | null {
   return d;
 }
 
+export const 国家们: string[] = 国家候选.flatMap((g) => g.国家);
+export const 来源们: string[] = [...new Set<string>([...CUSTOMER_SOURCES, ...TRADE_SOURCES])];
+
+/** 一格按类再认一遍：AI 回的、人改的都要过这一关，认不出返回 null（不用） */
+export function 校验格式(类: 格式类, v: string): string | null {
+  const s = v.trim();
+  if (!s) return null;
+  if (类 === "金额") {
+    const n = 认金额(s);
+    return n === null ? null : String(n);
+  }
+  if (类 === "日期" || 类 === "时间") {
+    const d = 类 === "日期" ? 认日期(s) : 认时间(s);
+    return d && d.getFullYear() >= 1990 && d.getFullYear() <= 2100 ? s : null;
+  }
+  return (类 === "国家" ? 国家们 : 来源们).includes(s) ? s : null;
+}
+
 /** 商机状态列：赢 / 输 / 进行中 */
 function 认商机状态(v: string): "WON" | "LOST" | "OPEN" {
   if (/赢|成交|签约|won/i.test(v) && !/未成交/.test(v)) return "WON";
@@ -147,6 +175,8 @@ function 认等级(v: string): string | null {
 
 /** 客户的外贸几格：落 CustomerExtra，写的时候从 值 里分出来 */
 export const 客户附加列 = ["email", "wechat", "whatsapp", "country", "source", "level", "website"] as const;
+
+type 号 = { phone: string; email?: string; wechat?: string; whatsapp?: string; 另: string[] };
 
 export function 清洗(记录: readonly 原始记录[], m: 映射, 本地: 本地索引 = 空索引()): 清洗结果 {
   const 问题们: 问题[] = [];
@@ -175,13 +205,75 @@ export function 清洗(记录: readonly 原始记录[], m: 映射, 本地: 本�
     return m.默认负责人Id;
   };
 
-  const 认电话 = (r: 原始记录, v: string | undefined, 附加: string[]): string => {
-    if (!v) return "";
+  /**
+   * 电话格：是号码就规整；写的是邮箱 / 「微信：xx」/「WhatsApp：xx」的放进对应的格子；
+   * 一格几个号（逗号、斜杠、顿号隔开）第一个当电话，其余的放进「另」；都不是就原样进备注
+   */
+  const 认电话 = (r: 原始记录, v: string | undefined, 附加: string[]): 号 => {
+    if (!v) return { phone: "", 另: [] };
+    // 前缀和分隔符先看：「WhatsApp: +1 415…」「138…/139…」整格丢给 查电话 也能认出一个号，会把其余的吞掉
+    const t = v.trim();
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t)) {
+      出问题(r, "提醒", "格式不对", `电话格里写的是邮箱「${t}」，放进了邮箱`);
+      return { phone: "", email: t, 另: [] };
+    }
+    const 前缀 = /^(微信|weixin|wechat|wx|vx|whatsapp|wa)号?\s*[:：\s]\s*(\S.*)$/i.exec(t);
+    if (前缀) {
+      const 微信 = /^(微信|weixin|wechat|wx|vx)$/i.test(前缀[1]);
+      出问题(r, "提醒", "格式不对", `电话格里写的是${微信 ? "微信" : " WhatsApp "}「${t}」，放进了${微信 ? "微信" : " WhatsApp "}`);
+      return 微信 ? { phone: "", wechat: 前缀[2].trim(), 另: [] } : { phone: "", whatsapp: 前缀[2].trim(), 另: [] };
+    }
+    const 段 = t.split(/[,，;；/、\n]+/).map((x) => x.trim()).filter(Boolean);
+    if (段.length > 1) {
+      const 号们 = 段.map((x) => 查电话(x, { 必填: false }));
+      if (号们.every((x) => x.ok)) {
+        const [首, ...余] = 号们.map((x) => (x.ok ? x.phone : ""));
+        出问题(r, "提醒", "格式不对", `电话格里有 ${段.length} 个号，第一个当电话，其余放进了备注`);
+        return { phone: 首, 另: 余 };
+      }
+    }
     const p = 查电话(v, { 必填: false });
-    if (p.ok) return p.phone;
+    if (p.ok) return { phone: p.phone, 另: [] };
     附加.unshift(`电话：${v}`);
     出问题(r, "提醒", "格式不对", `电话「${v}」看不出是个号码，原样放进了备注`);
-    return "";
+    return { phone: "", 另: [] };
+  };
+
+  /** 字段本来有值就留着，电话格里认出的同类值放进备注；本来空着就用认出的 */
+  const 补格 = (已有: string | undefined, 认出: string | undefined, 标签: string, 附加: string[]): string | null => {
+    if (!认出) return 已有 ?? null;
+    if (!已有) return 认出;
+    if (已有 !== 认出) 附加.push(`${标签}：${认出}`);
+    return 已有;
+  };
+
+  /** 规则认不出的格子：查 m.格式（AI 清洗补认的 / 人在报告里改的），照规则再认一遍才用 */
+  const 查格式 = (类: 格式类, v: string): string | null => {
+    const t = m.格式?.[类]?.[v];
+    return typeof t === "string" ? 校验格式(类, t) : null;
+  };
+  const 补日期 = (类: "日期" | "时间", v: string): Date | null => {
+    const t = 查格式(类, v);
+    return t ? (类 === "日期" ? 认日期(t) : 认时间(t)) : null;
+  };
+
+  /** m.同一家 认作同一家的：后一家名键 → 前一家名键们 */
+  const 同家前 = new Map<string, string[]>();
+  for (const [k, 是] of Object.entries(m.同一家 ?? {})) {
+    const i = k.indexOf("|");
+    if (!是 || i < 0) continue;
+    const [前, 后] = [k.slice(0, i), k.slice(i + 1)];
+    同家前.set(后, [...(同家前.get(后) ?? []), 前]);
+  }
+  const 找同家 = (nk: string): 待写 | undefined => {
+    for (const 前 of 同家前.get(nk) ?? []) {
+      const ids = 批客户名.get(前) ?? [];
+      if (ids.length !== 1) continue;
+      let w = 批客户.get(ids[0]);
+      while (w?.并入) w = 批客户.get(w.并入);
+      if (w) return w;
+    }
+    return undefined;
   };
 
   const 对值 = (r: 原始记录, 名: keyof 映射["值"], v: string | undefined, 默认: string, 叫法: string): string => {
@@ -227,12 +319,35 @@ export function 清洗(记录: readonly 原始记录[], m: 映射, 本地: 本�
     return null;
   };
 
-  const 收 = (r: 原始记录, 值: 待写["值"], 附: Partial<待写> = {}): 待写 => {
-    const w: 待写 = { 实体: r.实体, 外部ID: r.外部ID, 值, 指纹: "", 原始: r.字段, 行号: r.行号, 出处: r.出处, ...附 };
+  const 定指纹 = (w: 待写) => {
     w.指纹 = 指纹([w.值, w.父客户 ?? null, w.父商机 ?? null, w.并入 ?? null]);
     if (w.目标?.方式 === "对照" && 本地.指纹?.get(`${w.实体}|${w.外部ID}`) === w.指纹) w.没变 = true;
+    else delete w.没变;
+  };
+
+  const 收 = (r: 原始记录, 值: 待写["值"], 附: Partial<待写> = {}): 待写 => {
+    const w: 待写 = { 实体: r.实体, 外部ID: r.外部ID, 值, 指纹: "", 原始: r.字段, 行号: r.行号, 出处: r.出处, ...附 };
+    定指纹(w);
     待写们.push(w);
     return w;
+  };
+
+  /** 客户并进前一条：前一条空着的格子拿后一条的补上，名字不同记「又名」、号不同记「另一个电话」、后一条的备注也拼过去，再重算前一条的指纹 */
+  const 带过去 = (主: 待写, 后: 待写) => {
+    const [a, b] = [主.值, 后.值];
+    const 段: string[] = [];
+    if (名键(String(b.name ?? "")) !== 名键(String(a.name ?? ""))) 段.push(`又名：${b.name}`);
+    if (b.phone && !a.phone) a.phone = b.phone;
+    else if (b.phone && 号键(String(b.phone)) !== 号键(String(a.phone))) 段.push(`另一个电话：${b.phone}`);
+    for (const k of 客户附加列) {
+      if (b[k] == null || b[k] === "") continue;
+      if (a[k] == null || a[k] === "") a[k] = b[k];
+      else if (a[k] !== b[k]) 段.push(`${字段中文[k] ?? k}：${b[k]}`);
+    }
+    if (b.remark) 段.push(String(b.remark));
+    const 已有 = String(a.remark ?? "");
+    a.remark = 拼备注(a.remark == null ? null : String(a.remark), ...段.filter((x) => !已有.includes(x)));
+    定指纹(主);
   };
 
   for (const e of 实体顺序) {
@@ -256,20 +371,25 @@ export function 清洗(记录: readonly 原始记录[], m: 映射, 本地: 本�
       const 目标: 待写["目标"] = 对照 ? { 本地ID: 对照, 方式: "对照" } : undefined;
 
       if (e === "customer") {
-        const phone = 认电话(r, s.值.phone, 附加);
+        const 号 = 认电话(r, s.值.phone, 附加);
+        const phone = 号.phone;
+        附加.push(...号.另.map((x) => `另一个电话：${x}`));
         const level = s.值.level ? 认等级(s.值.level) : null;
         if (s.值.level && !level) 附加.push(`客户等级：${s.值.level}`);
+        const email = 补格(s.值.email, 号.email, "邮箱", 附加);
+        const wechat = 补格(s.值.wechat, 号.wechat, "微信", 附加);
+        const whatsapp = 补格(s.值.whatsapp, 号.whatsapp, "WhatsApp", 附加);
         const 值: 待写["值"] = {
           name: s.值.name,
           phone,
           salesOwnerId: 负责人(r, s.值.owner),
           followStatus: 对值(r, "跟进状态", s.值.followStatus, "待跟进", "跟进状态"),
           remark: 拼备注(s.值.remark, ...附加),
-          email: s.值.email ?? null,
-          wechat: s.值.wechat ?? null,
-          whatsapp: s.值.whatsapp ?? null,
-          country: s.值.country ?? null,
-          source: s.值.source ?? null,
+          email,
+          wechat,
+          whatsapp,
+          country: s.值.country ? (查格式("国家", s.值.country) ?? s.值.country) : null,
+          source: s.值.source ? (查格式("来源", s.值.source) ?? s.值.source) : null,
           level,
           website: s.值.website ?? null,
         };
@@ -287,7 +407,18 @@ export function 清洗(记录: readonly 原始记录[], m: 映射, 本地: 本�
               : `和${哪条}「${前.值.name}」同号、名字不同，按同一家合成一条，请人看一眼`,
           );
           const w = 收(r, 值, { 并入: 前.外部ID, 目标 });
+          带过去(前, w);
           批客户.set(r.外部ID, w);
+          continue;
+        }
+        // AI 清洗 / 人在报告里认作同一家（名字很像、号不同）：也并进前一家
+        const 同家 = 找同家(名键(s.值.name));
+        if (同家) {
+          出问题(r, "提醒", "重名", `和${同家.行号 ? `第 ${同家.行号} 行` : `「${同家.外部ID}」`}「${同家.值.name}」认作同一家（AI 清洗或报告里定的），合成一条，请人看一眼`);
+          const w = 收(r, 值, { 并入: 同家.外部ID, 目标 });
+          带过去(同家, w);
+          批客户.set(r.外部ID, w);
+          if (键 && !同号.has(键)) 同号.set(键, 同家);
           continue;
         }
         // 没导过、我们这边有同号客户：连上它
@@ -315,16 +446,20 @@ export function 清洗(记录: readonly 原始记录[], m: 映射, 本地: 本�
       }
 
       if (e === "lead") {
-        const phone = 认电话(r, s.值.phone, 附加);
+        const 号 = 认电话(r, s.值.phone, 附加);
+        附加.push(...号.另.map((x) => `另一个电话：${x}`));
+        const email = 补格(s.值.email, 号.email, "邮箱", 附加);
+        if (号.wechat) 附加.push(`微信：${号.wechat}`);
+        if (号.whatsapp) 附加.push(`WhatsApp：${号.whatsapp}`);
         收(
           r,
           {
             name: s.值.name,
             contact: s.值.contact ?? null,
-            phone: phone || null,
-            email: s.值.email ?? null,
+            phone: 号.phone || null,
+            email,
             industry: s.值.industry ?? null,
-            source: s.值.source ?? "其他",
+            source: s.值.source ? (查格式("来源", s.值.source) ?? s.值.source) : "其他",
             status: 对值(r, "线索状态", s.值.status, "待跟进", "线索状态"),
             ownerId: 负责人(r, s.值.owner),
             remark: 拼备注(s.值.remark, ...附加),
@@ -339,15 +474,19 @@ export function 清洗(记录: readonly 原始记录[], m: 映射, 本地: 本�
       if (!父客户) continue;
 
       if (e === "contact") {
-        const phone = 认电话(r, s.值.phone, 附加);
+        const 号 = 认电话(r, s.值.phone, 附加);
+        附加.push(...号.另.map((x) => `另一个电话：${x}`));
+        const email = 补格(s.值.email, 号.email, "邮箱", 附加);
+        const wechat = 补格(s.值.wechat, 号.wechat, "微信", 附加);
+        if (号.whatsapp) 附加.push(`WhatsApp：${号.whatsapp}`);
         收(
           r,
           {
             name: s.值.name,
             position: s.值.position ?? null,
-            phone: phone || null,
-            email: s.值.email ?? null,
-            wechat: s.值.wechat ?? null,
+            phone: 号.phone || null,
+            email,
+            wechat,
             isPrimary: s.值.isPrimary ? 认是否(s.值.isPrimary) : false,
             remark: 拼备注(s.值.remark, ...附加),
           },
@@ -367,7 +506,8 @@ export function 清洗(记录: readonly 原始记录[], m: 映射, 本地: 本�
         if (status === "WON") stage = "赢单成交";
         let amount = 0;
         if (s.值.amount) {
-          const a = 认金额(s.值.amount);
+          const 补 = 查格式("金额", s.值.amount);
+          const a = 认金额(s.值.amount) ?? (补 === null ? null : Number(补));
           if (a === null) {
             附加.push(`金额：${s.值.amount}`);
             出问题(r, "提醒", "格式不对", `金额「${s.值.amount}」认不出，先记 0，原样放进了备注`);
@@ -381,7 +521,7 @@ export function 清洗(记录: readonly 原始记录[], m: 映射, 本地: 本�
         }
         let expectedDealAt: string | null = null;
         if (s.值.expectedDealAt) {
-          const d = 认日期(s.值.expectedDealAt);
+          const d = 认日期(s.值.expectedDealAt) ?? 补日期("日期", s.值.expectedDealAt);
           if (d) expectedDealAt = d.toISOString();
           else {
             附加.push(`预计成交：${s.值.expectedDealAt}`);
@@ -391,7 +531,7 @@ export function 清洗(记录: readonly 原始记录[], m: 映射, 本地: 本�
         // 赢单 / 输单要有个历史日期，不然看板会把它算成本月的成交
         let closedAt: string | null = null;
         if (status !== "OPEN") {
-          const d = s.值.closedAt ? 认日期(s.值.closedAt) : null;
+          const d = s.值.closedAt ? (认日期(s.值.closedAt) ?? 补日期("日期", s.值.closedAt)) : null;
           if (d) closedAt = d.toISOString();
           else if (s.值.closedAt) {
             附加.push(`结单日期：${s.值.closedAt}`);
@@ -442,9 +582,12 @@ export function 清洗(记录: readonly 原始记录[], m: 映射, 本地: 本�
       if (附加.length) content = 拼备注(content, ...附加) ?? "";
       let occurredAt: string | null = null;
       if (s.值.occurredAt) {
-        const d = 认时间(s.值.occurredAt);
+        const d = 认时间(s.值.occurredAt) ?? 补日期("时间", s.值.occurredAt);
         if (d) occurredAt = d.toISOString();
-        else 出问题(r, "提醒", "格式不对", `跟进时间「${s.值.occurredAt}」认不出，按导入时间记`);
+        else {
+          content = 拼备注(content, `跟进时间：${s.值.occurredAt}`) ?? content;
+          出问题(r, "提醒", "格式不对", `跟进时间「${s.值.occurredAt}」认不出，按导入时间记，原样放进了内容`);
+        }
       } else 出问题(r, "提醒", "格式不对", "没有跟进时间，按导入时间记");
       // 挂商机：所属商机 ID → 本批 / 以前导过的；商机名 → 同一客户下唯一的
       let 父商机: 待写["父商机"];
