@@ -261,7 +261,7 @@ jobs:
           N0="$(sudo sh -c 'ls -1 backups/crm-*.tar.gz.enc 2>/dev/null | wc -l')"
           sudo ./scripts/backup.sh
           N1="$(sudo sh -c 'ls -1 backups/crm-*.tar.gz.enc 2>/dev/null | wc -l')"
-          [ "$N1" -gt "$N0" ] || { echo "::error::backup.sh 跑完没有多出备份文件（前 $N0 后 $N1）"; exit 1; }
+          [ "$N1" -gt "$N0" ] || { echo "::error::backup.sh 跑完没有多出备份文件（前 ${N0} 后 ${N1}）"; exit 1; }
           sudo test -s backups/LAST_OK || { echo "::error::没有 backups/LAST_OK"; exit 1; }
           sudo ls -l backups/
           # 和定时任务一样的方式跑一次，日志要写进 /var/log/crm-backup.log
