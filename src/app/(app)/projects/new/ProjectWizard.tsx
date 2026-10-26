@@ -3,7 +3,7 @@
 import { useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { App, Alert, Button, Input, InputNumber, Select, Space, Steps } from "antd";
+import { App, Alert, Button, Input, InputNumber, Radio, Select, Space, Steps } from "antd";
 import DatePicker from "@/components/BusinessDatePicker";
 import { PageHead } from "@/components/ui";
 import { useBusiness } from "@/lib/business-client";
@@ -15,6 +15,7 @@ import { 金额格式 } from "@/lib/money-input";
 import { 成员选项, 独自一人, dayjs, type 可选成员 } from "@/lib/utils";
 import { 外贸精简 } from "@/lib/business-config";
 import { 项目名上限, 备注上限 } from "@/lib/project/wizard";
+import { 有效线索节点, 缺有效沟通 } from "@/lib/project/stage-gates";
 import { checkDuplicate, type DuplicateHit } from "../../customers/actions";
 import { 建档向导 } from "../actions";
 
@@ -25,11 +26,16 @@ const 时间格式 = "YYYY-MM-DD HH:mm";
 type 稿 = {
   phone: string;
   联系人: { name: string; position: string; phone: string; email: string; wechat: string };
-  客户: { name: string; school: string; remark: string };
+  /** 渠道：企业版新建线索必选（老草稿里没有） */
+  客户: { name: string; school: string; remark: string; 渠道?: string };
   项目: { name: string; ownerId: string; amount: number | null; currency: string; remark: string };
   /** 下一步时间（YYYY-MM-DD）：开了超时回收时才有这格、必填；老草稿里没有这格 */
-  跟进: { type: string; content: string; occurredAt: string; 下一步时间?: string | null };
+  /** 节点、明确回复：企业版首条沟通必选（跟进节点 = 项目落在线索阶段哪一步）；团队版没有 */
+  跟进: { type: string; content: string; occurredAt: string; 下一步时间?: string | null; 节点?: string; 明确回复?: boolean | null };
 };
+
+/** 企业版新建线索（10-26）：负责人、渠道必选；只留联系方式、首次沟通记录、跟进节点、客户是否明确回复这几格预设 */
+export type 企业建档 = { 渠道们: { id: string; name: string }[]; 节点们: readonly string[] } | null;
 
 function 空稿(ownerId: string, currency: string, 首类型: string): 稿 {
   return {
@@ -42,12 +48,17 @@ function 空稿(ownerId: string, currency: string, 首类型: string): 稿 {
 }
 
 /** 每一步往下走之前要填好的；返回一句人话，空串 = 能走 */
-function 这步还差(步: number, d: 稿, 已查: string | null, 要下一步: boolean): string {
+function 这步还差(步: number, d: 稿, 已查: string | null, 要下一步: boolean, 企业: 企业建档 = null): string {
   if (步 === 0) return !d.phone.trim() ? "先填电话再查" : 已查 !== d.phone.trim() ? "点「查重」看看这个号码有没有人录过" : "";
   if (步 === 1) return d.联系人.name.trim() ? "" : "请填写联系人姓名";
-  if (步 === 2) return d.客户.name.trim() ? "" : "请填写名称";
-  if (步 === 3) return !d.项目.name.trim() ? "请填写项目名称" : d.项目.name.trim().length > 项目名上限 ? `项目名称请控制在 ${项目名上限} 字以内` : "";
+  if (步 === 2) return !d.客户.name.trim() ? "请填写名称" : 企业 && !d.客户.渠道 ? "请选渠道" : "";
+  if (步 === 3) return !d.项目.name.trim() ? "请填写项目名称" : d.项目.name.trim().length > 项目名上限 ? `项目名称请控制在 ${项目名上限} 字以内` : 企业 && !d.项目.ownerId ? "请选项目负责人" : "";
   if (!d.跟进.content.trim()) return "请填写这次沟通的内容";
+  if (企业) {
+    if (!d.跟进.节点 || !企业.节点们.includes(d.跟进.节点)) return "请选跟进节点（线索阶段的哪一步）";
+    if (typeof d.跟进.明确回复 !== "boolean") return "请选客户是否明确回复";
+    if (企业.节点们.indexOf(d.跟进.节点) > 企业.节点们.indexOf(有效线索节点) && !d.跟进.明确回复) return 缺有效沟通;
+  }
   return 要下一步 && !d.跟进.下一步时间 ? "请填下一步时间：到那天还没跟进，项目会自动回到项目公海" : "";
 }
 
@@ -55,20 +66,20 @@ function 这步还差(步: number, d: 稿, 已查: string | null, 要下一步: 
  * 建档向导（团队版项目模式 1a，2026-10-23）：查重 → 联系人 → 客户 → 项目 → 首条沟通。
  * 中途关掉不落库，填过的存在本机草稿里（一人一份），下次进来接着填；最后一步一笔建好，失败整笔不留
  */
-export default function ProjectWizard({ users, 要下一步 }: { users: 可选成员[]; 要下一步: boolean }) {
+export default function ProjectWizard({ users, 要下一步, 企业 = null }: { users: 可选成员[]; 要下一步: boolean; 企业?: 企业建档 }) {
   // 草稿在本机 localStorage 里，服务端渲染时读不到；挂上之后再按草稿起头，免得两边对不上
   const 挂上了 = useSyncExternalStore(不订阅, () => true, () => false);
   const 我 = useMe();
   const 全名 = 草稿全名(我?.id, 草稿键);
   if (!挂上了) return null;
   const 旧 = 读草稿(全名) as { 稿?: 稿; 步?: number } | null;
-  return <WizardBody key={全名} users={users} 要下一步={要下一步} 全名={全名} 旧={旧?.稿 && 有内容(旧.稿) ? { 稿: 旧.稿, 步: Number(旧.步) || 0 } : null} />;
+  return <WizardBody key={全名} users={users} 要下一步={要下一步} 企业={企业} 全名={全名} 旧={旧?.稿 && 有内容(旧.稿) ? { 稿: 旧.稿, 步: Number(旧.步) || 0 } : null} />;
 }
 
 const 不订阅 = () => () => {};
 
 /** 要下一步 = 企业版开了超时回收：首条沟通要填下一步时间（项目建在线索阶段） */
-function WizardBody({ users, 要下一步, 全名, 旧 }: { users: 可选成员[]; 要下一步: boolean; 全名: string; 旧: { 稿: 稿; 步: number } | null }) {
+function WizardBody({ users, 要下一步, 企业, 全名, 旧 }: { users: 可选成员[]; 要下一步: boolean; 企业: 企业建档; 全名: string; 旧: { 稿: 稿; 步: number } | null }) {
   const router = useRouter();
   const { message } = App.useApp();
   const b = useBusiness();
@@ -76,7 +87,11 @@ function WizardBody({ users, 要下一步, 全名, 旧 }: { users: 可选成员[
   const 能选类型 = 跟进类型们(外贸精简(b)).filter((t) => t.value !== "TASK" && t.value !== "REMIND");
   // 不在候选里的「我」（老板、管理员不做销售）默认还是记在我名下（服务端也这么填）：下拉里补上我自己，不然那一格露出内部编号
   const 负责人选项 = 我 && !users.some((u) => u.id === 我.id) ? [...成员选项(users), { value: 我.id, label: 我.name }] : 成员选项(users);
-  const 新稿 = () => 空稿(默认负责人(我, users) ?? 我?.id ?? "", b.currency || 默认币种, 能选类型[0]?.value ?? "PHONE");
+  // 企业版负责人不默认自己：必须选（10-26）；跟进节点默认线索第一步
+  const 新稿 = () => {
+    const 稿 = 空稿(企业 ? "" : 默认负责人(我, users) ?? 我?.id ?? "", b.currency || 默认币种, 能选类型[0]?.value ?? "PHONE");
+    return 企业 ? { ...稿, 跟进: { ...稿.跟进, 节点: 企业.节点们[0], 明确回复: null } } : 稿;
+  };
 
   // 上次没填完的接着填
   const [步, set步] = useState(() => (旧 ? Math.min(Math.max(0, 旧.步), 步骤们.length - 1) : 0));
@@ -116,7 +131,7 @@ function WizardBody({ users, 要下一步, 全名, 旧 }: { users: 可选成员[
     }
   };
 
-  const 差 = 这步还差(步, d, 已查, 要下一步);
+  const 差 = 这步还差(步, d, 已查, 要下一步, 企业);
   const 拦着 = 步 === 0 && !!撞;
 
   const 提交 = async () => {
@@ -127,11 +142,11 @@ function WizardBody({ users, 要下一步, 全名, 旧 }: { users: 可选成员[
           name: d.客户.name, phone: d.phone, school: d.客户.school || null, grade: null, major: null,
           followStatus: "待跟进", decisionStatus: "了解中", expectedSignAt: null, remark: d.客户.remark || null,
           // 客户也记在项目负责人名下：负责人打开项目时得看得到这位客户
-          salesOwnerId: d.项目.ownerId || null, channelId: null, referrerCustomerId: null,
+          salesOwnerId: d.项目.ownerId || null, channelId: 企业 ? d.客户.渠道 || null : null, referrerCustomerId: null,
         },
         联系人: d.联系人,
         项目: { ...d.项目, amount: d.项目.amount ?? 0, ownerId: d.项目.ownerId || null },
-        跟进: d.跟进,
+        跟进: 企业 ? d.跟进 : { type: d.跟进.type, content: d.跟进.content, occurredAt: d.跟进.occurredAt, 下一步时间: d.跟进.下一步时间 },
       });
       if (!r.ok) {
         message.error(r.error);
@@ -217,28 +232,42 @@ function WizardBody({ users, 要下一步, 全名, 旧 }: { users: 可选成员[
       {步 === 1 && (
         <>
           {一行("联系人姓名", <Input value={d.联系人.name} onChange={(e) => 改("联系人", { name: e.target.value })} />, true)}
-          {一行("职位", <Input value={d.联系人.position} onChange={(e) => 改("联系人", { position: e.target.value })} />)}
+          {!企业 && 一行("职位", <Input value={d.联系人.position} onChange={(e) => 改("联系人", { position: e.target.value })} />)}
           {一行("联系人电话", <Input value={d.联系人.phone} onChange={(e) => 改("联系人", { phone: e.target.value })} />)}
-          {一行("邮箱", <Input value={d.联系人.email} onChange={(e) => 改("联系人", { email: e.target.value })} />)}
-          {一行("微信", <Input value={d.联系人.wechat} onChange={(e) => 改("联系人", { wechat: e.target.value })} />)}
+          {!企业 && 一行("邮箱", <Input value={d.联系人.email} onChange={(e) => 改("联系人", { email: e.target.value })} />)}
+          {!企业 && 一行("微信", <Input value={d.联系人.wechat} onChange={(e) => 改("联系人", { wechat: e.target.value })} />)}
         </>
       )}
 
       {步 === 2 && (
         <>
           {一行(`${b.customer}名称`, <Input value={d.客户.name} onChange={(e) => 改("客户", { name: e.target.value })} />, true)}
-          {一行(b.fields.school, <Input value={d.客户.school} onChange={(e) => 改("客户", { school: e.target.value })} />)}
-          {一行("备注", <Input.TextArea rows={3} value={d.客户.remark} onChange={(e) => 改("客户", { remark: e.target.value })} />)}
+          {企业 && 一行("渠道", (
+            <>
+              <Select
+                style={{ width: "100%" }}
+                value={d.客户.渠道 || undefined}
+                placeholder="这条线索从哪个渠道来"
+                options={企业.渠道们.map((c) => ({ value: c.id, label: c.name }))}
+                onChange={(v) => 改("客户", { 渠道: v })}
+                showSearch
+                optionFilterProp="label"
+              />
+              {企业.渠道们.length === 0 && <div style={{ marginTop: 4, color: "var(--text-muted)", fontSize: 12 }}>还没有渠道：请先在「设置」里加渠道</div>}
+            </>
+          ), true)}
+          {!企业 && 一行(b.fields.school, <Input value={d.客户.school} onChange={(e) => 改("客户", { school: e.target.value })} />)}
+          {!企业 && 一行("备注", <Input.TextArea rows={3} value={d.客户.remark} onChange={(e) => 改("客户", { remark: e.target.value })} />)}
         </>
       )}
 
       {步 === 3 && (
         <>
           {一行("项目名称", <Input value={d.项目.name} maxLength={项目名上限} showCount onChange={(e) => 改("项目", { name: e.target.value })} />, true)}
-          {!独自一人(users, d.项目.ownerId) && 一行("负责人", (
-            <Select style={{ width: "100%" }} value={d.项目.ownerId || undefined} options={负责人选项} onChange={(v) => 改("项目", { ownerId: v })} />
-          ))}
-          {一行("金额", (
+          {(企业 || !独自一人(users, d.项目.ownerId)) && 一行("负责人", (
+            <Select style={{ width: "100%" }} value={d.项目.ownerId || undefined} placeholder="选项目负责人" options={负责人选项} onChange={(v) => 改("项目", { ownerId: v })} />
+          ), !!企业)}
+          {!企业 && 一行("金额", (
             <Space.Compact style={{ width: "100%" }}>
               <Select style={{ width: 140 }} value={d.项目.currency} options={币种选项()} onChange={(v) => 改("项目", { currency: v })} showSearch optionFilterProp="label" />
               <InputNumber<number>
@@ -250,7 +279,7 @@ function WizardBody({ users, 要下一步, 全名, 旧 }: { users: 可选成员[
               />
             </Space.Compact>
           ))}
-          {一行("备注", <Input.TextArea rows={3} maxLength={备注上限} value={d.项目.remark} onChange={(e) => 改("项目", { remark: e.target.value })} />)}
+          {!企业 && 一行("备注", <Input.TextArea rows={3} maxLength={备注上限} value={d.项目.remark} onChange={(e) => 改("项目", { remark: e.target.value })} />)}
         </>
       )}
 
@@ -271,6 +300,15 @@ function WizardBody({ users, 要下一步, 全名, 旧 }: { users: 可选成员[
             />
           ), true)}
           {一行("沟通内容", <Input.TextArea rows={4} value={d.跟进.content} onChange={(e) => 改("跟进", { content: e.target.value })} />, true)}
+          {企业 && 一行("跟进节点", (
+            <Select style={{ width: "100%" }} value={d.跟进.节点} options={企业.节点们.map((n) => ({ value: n, label: n }))} onChange={(v) => 改("跟进", { 节点: v })} />
+          ), true)}
+          {企业 && 一行("客户是否明确回复", (
+            <Radio.Group value={d.跟进.明确回复 ?? undefined} onChange={(e) => 改("跟进", { 明确回复: e.target.value as boolean })}>
+              <Radio value={true}>明确回复了</Radio>
+              <Radio value={false}>没有明确回复</Radio>
+            </Radio.Group>
+          ), true)}
           {要下一步 && 一行("下一步时间", (
             <>
               <DatePicker

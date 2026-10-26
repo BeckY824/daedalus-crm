@@ -52,6 +52,7 @@ export async function resetDb() {
   await prisma.entMember.deleteMany();
   await prisma.entLeadAssign.deleteMany();
   await prisma.entLeadQuota.deleteMany();
+  await prisma.entFollowUpMark.deleteMany();
   await prisma.entDept.deleteMany();
   await prisma.user.deleteMany();
 }

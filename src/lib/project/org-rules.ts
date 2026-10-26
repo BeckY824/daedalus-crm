@@ -4,7 +4,8 @@
  * 存在 Setting 的 orgRules 一个 key 里（业务配置 getBusiness 会丢掉不认识的 key，不混进去）。
  * 这里只管规整，界面也引（不能碰 prisma）；读写库在 org-rules-store.ts，规矩在 lib/project/db.ts 里用
  */
-import { 节点们 } from "./nodes";
+import { 节点们, 阶段们 } from "./nodes";
+import { 出口叫法上限, type 出口叫法改动 } from "./stage-dict";
 import { 必填项名们, 能配必填的节点 } from "./required";
 
 /** 持有上限最多填多少：防手滑多打几个 0 */
@@ -13,6 +14,15 @@ export const 上限最大 = 999;
 export const 时长最大 = 365;
 /** 能设处理时长的节点：线索、商机阶段的；订单阶段永远不回收 */
 export const 能设时长的节点: readonly string[] = [...节点们.线索, ...节点们.商机];
+
+/**
+ * 往前推节点谁能推（企业版，10-26 决定 #18）：
+ *   - 负责人可推（默认）：负责人本人、直属上级、老板、总管理员都能往前推
+ *   - 仅上级推：负责人有直属上级时只给直属上级、老板、总管理员（D-37 原来那套）
+ * 往后退、点结局不归这条管；跨阶段单向、出口有限照旧。跟「按组织架构看客户」开关走（lib/project/db.ts 直属才推）
+ */
+export const 推进权限们 = ["负责人可推", "仅上级推"] as const;
+export type 推进权限 = (typeof 推进权限们)[number];
 
 export type 组织规则 = {
   公海: {
@@ -35,13 +45,45 @@ export type 组织规则 = {
     /** 节点名 → 必填哪几样（required.ts 的 必填项们）；没配的节点照原来手动推 */
     必填: Record<string, string[]>;
   };
+  阶段: {
+    /** 往前推节点谁能推，见 推进权限们 */
+    推进权限: 推进权限;
+    /** 每个阶段两个出口的叫法 [走成, 没走成]，null = 用字典里的（stage-dict.ts 字典of 合上）；只换说法，存的结局不变 */
+    出口叫法: 出口叫法改动;
+  };
 };
 
 export const 默认组织规则: 组织规则 = {
   公海: { 持有上限开: false, 默认上限: 30, 每人上限: {} },
   超时回收: { 开: false, 节点天数: {} },
   节点推进: { 开: false, 必填: {} },
+  阶段: { 推进权限: "负责人可推", 出口叫法: {} },
 };
+
+/** 规整一个出口叫法：去空格，空的 = null；太长 / 不是字串返回 undefined（读的时候丢掉，改的时候报错） */
+function 一个叫法(v: unknown): string | null | undefined {
+  if (v === null || v === undefined) return null;
+  if (typeof v !== "string") return undefined;
+  const t = v.trim();
+  if (!t) return null;
+  return t.length > 出口叫法上限 ? undefined : t;
+}
+
+/** 出口叫法整份规整：每个阶段两个都空就不留；坏的 → error（读的时候忽略那个阶段） */
+function 规整出口叫法(raw: unknown): 出口叫法改动 | { error: string } {
+  if (!raw || typeof raw !== "object") return { error: "出口叫法格式不对，刷新再试" };
+  const 出: Record<string, [string | null, string | null]> = {};
+  for (const [s, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!(阶段们 as readonly string[]).includes(s)) return { error: `没有「${s}」这个阶段` };
+    if (v === null || v === undefined) continue;
+    if (!Array.isArray(v) || v.length !== 2) return { error: "出口叫法格式不对，刷新再试" };
+    const 成 = 一个叫法(v[0]), 没成 = 一个叫法(v[1]);
+    if (成 === undefined || 没成 === undefined) return { error: `${s}阶段的出口叫法请填 1–${出口叫法上限} 个字` };
+    if (成 && 成 === 没成) return { error: `${s}阶段两个出口不能叫一样的名字` };
+    if (成 || 没成) 出[s] = [成, 没成];
+  }
+  return 出;
+}
 
 function 整数(v: unknown, 最小: number, 最大: number): number | null {
   const n = typeof v === "number" ? v : typeof v === "string" && v.trim() ? Number(v) : NaN;
@@ -88,6 +130,23 @@ export function 规整组织规则(raw: unknown): 组织规则 {
     },
     超时回收: { 开: 超时.开 === true, 节点天数: 天数 },
     节点推进: { 开: 推进.开 === true, 必填 },
+    阶段: 规整阶段块(r.阶段),
+  };
+}
+
+function 规整阶段块(raw: unknown): 组织规则["阶段"] {
+  const a = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const 叫法: Record<string, readonly [string | null, string | null]> = {};
+  if (a.出口叫法 && typeof a.出口叫法 === "object") {
+    // 一个阶段一个阶段过：坏了的那个阶段丢掉，别的照留
+    for (const [s, v] of Object.entries(a.出口叫法 as Record<string, unknown>)) {
+      const r = 规整出口叫法({ [s]: v });
+      if (!("error" in r) && r[s as keyof 出口叫法改动]) 叫法[s] = r[s as keyof 出口叫法改动]!;
+    }
+  }
+  return {
+    推进权限: (推进权限们 as readonly unknown[]).includes(a.推进权限) ? (a.推进权限 as 推进权限) : 默认组织规则.阶段.推进权限,
+    出口叫法: 叫法,
   };
 }
 
@@ -98,6 +157,8 @@ export type 规则改动 = {
   超时回收?: { 开?: boolean; 节点天数?: Record<string, number | string | null> };
   /** 必填整份替换（界面每次带全），传 null / 空的节点 = 不配、照原来手动推 */
   节点推进?: { 开?: boolean; 必填?: Record<string, string[] | null> };
+  /** 出口叫法整份替换（界面每次带全） */
+  阶段?: { 推进权限?: 推进权限; 出口叫法?: Record<string, readonly [string | null, string | null] | null> };
 };
 
 /**
@@ -177,7 +238,26 @@ export function 合上改动(现在: 组织规则, 改: 规则改动): 组织规
       节点推进.必填 = 必填;
     }
   }
-  return { ...现在, 公海, 超时回收, 节点推进 };
+  const 阶段 = { ...现在.阶段 };
+  if (改.阶段 !== undefined) {
+    const a = 改.阶段;
+    if (!a || typeof a !== "object") return { error: "要改什么？" };
+    if (a.推进权限 !== undefined) {
+      if (!(推进权限们 as readonly unknown[]).includes(a.推进权限)) return { error: `往前推权限只能选${推进权限们.join("或")}` };
+      阶段.推进权限 = a.推进权限;
+    }
+    if (a.出口叫法 !== undefined) {
+      const r = 规整出口叫法(a.出口叫法);
+      if ("error" in r) return r;
+      阶段.出口叫法 = r;
+    }
+  }
+  return { ...现在, 公海, 超时回收, 节点推进, 阶段 };
+}
+
+/** 负责人本人能不能往前推（推进权限，lib/project/db.ts 往前推不给 用） */
+export function 负责人可推(规则: 组织规则): boolean {
+  return 规则.阶段.推进权限 === "负责人可推";
 }
 
 /** 这个人的持有上限；没开上限 = null（不限） */

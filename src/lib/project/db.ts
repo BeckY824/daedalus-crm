@@ -5,10 +5,11 @@
 import type { Prisma } from "@/generated/prisma";
 import { prisma } from "../prisma";
 import { 查完再写 } from "../check-then-write";
-import { 改节点问题, 原因上限, 要写原因, 下一步, 节点序号, 字典of, type 位置 } from "./nodes";
+import { 改节点问题, 原因上限, 要写原因, 下一步, 节点序号, 字典of, 本套位置, type 位置 } from "./nodes";
 import { 还差, 必填叫法, 节点推进生效, 按必填走, 节点必填, type 必填数据 } from "./required";
 import { 规整项目, 规整沟通, type 向导项目, type 向导跟进 } from "./wizard";
-import { 持有上限of, type 组织规则 } from "./org-rules";
+import { 持有上限of, 负责人可推, type 组织规则 } from "./org-rules";
+import { 企业版推进关, 记沟通阶段问题, 记沟通标记 } from "./stage-gates";
 import { 企业版 } from "@/lib/enterprise/switch";
 import { 读组织, 直属上级of, 管理员类别of, type 组织 } from "@/lib/enterprise/org";
 import { 规则开着 } from "@/lib/enterprise/rules";
@@ -66,8 +67,9 @@ export async function 直属才推(org: 组织 | null): Promise<组织 | null> {
   return org && (await 规则开着("按组织看客户")) ? org : null;
 }
 
-export function 往前推不给(me: 谁, ownerId: string, org: 组织 | null): string | null {
-  if (!org) return null;
+/** 负责人可推（组织规则 阶段.推进权限，10-26 决定 #18，默认）：负责人本人也能往前推，直属上级、老板、总管理员照旧能推 */
+export function 往前推不给(me: 谁, ownerId: string, org: 组织 | null, 负责人可推 = false): string | null {
+  if (!org || (负责人可推 && me.id === ownerId)) return null;
   const 上级 = 直属上级of(org, ownerId);
   if (!上级 || me.id === 上级 || me.role === "ADMIN" || 管理员类别of(org, me.id) === "总管理员") return null;
   return me.id === ownerId ? "往前推节点要由你的直属上级来推" : "只有负责人的直属上级能往前推节点";
@@ -240,11 +242,13 @@ export async function 改节点(
     if (!p) return { ok: false as const, error: "这个项目已经不在了，刷新看看" };
     if (!能改节点(me, p, org)) return { ok: false as const, error: p.pooledAt ? "这个项目在公海里，先领取再改" : "只有项目负责人、老板或主管能改节点" };
     const result = 到.result || null;
-    const 字典 = 字典of(企业版());
+    const 字典 = 字典of(企业版(), 企业版() ? 规则.阶段.出口叫法 : null);
+    // 旧客户端交上来的旧节点名（企业版 验收交付）按新名存
+    到 = 本套位置(到, 字典);
     const 问题 = 改节点问题({ ...到, result }, p, 异常, 企业版(), 字典);
     if (问题) return { ok: false as const, error: 问题 };
     const 往前 = !result && !p.result && 节点序号(到, 字典) > 节点序号(p, 字典);
-    const 不给 = 往前 ? 往前推不给(me, p.ownerId, 推的组织) : null;
+    const 不给 = 往前 ? 往前推不给(me, p.ownerId, 推的组织, 负责人可推(规则)) ?? (await 企业版推进关(tx, p, 到)) : null;
     if (不给) return { ok: false as const, error: 不给 };
     // 企业版节点必填（D-37）：配了必填的节点，往前推只给老板、主管、负责人的直属上级、总管理员；销售本人填齐了自动推
     if (往前 && 按必填走(规则, p.node) && me.role !== "ADMIN" && me.role !== "MANAGER" && !代管节点(me, p.ownerId, org)) {
@@ -584,10 +588,13 @@ export async function 记项目沟通(me: 谁, projectId: string, input: 向导�
     const 要下一步 = 规则.超时回收.开 && !p.result && (能进公海的阶段 as readonly string[]).includes(p.phase);
     const 好 = 规整沟通(input, { 要下一步, now });
     if ("error" in 好) return { ok: false as const, error: 好.error };
+    const 阶段问题 = 记沟通阶段问题(input, p);
+    if (阶段问题) return { ok: false as const, error: 阶段问题 };
     const 跟进 = await tx.followUp.create({
       data: { type: 好.type, content: 好.content, occurredAt: 好.occurredAt, title: "", status: "已完成", customerId: p.customerId, contactId: p.contactId, ownerId: me.id },
     });
     await tx.followUpProject.create({ data: { followUpId: 跟进.id, projectId: p.id, node: p.node } });
+    await 记沟通标记(tx, 跟进.id, p.id, p.phase, input.明确回复 === true);
     const c = await tx.customer.findUnique({ where: { id: p.customerId }, select: { lastFollowAt: true } });
     if (!c?.lastFollowAt || c.lastFollowAt < 好.occurredAt) await tx.customer.update({ where: { id: p.customerId }, data: { lastFollowAt: 好.occurredAt } });
     if (好.nextStepAt) await tx.project.update({ where: { id: p.id }, data: { nextStepAt: 好.nextStepAt } });
@@ -709,6 +716,7 @@ export async function 按必填推进(tx: Prisma.TransactionClient, 规则: 组�
     if (!下) break;
     if (!往前 && !(await 往前进来的(tx, p))) break;
     if (还差(规则, await 读必填数据(tx, p)).length) break;
+    if (await 企业版推进关(tx, p, 下)) break;
     await tx.project.update({ where: { id: p.id }, data: { phase: 下.phase, node: 下.node } });
     await tx.projectNodeLog.create({
       data: {

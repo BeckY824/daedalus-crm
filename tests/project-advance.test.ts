@@ -16,6 +16,7 @@ import { 改节点, 改项目, 记项目沟通, 勾交付, 客户项目按必填
 import { 默认组织规则, type 组织规则 } from "@/lib/project/org-rules";
 import { setSetting, invalidateSettingsCache } from "@/lib/settings";
 import { dayjs } from "@/lib/utils";
+import { 记有效沟通 } from "./helpers/ent-valid-followup";
 
 const 开着 = (必填: Record<string, string[]>): 组织规则 => ({ ...默认组织规则, 节点推进: { 开: true, 必填 } });
 const 现在 = () => dayjs().format("YYYY-MM-DD HH:mm");
@@ -68,6 +69,7 @@ describe("节点必填自动推进", () => {
   it("下一个节点也配了、也齐了：接着推，跨阶段也一步一步走", async () => {
     await setSetting("orgRules", 开着({ 线索验证: ["金额"], 线索推进: ["金额"], 明确需求: ["主联系人"] }));
     const p = await 项目({ node: "线索验证" });
+    await 记有效沟通(p.id); // 越过线索验证要先有有效沟通
     const r = await 改项目(乙, p.id, { name: "一号项目", amount: 5 });
     expect(r).toMatchObject({ ok: true, 自动推到: ["线索推进", "明确需求"] });
     expect(await 现(p.id)).toMatchObject({ phase: "商机", node: "明确需求" });
@@ -77,7 +79,7 @@ describe("节点必填自动推进", () => {
   it("记沟通：本节点沟通 + 下一步时间齐了就推；勾交付：验收通过", async () => {
     await setSetting("orgRules", 开着({ 潜客培育: ["本节点沟通", "下一步时间"], 交付验收: ["验收通过"] }));
     const p = await 项目();
-    const r = await 记项目沟通(乙, p.id, { type: "PHONE", content: "聊了", occurredAt: 现在(), 下一步时间: dayjs().add(2, "day").format("YYYY-MM-DD") });
+    const r = await 记项目沟通(乙, p.id, { type: "PHONE", content: "聊了", occurredAt: 现在(), 下一步时间: dayjs().add(2, "day").format("YYYY-MM-DD"), 阶段: "线索", 明确回复: false });
     expect(r).toMatchObject({ ok: true, 自动推到: ["线索验证"] });
 
     const q = await 项目({ phase: "订单", node: "交付验收" }); // 企业版字典的叫法
@@ -115,12 +117,14 @@ describe("节点必填自动推进", () => {
 
     // 老板手动往前推进来的节点齐了：接着推
     const q = await 项目({ amount: 9 });
+    await 记有效沟通(q.id);
     expect(await 改节点(老板, q.id, { phase: "线索", node: "线索验证" })).toMatchObject({ ok: true, 自动推到: ["线索推进"] });
   });
 
   it("配了必填的节点：销售手动往前推被拦并列还差；老板、主管能推；往后退照旧", async () => {
     await setSetting("orgRules", 开着({ 线索验证: ["金额", "国家"] }));
     const p = await 项目({ node: "线索验证" });
+    await 记有效沟通(p.id);
     const r = await 改节点(乙, p.id, { phase: "线索", node: "线索推进" });
     expect(r.ok).toBe(false);
     expect(!r.ok && r.error).toContain("还差：金额、国家");

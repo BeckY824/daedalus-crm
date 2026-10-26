@@ -1,6 +1,7 @@
 /**
  * 企业版三大阶段节点状态机（10-26，lib/project/stage-dict.ts + nodes.ts + timeout.ts + db.ts 改节点 / 公海超时收回）。
- *   - 种子：对方三组阶段值，线索 5 / 商机 8 / 订单 7（含出口）；流程代码只备注
+ *   - 种子：对方三组阶段值，线索 5 / 商机 8 / 订单 7（含出口）；流程代码们 10-26 删了
+ *   - 改名：丢单→商机丢单、赢单→商机赢单（只改叫法，库里结局值不动）；验收交付→交付验收（库里旧名照认）
  *   - 跨阶段单向：商机回不了线索、订单回不了商机（服务端拦）；同阶段里往后退随便、往前一步一步
  *   - 结局：线索只能流失或转商机，商机只能流失或赢单；订单的成功交付 / 异常状态照旧
  *   - 超时回收：没填天数的节点默认 7 天；改了天数新的回收日按新天数
@@ -20,6 +21,7 @@ import { 能配必填的节点 } from "@/lib/project/required";
 import { 默认组织规则, type 组织规则 } from "@/lib/project/org-rules";
 import { setSetting, invalidateSettingsCache } from "@/lib/settings";
 import { dayjs } from "@/lib/utils";
+import { 记有效沟通 } from "./helpers/ent-valid-followup";
 
 const 企 = 企业版字典;
 const 在 = (phase: string, node: string, result: string | null = null) => ({ phase, node, result, balanceSettled: false, acceptancePassed: false });
@@ -33,14 +35,25 @@ describe("企业版字典：按对方阶段值做种子", () => {
     expect([阶段值们(企, "线索").length, 阶段值们(企, "商机").length, 阶段值们(企, "订单").length]).toEqual([5, 8, 7]);
   });
 
-  it("流程代码 7 个只是备注；出口叫法：线索 转商机 / 流失，商机 赢单 / 流失", () => {
-    expect(企.流程代码们.map((c) => c.代码)).toEqual(["PCT", "ORL", "MQL", "SAL", "SQL", "PRJ", "PST"]);
-    expect(企.出口们.线索.map((o) => o.叫法)).toEqual(["转商机", "流失"]);
-    expect(企.出口们.商机.map((o) => o.叫法)).toEqual(["赢单", "流失"]);
+  it("出口叫法：线索 已转商机 / 线索流失，商机 商机赢单 / 商机丢单；库里的结局值还是 丢单；流程代码们没了", () => {
+    expect("流程代码们" in 企).toBe(false);
+    expect(企.出口们.线索.map((o) => o.叫法)).toEqual(["已转商机", "线索流失"]);
+    expect(企.出口们.商机.map((o) => o.叫法)).toEqual(["商机赢单", "商机丢单"]);
+    expect(企.出口们.商机.map((o) => o.结局)).toEqual([null, "丢单"]);
     expect(企.出口们.订单.map((o) => o.叫法)).toEqual(["成功交付", "异常状态"]);
-    expect(结局叫法("线索流失", 企)).toBe("流失");
-    expect(结局叫法("丢单", 企)).toBe("流失");
+    expect(结局叫法("线索流失", 企)).toBe("线索流失");
+    expect(结局叫法("丢单", 企)).toBe("商机丢单");
     expect(结局叫法("成功交付", 企)).toBe("成功交付");
+  });
+
+  it("后台改出口叫法（挡改设置）：只换叫法、不换结局值；没改的用字典里的", () => {
+    const 改 = 字典of(true, { 商机: ["赢了", null], 线索: [null, "没戏"] });
+    expect(改.出口们.商机.map((o) => [o.叫法, o.结局])).toEqual([["赢了", null], ["商机丢单", "丢单"]]);
+    expect(改.出口们.线索.map((o) => [o.叫法, o.结局])).toEqual([["已转商机", null], ["没戏", "线索流失"]]);
+    expect(结局叫法("线索流失", 改)).toBe("没戏");
+    expect(改.节点们).toBe(企.节点们);
+    expect(字典of(true, {})).toEqual(企);
+    expect(字典of(false, { 商机: ["赢了", null] })).toBe(团队版字典);
   });
 
   it("团队版字典没动：验收交付、线索流失 / 丢单、跨阶段能退、没填天数不回收", () => {
@@ -89,8 +102,16 @@ describe("跨阶段单向（改节点问题，企业版字典）", () => {
     expect(改节点问题({ phase: "订单", node: "交付验收" }, 在("订单", "安装实施"), undefined, true, 企)).toBeNull();
     expect(改节点问题({ phase: "商机", node: "明确需求" }, 在("线索", "线索推进"), undefined, true, 企)).toBeNull();
     expect(改节点问题({ phase: "订单", node: "生产备货" }, 在("商机", "首款支付"), undefined, true, 企)).toBeNull();
-    // 团队版的 验收交付 在企业版里不认
-    expect(改节点问题({ phase: "订单", node: "验收交付" }, 在("订单", "安装实施"), undefined, true, 企)).toMatch("没有「验收交付」这个节点");
+    // 团队版的 验收交付（库里的旧名）在企业版里按 交付验收 认
+    expect(改节点问题({ phase: "订单", node: "验收交付" }, 在("订单", "安装实施"), undefined, true, 企)).toBeNull();
+    expect(改节点问题({ phase: "订单", node: "尾款结算" }, 在("订单", "验收交付"), undefined, true, 企)).toBeNull();
+  });
+
+  it("订单只能从商机进：线索直接跳订单、商机中间节点跳订单都不行", () => {
+    expect(改节点问题({ phase: "订单", node: "生产备货" }, 在("线索", "线索推进"), undefined, true, 企)).toMatch("节点不能往前跳");
+    expect(改节点问题({ phase: "订单", node: "生产备货" }, 在("线索", "潜客培育"), undefined, true, 企)).toMatch("节点不能往前跳");
+    expect(改节点问题({ phase: "订单", node: "生产备货" }, 在("商机", "签订合同"), undefined, true, 企)).toMatch("节点不能往前跳");
+    expect(改节点问题({ phase: "订单", node: "物流运输" }, 在("商机", "首款支付"), undefined, true, 企)).toMatch("节点不能往前跳");
   });
 });
 
@@ -101,7 +122,7 @@ describe("结局只有两条（企业版字典）", () => {
     const 线索推进 = 在("线索", "线索推进");
     expect(改节点问题({ phase: "线索", node: "线索推进", result: "线索流失" }, 线索推进, 原因, true, 企)).toBeNull();
     expect(改节点问题({ phase: "商机", node: "明确需求" }, 线索推进, undefined, true, 企)).toBeNull();
-    expect(改节点问题({ phase: "线索", node: "线索推进", result: "丢单" }, 线索推进, 原因, true, 企)).toBe("「流失」只能在商机阶段点");
+    expect(改节点问题({ phase: "线索", node: "线索推进", result: "丢单" }, 线索推进, 原因, true, 企)).toBe("「商机丢单」只能在商机阶段点");
     expect(改节点问题({ phase: "线索", node: "线索推进", result: "成功交付" }, 线索推进, undefined, true, 企)).toMatch("只能在订单阶段点");
     expect(改节点问题({ phase: "线索", node: "线索推进", result: "异常状态" }, 线索推进, { categoryId: "x" }, true, 企)).toMatch("只能在订单阶段点");
   });
@@ -111,7 +132,7 @@ describe("结局只有两条（企业版字典）", () => {
     expect(改节点问题({ phase: "商机", node: "首款支付", result: "丢单" }, 首款支付, 原因, true, 企)).toBeNull();
     expect(改节点问题({ phase: "订单", node: "生产备货" }, 首款支付, undefined, true, 企)).toBeNull();
     expect(改节点问题({ phase: "线索", node: "线索推进", result: "线索流失" }, 首款支付, 原因, true, 企)).toMatch("不能退回线索阶段");
-    expect(改节点问题({ phase: "商机", node: "首款支付", result: "线索流失" }, 首款支付, 原因, true, 企)).toBe("「流失」只能在线索阶段点");
+    expect(改节点问题({ phase: "商机", node: "首款支付", result: "线索流失" }, 首款支付, 原因, true, 企)).toBe("「线索流失」只能在线索阶段点");
     expect(改节点问题({ phase: "商机", node: "首款支付", result: "成功交付" }, 首款支付, undefined, true, 企)).toMatch("只能在订单阶段点");
   });
 
@@ -188,6 +209,7 @@ describe("读写库（CRM_ENTERPRISE 开 / 关）", () => {
     expect(await 现(q.id)).toMatchObject({ phase: "订单", node: "物流运输" });
 
     const p = await 项目({ node: "线索推进" });
+    await 记有效沟通(p.id);
     expect(await 改节点(乙, p.id, { phase: "商机", node: "明确需求" })).toMatchObject({ ok: true });
     const r = await 项目({ phase: "商机", node: "首款支付" });
     expect(await 改节点(乙, r.id, { phase: "订单", node: "生产备货" })).toMatchObject({ ok: true });
@@ -195,7 +217,7 @@ describe("读写库（CRM_ENTERPRISE 开 / 关）", () => {
 
   it("企业版：线索阶段点丢单被拦，点线索流失（写原因）能点", async () => {
     const p = await 项目({ node: "线索验证" });
-    expect(await 改节点(乙, p.id, { phase: "线索", node: "线索验证", result: "丢单" }, { 备注: "不要了" })).toMatchObject({ ok: false, error: "「流失」只能在商机阶段点" });
+    expect(await 改节点(乙, p.id, { phase: "线索", node: "线索验证", result: "丢单" }, { 备注: "不要了" })).toMatchObject({ ok: false, error: "「商机丢单」只能在商机阶段点" });
     expect(await 改节点(乙, p.id, { phase: "线索", node: "线索验证", result: "线索流失" }, { 备注: "不要了" })).toMatchObject({ ok: true });
     expect(await 现(p.id)).toMatchObject({ result: "线索流失" });
   });

@@ -40,6 +40,8 @@ const 可写: Record<string, string[]> = {
   // 企业版线索分配（2026-10-24）：leads/assign-actions.ts 的 分配线索 / 设配额
   EntLeadAssign: ["leadId", "toUserId", "line", "kind"],
   EntLeadQuota: ["userId", "quota"],
+  // 企业版沟通标记（2026-10-26）：记项目沟通 / 建档向导一起写，沟通弹窗里选阶段、选客户是否明确回复
+  EntFollowUpMark: ["phase", "replied"],
   Customer: ["name", "phone", "school", "grade", "major", "channelId", "referrerCustomerId", "salesOwnerId", "channelOwnerId", "followStatus", "decisionStatus", "expectedSignAt", "remark"],
   Channel: ["name", "phone", "remark", "channelOwnerId", "active"],
   Lead: ["name", "contact", "phone", "email", "industry", "source", "status", "remark", "ownerId"],
@@ -87,6 +89,7 @@ const 派生: Record<string, Record<string, string>> = {
     month: "分配那一刻的年月，按业务钟算（企业版北京时间），每月清零靠它",
   },
   EntLeadQuota: { setById: "最后改配额的人，当前登录账号" },
+  EntFollowUpMark: { followUpId: "主键：标的是哪条沟通（一条沟通只挂一个项目，一行一条）", projectId: "哪个项目，记沟通时跟 FollowUpProject 一起写" },
   Opportunity: { activityAt: "最近业务推进时间；转交负责人保留，业务字段/报价变化时刷新，老数据为空沿用原修改时间" },
   Customer: {
     expectedSignOn: "预计签约原日历日，随保存/导入/同步保留；旧数据未知为空",

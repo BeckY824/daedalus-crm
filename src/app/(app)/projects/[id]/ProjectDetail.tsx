@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { App, Alert, Button, Card, Checkbox, Input, Modal, Popconfirm, Progress, Select, Space, Tag, Timeline, Tooltip } from "antd";
+import { App, Alert, Button, Card, Checkbox, Input, Modal, Popconfirm, Progress, Radio, Select, Space, Tag, Timeline, Tooltip } from "antd";
 import DatePicker from "@/components/BusinessDatePicker";
 import { 必填叫法 } from "@/lib/project/required";
 import { PageHead, CustomerLink, FollowTypeCell } from "@/components/ui";
@@ -14,7 +14,9 @@ import { 外贸精简 } from "@/lib/business-config";
 import { 金额 } from "@/lib/currency";
 import { 阶段们, 交付还差, 下一步, 节点序号, 节点总数of, 原因上限, 要写原因, 字典of, 结局叫法, 团队版字典, type 位置, type 阶段字典 } from "@/lib/project/nodes";
 import { 超时理由 } from "@/lib/project/timeout";
-import { 改项目节点, 勾项目交付, 删除项目, 放回项目公海, 领取项目, 记项目沟通Action } from "../actions";
+import type { 出口叫法改动 } from "@/lib/project/stage-dict";
+import { 有效线索节点, 缺有效沟通 } from "@/lib/project/stage-gates";
+import { 改项目节点, 勾项目交付, 删除项目, 放回项目公海, 领取项目, 记项目沟通Action, 判MQLAction } from "../actions";
 import type { 可选成员 } from "@/lib/utils";
 import { ProjectEditModal, ProjectTeamCard, type 组员, type 角色, type 联系人 } from "./ProjectTeam";
 
@@ -33,6 +35,10 @@ export type 项目详情 = {
   pooled: boolean; 能放公海: boolean; 能领取: boolean;
   /** 服务端读的 企业版()：放回公海的说法跟着它走（企业版能自己领回） */
   企业版: boolean;
+  /** 企业版组织规则里改过的出口叫法（设置 → 项目 → 阶段规则）；别的版本是空的 */
+  出口叫法: 出口叫法改动;
+  /** 企业版线索阶段：客户明确回复了的沟通有几条（0 = 推不过线索验证）；别的阶段、别的版本是 0 */
+  有效沟通: number;
   /**
    * 企业版超时回收：nextStepAt 是最近一次沟通填的下一步时间（服务端排好的 YYYY-MM-DD）；回收日 = 哪天没人跟进就自动回公海（null = 不会）；
    * 要下一步 = 记沟通必须填下一步时间；能记沟通 = 企业版里的负责人、老板、主管、项目组成员，且不在公海（不是企业版照原来去客户页记）
@@ -74,7 +80,7 @@ function 删除说明(n: 项目详情["删前清点"], 客户叫法: string) {
   );
 }
 
-/** 「线索·潜客培育」「订单·验收交付（异常状态）」；结局按字典的叫法（企业版线索流失、丢单都说「流失」） */
+/** 「线索·潜客培育」「订单·验收交付（异常状态）」；结局按字典的叫法（企业版丢单显示成「商机丢单」） */
 function 位置文字(p: 位置, 字典: 阶段字典 = 团队版字典): string {
   return `${p.phase}·${p.node}${p.result ? `（${结局叫法(p.result, 字典)}）` : ""}`;
 }
@@ -156,8 +162,10 @@ export default function ProjectDetail({
   const [类别, set类别] = useState<string | null>(null);
   const [编辑开着, set编辑开着] = useState(false);
   const [记一条开着, set记一条开着] = useState(false);
+  const [不合格框, set不合格框] = useState(false);
+  const [培育日, set培育日] = useState<string | null>(null);
   const 当前: 位置 = { phase: p.phase, node: p.node, result: p.result };
-  const 字典 = 字典of(p.企业版);
+  const 字典 = 字典of(p.企业版, p.出口叫法);
   const 节点总数 = 节点总数of(字典);
   const 下 = 下一步(当前, 字典);
   const 差 = 交付还差(p);
@@ -166,6 +174,13 @@ export default function ProjectDetail({
   const 不能改 = p.pooled ? "这个项目在项目公海里，领取了才能改" : 能改 ? undefined : "只有项目负责人、老板或主管能改";
   const 节点可改 = p.能改节点 && !p.pooled;
   const 节点不能改 = p.能改节点 ? (p.pooled ? 不能改 : undefined) : 不能改;
+  // 企业版：线索阶段还没有客户明确回复的沟通，推不过「线索验证」（服务端 lib/project/stage-gates.ts 同一条）
+  const 没有效沟通 = p.企业版 && p.phase === "线索" && !p.result && p.有效沟通 === 0;
+  const 卡有效沟通 = 没有效沟通 && !!下 && 节点序号(下, 字典) > 节点序号({ phase: "线索", node: 有效线索节点 }, 字典);
+  // 企业版 MQL 人工判：在线索验证这个节点，合格往前推，不合格回潜客培育、排一条跟进计划
+  const 判MQL = p.企业版 && p.phase === "线索" && p.node === 有效线索节点 && !p.result && 节点可改 && !p.不给推;
+  // 企业版线索阶段不显示交付（QA #5）：只有订单阶段才有尾款、验收
+  const 显示交付 = !p.企业版 || p.phase === "订单";
 
   const 跑 = async (f: () => Promise<{ ok: boolean; error?: string; 自动推到?: string[] }>, 成了?: string) => {
     set忙(true);
@@ -270,7 +285,7 @@ export default function ProjectDetail({
               value={null}
               disabled={!节点可改 || 忙}
               title={节点不能改}
-              options={去处们(当前, !!p.必填?.只能靠填齐 || !!p.不给推, 字典)}
+              options={去处们(当前, !!p.必填?.只能靠填齐 || !!p.不给推 || 卡有效沟通, 字典)}
               onChange={(v: string | null) => {
                 if (!v) return;
                 const { phase, node, result } = JSON.parse(v) as 位置;
@@ -278,9 +293,9 @@ export default function ProjectDetail({
               }}
             />
             {/* 灰掉的按钮收不到鼠标事件，外面包一层 span 才能悬停出原因 */}
-            <Tooltip title={节点不能改 ?? p.不给推 ?? (p.必填?.只能靠填齐 ? "这个节点填齐必填后自动往前推；要先推请找老板或主管" : 下 ? undefined : p.result ? "先改回某个节点再往前推" : "这是最后一个节点了，接下来点结局")}>
+            <Tooltip title={节点不能改 ?? p.不给推 ?? (卡有效沟通 ? 缺有效沟通 : undefined) ?? (p.必填?.只能靠填齐 ? "这个节点填齐必填后自动往前推；要先推请找老板或主管" : 下 ? undefined : p.result ? "先改回某个节点再往前推" : "这是最后一个节点了，接下来点结局")}>
               <span>
-                <Button type="primary" disabled={!节点可改 || 忙 || !下 || !!p.必填?.只能靠填齐 || !!p.不给推} onClick={() => 下 && 改到(下)}>
+                <Button type="primary" disabled={!节点可改 || 忙 || !下 || !!p.必填?.只能靠填齐 || !!p.不给推 || 卡有效沟通} onClick={() => 下 && 改到(下)}>
                   {下 ? `下一步：${下.phase === p.phase ? 下.node : `${下.phase}·${下.node}`}` : "下一步"}
                 </Button>
               </span>
@@ -294,6 +309,20 @@ export default function ProjectDetail({
           status={异常 ? "exception" : p.result === "成功交付" ? "success" : "active"}
           aria-label={`第 ${节点序号(当前, 字典) + 1} 个节点，共 ${节点总数} 个`}
         />
+        {判MQL && (
+          <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+            <span style={{ color: "var(--text-muted)" }}>MQL 判断：</span>
+            <Tooltip title={没有效沟通 ? 缺有效沟通 : undefined}>
+              <span>
+                <Button size="small" type="primary" disabled={忙 || 没有效沟通} onClick={() => void 跑(() => 判MQLAction(p.id, true), "判为合格，已推到线索推进")}>合格</Button>
+              </span>
+            </Tooltip>
+            <Button size="small" disabled={忙} onClick={() => { set培育日(null); set不合格框(true); }}>不合格，回潜客培育</Button>
+          </div>
+        )}
+        {没有效沟通 && !判MQL && (
+          <div style={{ marginTop: 12, color: "var(--text-muted)" }}>还没有客户明确回复的沟通：记一条、选「客户明确回复了」，才能推过线索验证</div>
+        )}
         {p.必填 && (
           <div style={{ marginTop: 12, color: p.必填.还差.length ? "var(--text-muted)" : "var(--success-text)", overflowWrap: "anywhere" }}>
             {p.必填.还差.length
@@ -316,7 +345,7 @@ export default function ProjectDetail({
           {p.回收日 && <div style={{ ...行样, color: 回收临近(p.回收日) ? "var(--warning-text)" : "var(--text-muted)" }}>{p.回收日} 前没人跟进，会自动回到项目公海</div>}
           {p.remark && <div style={{ marginTop: 8, whiteSpace: "pre-wrap", color: "var(--text-muted)" }}>{p.remark}</div>}
         </Card>
-        <Card title="交付">
+        {显示交付 && <Card title="交付">
           {(["balanceSettled", "acceptancePassed"] as const).map((k) => {
             const 勾了 = p[k];
             const 谁 = k === "balanceSettled" ? p.balanceSettledBy : p.acceptancePassedBy;
@@ -348,7 +377,7 @@ export default function ProjectDetail({
               成功交付
             </Button>
           )}
-        </Card>
+        </Card>}
       </div>
 
       <div style={{ marginBottom: 16 }}>
@@ -427,6 +456,28 @@ export default function ProjectDetail({
       </Modal>
 
       <Modal
+        open={不合格框}
+        title="MQL 不合格：回潜客培育"
+        okText="确定"
+        okButtonProps={{ disabled: !培育日, loading: 忙 }}
+        onCancel={() => set不合格框(false)}
+        onOk={async () => {
+          if (!培育日) return;
+          const ok = await 跑(() => 判MQLAction(p.id, false, 培育日), `已回到潜客培育，${培育日} 再跟进`);
+          if (ok) set不合格框(false);
+        }}
+      >
+        <div style={{ marginBottom: 8, color: "var(--text-muted)" }}>项目回到「线索·潜客培育」，按你选的日子排一条跟进计划，到时候提醒负责人再聊。</div>
+        <DatePicker
+          aria-label="下次跟进日期"
+          style={{ width: "100%" }}
+          value={培育日 ? dayjs(培育日) : null}
+          disabledDate={(x) => x.isBefore(dayjs(), "day")}
+          onChange={(v) => set培育日(v ? v.format("YYYY-MM-DD") : null)}
+        />
+      </Modal>
+
+      <Modal
         open={!!没成框}
         title={没成框 ? `定结果：${结局叫法(没成框.result ?? "", 字典)}` : ""}
         okText="确定"
@@ -467,12 +518,13 @@ function RecordFollowModal({ p, 外贸, onClose, 跑 }: {
   const [occurredAt, setOccurredAt] = useState(() => dayjs().format(沟通时间格式));
   const [content, setContent] = useState("");
   const [下一步时间, set下一步时间] = useState<string | null>(null);
+  const [明确回复, set明确回复] = useState<boolean | null>(null);
   const [交中, set交中] = useState(false);
-  const 差 = !content.trim() ? "请填写这次沟通的内容" : p.要下一步 && !下一步时间 ? "请填下一步时间：到那天还没跟进，项目会自动回到项目公海" : "";
+  const 差 = !content.trim() ? "请填写这次沟通的内容" : p.企业版 && 明确回复 === null ? "请选客户这次有没有明确回复" : p.要下一步 && !下一步时间 ? "请填下一步时间：到那天还没跟进，项目会自动回到项目公海" : "";
 
   const 交 = async () => {
     set交中(true);
-    const ok = await 跑(() => 记项目沟通Action(p.id, { type, content, occurredAt, 下一步时间 }), "已记下这条沟通");
+    const ok = await 跑(() => 记项目沟通Action(p.id, { type, content, occurredAt, 下一步时间, ...(p.企业版 ? { 阶段: p.phase, 明确回复: 明确回复 === true } : {}) }), "已记下这条沟通");
     set交中(false);
     if (ok) onClose();
   };
@@ -498,6 +550,18 @@ function RecordFollowModal({ p, 外贸, onClose, 跑 }: {
           disabledDate={(x) => x.isAfter(dayjs(), "day")}
           onChange={(v) => v && setOccurredAt(v.format(沟通时间格式))}
         />
+        {p.企业版 && (
+          <div>
+            <div style={{ marginBottom: 4 }}>项目阶段<span style={{ color: "var(--text-muted)" }}>（记在项目现在的阶段上）</span></div>
+            <Select aria-label="项目阶段" style={{ width: "100%" }} value={p.phase} disabled options={[{ value: p.phase, label: p.phase }]} />
+          </div>
+        )}
+        {p.企业版 && (
+          <div>
+            <div style={{ marginBottom: 4 }}>客户是否明确回复<span style={{ color: "var(--danger-text)" }}> *</span></div>
+            <Radio.Group aria-label="客户是否明确回复" value={明确回复} onChange={(e) => set明确回复(e.target.value as boolean)} options={[{ value: true, label: "明确回复了" }, { value: false, label: "没有明确回复" }]} />
+          </div>
+        )}
         <Input.TextArea aria-label="沟通内容" rows={4} value={content} onChange={(e) => setContent(e.target.value)} placeholder="这次聊了什么" />
         <div>
           <div style={{ marginBottom: 4 }}>

@@ -1209,6 +1209,21 @@ model EntLeadAssign {
   @@index([leadId])
 }
 
+/// 企业版沟通标记（2026-10-26）：一条项目沟通一行。phase = 记的时候项目在哪个阶段（必须是项目当前阶段）；
+/// replied = 客户是否明确回复，有效线索要至少一条 replied = true 的沟通才能过「线索验证」。
+/// 不建外键：同 EntMember。跟进删了这一行留着也不读（数的时候按 FollowUpProject 还在的算）
+model EntFollowUpMark {
+  followUpId String   @id
+  projectId  String
+  /// 线索 / 商机 / 订单
+  phase      String
+  /// 客户是否明确回复
+  replied    Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([projectId])
+}
+
 /// 企业版每人每月最多接几条分配的线索。没有这一行 = 不限。直属上级、虚线上级、总管理员、老板能设
 model EntLeadQuota {
   userId    String   @id

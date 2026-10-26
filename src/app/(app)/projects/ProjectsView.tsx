@@ -17,7 +17,7 @@ import { 主题颜色 } from "@/lib/chart-theme";
 import { categorical } from "@/lib/palette";
 import type { 项目行, 看板一列 } from "@/lib/project/board";
 import type { 看板列 } from "@/lib/project/nodes";
-import { 字典of, 结局叫法, type 阶段字典 } from "@/lib/project/stage-dict";
+import { 字典of, 结局叫法, type 阶段字典, type 出口叫法改动 } from "@/lib/project/stage-dict";
 
 /** 看板五列的颜色：三个阶段沿用商机管道的蓝绿黄，成功交付粉、没成灰 */
 const 列色: Record<看板列, string> = {
@@ -41,7 +41,7 @@ function 异常说明(r: 项目行) {
   return [r.exceptionCategory, r.exceptionReason].filter(Boolean).join("：") || undefined;
 }
 
-/** 节点那一格：有结局写结局（按字典的叫法，企业版线索流失、丢单都说「流失」），异常标红 */
+/** 节点那一格：有结局写结局（按字典的叫法，企业版丢单显示成「商机丢单」），异常标红 */
 function 节点文字(r: 项目行, 字典: 阶段字典) {
   if (r.result === "异常状态") return <Tag color="error" title={异常说明(r)}>异常 · {r.exceptionCategory ?? r.node}</Tag>;
   if (r.result) return <Tag>{结局叫法(r.result, 字典)}</Tag>;
@@ -53,7 +53,7 @@ function 节点文字(r: 项目行, 字典: 阶段字典) {
  * 看板列头写项目数和按币种分开的金额合计；异常状态的项目留在订单列、左边框标红
  */
 export default function ProjectsView({
-  行, 列: 看板, 取到上限, users, filters, 企业版 = false,
+  行, 列: 看板, 取到上限, users, filters, 企业版 = false, 出口叫法,
 }: {
   行: 项目行[];
   列: 看板一列[];
@@ -62,9 +62,11 @@ export default function ProjectsView({
   filters: { keyword: string; ownerId: string; pool: string };
   /** 服务端的 企业版()：结局叫法跟着字典 */
   企业版?: boolean;
+  /** 企业版组织规则里改过的出口叫法 */
+  出口叫法?: 出口叫法改动;
 }) {
   const router = useRouter();
-  const 字典 = 字典of(企业版);
+  const 字典 = 字典of(企业版, 出口叫法);
   const b = useBusiness();
   const [看法, set看法] = useLocalPref<"列表" | "看板">("projects-view", "看板");
   const { f, setF, apply, reset, pending } = useUrlFilters("/projects", filters);

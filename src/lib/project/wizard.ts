@@ -10,7 +10,8 @@ import { parseDateInput } from "../date-input";
 import { FOLLOW_TYPES } from "../constants";
 import { 是币种, 默认币种 } from "../currency";
 import { dayjs } from "../utils";
-import { 第一个节点 } from "./nodes";
+import { 第一个节点, 企业版字典, 节点序号 } from "./nodes";
+import { 有效线索节点, 缺有效沟通, 记沟通标记 } from "./stage-gates";
 import { 登记接着建, type 接着建 } from "./hook";
 
 export const 项目名上限 = 60;
@@ -19,12 +20,19 @@ export const 备注上限 = 500;
 export type 向导联系人 = { name: string; position?: string | null; phone?: string | null; email?: string | null; wechat?: string | null };
 export type 向导项目 = { name: string; ownerId?: string | null; amount?: number | null; currency?: string | null; remark?: string | null };
 /** 下一步时间：企业版开了超时回收时线索、商机阶段必填（lib/project/timeout.ts），没开可不填 */
-export type 向导跟进 = { type: string; content: string; occurredAt: string; 下一步时间?: string | null };
+/**
+ * 阶段、明确回复：企业版记沟通必选（lib/project/stage-gates.ts 的 记沟通阶段问题），团队版不传、不看
+ */
+export type 向导跟进 = { type: string; content: string; occurredAt: string; 下一步时间?: string | null; 阶段?: string; 明确回复?: boolean | null;
+  /** 企业版建档向导：项目建在线索阶段的哪个节点（跟进节点，必选）；团队版不传，一律潜客培育 */
+  节点?: string | null };
 
 export type 规整好的 = {
   联系人: { name: string; position: string | null; phone: string | null; email: string | null; wechat: string | null };
   项目: { name: string; ownerId: string; amount: number; currency: string; remark: string | null };
   跟进: 规整好的沟通;
+  /** 企业版建档（10-26）：项目落在哪个线索节点、首条沟通客户是否明确回复；团队版没有 */
+  企业?: { 节点: string; 明确回复: boolean };
 };
 
 export type 规整好的沟通 = { type: string; content: string; occurredAt: Date; nextStepAt: Date | null };
@@ -78,6 +86,7 @@ export function 规整向导(
   input: { 联系人?: 向导联系人; 项目?: 向导项目; 跟进?: 向导跟进 },
   now = new Date(),
   要下一步 = false,
+  企业 = false,
 ): 规整好的 | { error: string } {
   const c = input.联系人, p = input.项目, f = input.跟进;
   if (!c || !p || !f) return { error: "建档信息不完整，请从头再走一遍" };
@@ -91,10 +100,24 @@ export function 规整向导(
   const 跟进 = 规整沟通(f, { 要下一步, now, 叫法: "首条" });
   if ("error" in 跟进) return 跟进;
 
+  // 企业版新建线索（10-26）：负责人必选（不默认自己）、跟进节点必选、客户是否明确回复必选；渠道必选在 建档向导 里查库
+  let 企业档: 规整好的["企业"];
+  if (企业) {
+    if (!文字(p.ownerId)) return { error: "请选项目负责人" };
+    const 节点 = 文字(f.节点);
+    if (!企业版字典.节点们.线索.includes(节点)) return { error: "请选跟进节点（线索阶段的哪一步）" };
+    if (typeof f.明确回复 !== "boolean") return { error: "请选客户是否明确回复" };
+    if (节点序号({ phase: "线索", node: 节点 }, 企业版字典) > 节点序号({ phase: "线索", node: 有效线索节点 }, 企业版字典) && !f.明确回复) {
+      return { error: 缺有效沟通 };
+    }
+    企业档 = { 节点, 明确回复: f.明确回复 };
+  }
+
   return {
     联系人: { name: 文字(c.name), position: 可空(c.position), phone: 电话, email: 可空(c.email), wechat: 可空(c.wechat) },
     项目,
     跟进,
+    ...(企业档 ? { 企业: 企业档 } : {}),
   };
 }
 
@@ -108,17 +131,20 @@ export function 向导接着建(me: { id: string }, 好: 规整好的, 出参: P
   return 登记接着建(async (tx: Prisma.TransactionClient, customerId: string) => {
     const 联系人 = await tx.contact.create({ data: { ...好.联系人, isPrimary: true, customerId } });
     await tx.customerCreator.create({ data: { customerId, userId: me.id } });
+    // 企业版建档选了跟进节点就落在那，团队版一律潜客培育
+    const 落 = { phase: 第一个节点.phase, node: 好.企业?.节点 ?? 第一个节点.node };
     const 项目 = await tx.project.create({
       data: {
         ...好.项目, customerId, contactId: 联系人.id, creatorId: me.id,
-        phase: 第一个节点.phase, node: 第一个节点.node, nextStepAt: 好.跟进.nextStepAt,
+        phase: 落.phase, node: 落.node, nextStepAt: 好.跟进.nextStepAt,
       },
     });
-    await tx.projectNodeLog.create({ data: { projectId: 项目.id, userId: me.id, toPhase: 第一个节点.phase, toNode: 第一个节点.node } });
+    await tx.projectNodeLog.create({ data: { projectId: 项目.id, userId: me.id, toPhase: 落.phase, toNode: 落.node } });
     const 跟进 = await tx.followUp.create({
       data: { type: 好.跟进.type, content: 好.跟进.content, occurredAt: 好.跟进.occurredAt, title: "", status: "已完成", customerId, contactId: 联系人.id, ownerId: me.id },
     });
-    await tx.followUpProject.create({ data: { followUpId: 跟进.id, projectId: 项目.id, node: 第一个节点.node } });
+    await tx.followUpProject.create({ data: { followUpId: 跟进.id, projectId: 项目.id, node: 落.node } });
+    if (好.企业) await 记沟通标记(tx, 跟进.id, 项目.id, 落.phase, 好.企业.明确回复);
     await tx.customer.update({ where: { id: customerId }, data: { lastFollowAt: 好.跟进.occurredAt } });
     Object.assign(出参, { contactId: 联系人.id, projectId: 项目.id, followUpId: 跟进.id });
   });

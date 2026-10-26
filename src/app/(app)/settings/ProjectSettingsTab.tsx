@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { App, Button, Card, Input, InputNumber, Popconfirm, Select, Space, Switch, Tag } from "antd";
+import { App, Button, Card, Input, InputNumber, Popconfirm, Radio, Select, Space, Switch, Tag } from "antd";
 import { 加组员角色, 改组员角色, 加项目异常类别, 改项目异常类别, 改组织规则, 预览超时回收 } from "@/app/(app)/projects/actions";
-import { 上限最大, 时长最大, type 组织规则, type 规则改动 } from "@/lib/project/org-rules";
+import { 上限最大, 时长最大, 推进权限们, type 推进权限, type 组织规则, type 规则改动 } from "@/lib/project/org-rules";
 // 这两张卡（超时回收、节点推进）只在企业版出现（组织规则 只有企业版才读），节点按企业版字典列
-import { 企业版字典, 本套节点名 } from "@/lib/project/stage-dict";
+import { 企业版字典, 本套节点名, 出口叫法上限 } from "@/lib/project/stage-dict";
 import { 必填项们, 必填叫法, 能配必填的节点, 建议必填 } from "@/lib/project/required";
 
 const 节点们 = 企业版字典.节点们;
@@ -27,7 +27,7 @@ export type 项目设置 = {
    * 每张卡这个人能不能改：null = 能改，否则是「只有……能改」那句（服务端按「后台设置谁能改」算好，
    * 不是企业版只有老板能改；共享试用区谁都不能改）
    */
-  挡: Record<"字典" | "持有上限" | "节点时限" | "必填字段", string | null>;
+  挡: Record<"字典" | "持有上限" | "节点时限" | "必填字段" | "阶段规则", string | null>;
 };
 
 /**
@@ -74,6 +74,7 @@ export default function ProjectSettingsTab({ value, 成员 }: { value: 项目设
       {value.组织规则 && <HoldCapCard 规则={value.组织规则.公海} 持有={value.持有} 成员={成员} 挡={value.挡.持有上限} 忙={忙} 跑={跑} />}
       {value.组织规则 && <TimeoutCard 规则={value.组织规则.超时回收} 挡={value.挡.节点时限} 忙={忙} 跑={跑} />}
       {value.组织规则 && <AdvanceCard 规则={value.组织规则.节点推进} 挡={value.挡.必填字段} 忙={忙} 跑={跑} />}
+      {value.组织规则 && <StageRuleCard 规则={value.组织规则.阶段} 挡={value.挡.阶段规则} 忙={忙} 跑={跑} />}
     </div>
   );
 }
@@ -357,6 +358,73 @@ function AdvanceCard({
           )}
         </>
       )}
+    </Card>
+  );
+}
+
+const 推进权限说明: Record<推进权限, string> = {
+  负责人可推: "负责人自己、直属上级、老板、总管理员都能往前推",
+  仅上级推: "负责人有直属上级时，只有直属上级、老板、总管理员能往前推",
+};
+
+/**
+ * 阶段规则（企业版，10-26 会定）：往前推节点谁能推（默认负责人可推），线索、商机两个阶段出口的叫法。
+ * 改叫法只换说法：存的结局、节点、跨阶段单向的规矩都不变。往后退、点结局不归推进权限管。每次推进都记在节点变更里
+ */
+function StageRuleCard({
+  规则, 挡, 忙, 跑,
+}: {
+  规则: 组织规则["阶段"]; 挡: string | null; 忙: boolean;
+  跑: (f: () => 结果, 成了?: string) => Promise<boolean>;
+}) {
+  const 阶段们 = ["线索", "商机"] as const;
+  const 原来 = (s: (typeof 阶段们)[number]): [string, string] => [规则.出口叫法[s]?.[0] ?? "", 规则.出口叫法[s]?.[1] ?? ""];
+  const [叫法, set叫法] = useState<Record<string, [string, string]>>(() => Object.fromEntries(阶段们.map((s) => [s, 原来(s)])));
+  const 改了 = 阶段们.some((s) => 叫法[s][0] !== 原来(s)[0] || 叫法[s][1] !== 原来(s)[1]);
+  const 存 = () => 跑(() => 改组织规则({
+    阶段: { 出口叫法: Object.fromEntries(阶段们.map((s) => [s, [叫法[s][0].trim() || null, 叫法[s][1].trim() || null] as const])) },
+  }), "已保存");
+
+  return (
+    <Card title="阶段规则" extra={挡 && <span style={{ color: "var(--text-muted)" }}>{挡}</span>}>
+      <div style={{ color: "var(--text-muted)", marginBottom: 12 }}>
+        线索阶段只能走到「转商机」或「流失」，商机阶段只能「赢单」或「丢单」，订单只能从商机进；进了下一个阶段就退不回上一个，阶段里面往后退随便退。每次推进都记在节点变更里。
+      </div>
+      <div style={{ fontWeight: 500, marginBottom: 8 }}>谁能往前推节点</div>
+      <Radio.Group
+        aria-label="往前推权限"
+        disabled={!!挡 || 忙}
+        value={规则.推进权限}
+        onChange={(e) => void 跑(() => 改组织规则({ 阶段: { 推进权限: e.target.value as 推进权限 } }), "已保存")}
+        style={{ display: "grid", gap: 4, marginBottom: 16 }}
+        options={推进权限们.map((v) => ({ value: v, label: <span>{v}<span style={{ color: "var(--text-muted)" }}>：{推进权限说明[v]}</span></span> }))}
+      />
+      <div style={{ fontWeight: 500, marginBottom: 8 }}>出口叫法<span style={{ color: "var(--text-muted)", fontWeight: 400 }}>（空着 = 用默认；只换说法，已经定了结果的项目不变）</span></div>
+      {阶段们.map((s) => {
+        const [成, 没成] = 企业版字典.出口们[s];
+        return (
+          <div key={s} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, minWidth: 0, flexWrap: "wrap" }}>
+            <span style={{ flex: "0 0 64px" }}>{s}阶段</span>
+            {([0, 1] as const).map((i) => (
+              <Input
+                key={i}
+                aria-label={`${s}阶段${i === 0 ? "走成" : "没走成"}的叫法`}
+                style={{ flex: "1 1 140px", minWidth: 0 }}
+                maxLength={出口叫法上限}
+                placeholder={(i === 0 ? 成 : 没成).叫法}
+                disabled={!!挡}
+                value={叫法[s][i]}
+                onChange={(e) => set叫法((m) => {
+                  const v: [string, string] = [...m[s]];
+                  v[i] = e.target.value;
+                  return { ...m, [s]: v };
+                })}
+              />
+            ))}
+          </div>
+        );
+      })}
+      {!挡 && <Button type="primary" style={{ marginTop: 4 }} disabled={忙 || !改了} onClick={() => void 存()}>保存叫法</Button>}
     </Card>
   );
 }

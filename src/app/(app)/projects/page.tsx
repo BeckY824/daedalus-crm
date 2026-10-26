@@ -7,6 +7,7 @@ import { 负责人候选 } from "@/lib/owners";
 import { 看板分列, type 项目行 } from "@/lib/project/board";
 import { 看得到的客户, 露客户, 公海超时收回 } from "@/lib/project/db";
 import { 企业版 } from "@/lib/enterprise/switch";
+import { 生效组织规则 } from "@/lib/project/org-rules-store";
 import ProjectsView from "./ProjectsView";
 
 export const dynamic = "force-dynamic";
@@ -50,6 +51,7 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Pro
       列={看板分列(行)}
       取到上限={rows.length >= 500}
       企业版={企业版()}
+      出口叫法={企业版() ? (await 生效组织规则()).阶段.出口叫法 : undefined}
       users={users}
       filters={{ keyword: 词, ownerId: typeof sp.ownerId === "string" ? sp.ownerId : "", pool: sp.pool === "1" ? "1" : "" }}
     />

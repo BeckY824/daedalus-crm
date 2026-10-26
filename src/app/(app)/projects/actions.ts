@@ -19,6 +19,7 @@ import { 挡改设置, type 设置项名 } from "@/lib/enterprise/edit-perm";
 import { 记这个项目的自动推进, 客户存了推项目 } from "@/lib/project/auto-advance";
 import { 读团队 } from "@/lib/sync/client";
 import { 要写原因, type 位置 } from "@/lib/project/nodes";
+import { 判MQL, MQL合格去, MQL不合格去 } from "@/lib/project/mql";
 import { saveCustomer, type CustomerInput } from "../customers/actions";
 
 const 没开 = { ok: false as const, error: "项目模式没开：请老板在「设置 → 业务配置」里打开" };
@@ -48,8 +49,13 @@ export async function 建档向导(input: 建档向导输入) {
     const 规则 = await 生效组织规则();
     // 下一步时间只在开了超时回收时有这格（不是企业版一律没开）：没开时老草稿里留着的也不认、不写，和原来一样
     const 要下一步 = 规则.超时回收.开;
-    const 好 = 规整向导(me, 要下一步 || !input.跟进 ? input : { ...input, 跟进: { ...input.跟进, 下一步时间: null } }, new Date(), 要下一步);
+    const 好 = 规整向导(me, 要下一步 || !input.跟进 ? input : { ...input, 跟进: { ...input.跟进, 下一步时间: null } }, new Date(), 要下一步, 企业版());
     if ("error" in 好) return { ok: false as const, error: 好.error };
+    // 企业版新建线索要选渠道（10-26：直接选渠道，不是来源类型）
+    if (企业版()) {
+      const 渠道 = input.客户.channelId ? await prisma.channel.findUnique({ where: { id: String(input.客户.channelId) }, select: { active: true } }) : null;
+      if (!渠道?.active) return { ok: false as const, error: input.客户.channelId ? "这个渠道不存在或已停用，换一个" : "请选渠道" };
+    }
     const 负责人 = await prisma.user.findUnique({ where: { id: 好.项目.ownerId }, select: { name: true, active: true } });
     if (!负责人?.active) return { ok: false as const, error: "项目负责人不存在或已停用，请选一位在职成员" };
     // 负责人选了别人 = 指派，开了持有上限的要算；自己建给自己不拦（lib/project/db.ts 超上限）
@@ -241,6 +247,26 @@ export async function 编辑项目(projectId: string, patch: 向导项目 & { co
   } catch (e) { return 不在了(e); }
 }
 
+/** 企业版 MQL 人工判定：线索验证上判合格（推到线索推进）/ 不合格（退回潜客培育 + 培育跟进计划） */
+export async function 判MQLAction(projectId: string, 合格: boolean, 下一步时间?: string | null) {
+  try {
+    const me = await requireUser();
+    if (!(await 开着())) return 没开;
+    if (!企业版()) return { ok: false as const, error: "MQL 判定只在企业版有" };
+    const r = await 判MQL(me, projectId, 合格 === true, 下一步时间 ?? null);
+    if (r.ok) {
+      const p = await prisma.project.findUnique({ where: { id: projectId }, select: { name: true, customerId: true } });
+      await recordAudit({
+        user: me, action: "update", entity: "Project", entityId: projectId,
+        summary: 合格 ? `项目「${p?.name ?? ""}」MQL 判合格，推到 ${MQL合格去}` : `项目「${p?.name ?? ""}」MQL 判不合格，退回 ${MQL不合格去}，${下一步时间 ?? ""} 再跟进`,
+      });
+      await 记这个项目的自动推进(me, projectId, r.自动推到);
+      刷新项目(projectId, p?.customerId);
+    }
+    return r;
+  } catch (e) { return 不在了(e); }
+}
+
 async function 组员说法(projectId: string, userId: string) {
   const [p, u] = await Promise.all([
     prisma.project.findUnique({ where: { id: projectId }, select: { name: true } }),
@@ -296,7 +322,7 @@ export async function 移出项目组员(memberId: string) {
  * （「后台设置谁能改」，lib/enterprise/edit-perm-table.ts；老板总能改）
  */
 async function 挡组织规则(me: { id: string; role: string }, 改: 规则改动): Promise<string | null> {
-  const 块: [keyof 规则改动, 设置项名, string][] = [["公海", "持有上限", "项目持有上限"], ["超时回收", "节点时限", "各节点时限"], ["节点推进", "必填字段", "节点必填字段"]];
+  const 块: [keyof 规则改动, 设置项名, string][] = [["公海", "持有上限", "项目持有上限"], ["超时回收", "节点时限", "各节点时限"], ["节点推进", "必填字段", "节点必填字段"], ["阶段", "阶段规则", "阶段出口叫法和往前推权限"]];
   for (const [k, 项, 叫法] of 块) {
     if (改?.[k] === undefined) continue;
     const 挡 = await 挡改设置(me, 项);
@@ -318,7 +344,9 @@ export async function 改组织规则(改: 规则改动) {
     await 存组织规则(新);
     const g = 新.公海, t = 新.超时回收;
     const 推 = 新.节点推进;
-    const 说 = 改.节点推进 !== undefined
+    const 说 = 改.阶段 !== undefined
+      ? `组织规则：往前推权限 ${新.阶段.推进权限}，改了 ${Object.keys(新.阶段.出口叫法).length} 个阶段的出口叫法`
+      : 改.节点推进 !== undefined
       ? 推.开 ? `组织规则：节点推进开，${Object.keys(推.必填).length} 个节点配了必填` : "组织规则：节点推进关"
       : 改.超时回收 !== undefined
       ? t.开 ? `组织规则：超时回收开，设了 ${Object.keys(t.节点天数).length} 个节点的处理时长` : "组织规则：超时回收关"
@@ -357,7 +385,7 @@ export async function 记项目沟通Action(projectId: string, input: 向导跟�
       const p = await prisma.project.findUnique({ where: { id: projectId }, select: { name: true, customerId: true } });
       await recordAudit({
         user: me, action: "create", entity: "FollowUp", entityId: r.followUpId,
-        summary: `在项目「${p?.name ?? ""}」上记了一条沟通`,
+        summary: `在项目「${p?.name ?? ""}」上记了一条沟通（${input.阶段 ?? ""}阶段，客户${input.明确回复 ? "明确回复了" : "没有明确回复"}）`,
       });
       await 记这个项目的自动推进(me, projectId, r.自动推到);
       刷新项目(projectId, p?.customerId);

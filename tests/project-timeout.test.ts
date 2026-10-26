@@ -185,7 +185,7 @@ describe("扫库收回", () => {
   });
 
   describe("记项目沟通", () => {
-    const 沟通 = (补: Record<string, unknown> = {}) => ({ type: "PHONE", content: "聊了报价", occurredAt: dayjs().format("YYYY-MM-DD HH:mm"), ...补 });
+    const 沟通 = (补: Record<string, unknown> = {}) => ({ type: "PHONE", content: "聊了报价", occurredAt: dayjs().format("YYYY-MM-DD HH:mm"), 阶段: "线索", 明确回复: false, ...补 });
 
     it("开了超时回收：线索 / 商机阶段不填下一步时间不让存，说清楚缺什么；订单阶段不要", async () => {
       await setSetting("orgRules", 开着({ 潜客培育: 3 }));
@@ -201,7 +201,7 @@ describe("扫库收回", () => {
       expect((await prisma.customer.findUniqueOrThrow({ where: { id: 客户 } })).lastFollowAt).not.toBeNull();
 
       const 订单 = await 项目(乙.id, { phase: "订单", node: "生产备货" });
-      expect((await 记项目沟通(乙, 订单.id, 沟通())).ok).toBe(true);
+      expect((await 记项目沟通(乙, 订单.id, 沟通({ 阶段: "订单" }))).ok).toBe(true);
     });
 
     it("没开：下一步时间可填可不填", async () => {

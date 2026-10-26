@@ -140,6 +140,8 @@ const 项目id: Record<string, string> = {};
 const 客户id: Record<string, string> = {};
 const 线索id: Record<string, string> = {};
 let 号 = 0;
+/** 开关开那组建的渠道（企业版新建线索要选渠道，10-26）；渠道负责人是老板，不影响谁看得到谁 */
+let 渠道id: string | null = null;
 
 type 回 = { ok?: boolean; error?: string } & Record<string, unknown>;
 const 话 = (r: unknown) => { const x = r as 回; return x?.ok ? "成" : `拒：${x?.error ?? JSON.stringify(x)}`; };
@@ -177,7 +179,7 @@ const 现在文本 = () => {
 function 向导输入(负责人: string, 名: string, 下一步: string | null, 指派给?: string) {
   号 += 1;
   const 尾 = String(号).padStart(4, "0");
-  return {
+  const r = {
     客户: {
       name: `客户${名}`, phone: `1390000${尾}`, school: null, grade: null, major: null,
       followStatus: "待跟进", decisionStatus: "了解中", expectedSignAt: null, remark: null,
@@ -186,7 +188,14 @@ function 向导输入(负责人: string, 名: string, 下一步: string | null, 
     联系人: { name: `联系人${名}`, position: "采购", phone: `1380000${尾}` },
     项目: { name: 名, amount: 10000, currency: "CNY", ...(指派给 ? { ownerId: 公.id[指派给] } : {}) },
     跟进: { type: "PHONE", content: `${名} 首次沟通`, occurredAt: 现在文本(), ...(下一步 ? { 下一步时间: 下一步 } : {}) },
-  } as unknown as Parameters<typeof 建档向导>[0];
+  };
+  // 企业版新建线索（10-26 三大阶段）：负责人、渠道、跟进节点、客户是否明确回复必选；首条沟通记成明确回复了（有效线索）
+  if (渠道id) {
+    Object.assign(r.客户, { channelId: 渠道id });
+    Object.assign(r.项目, { ownerId: 公.id[指派给 ?? 负责人] });
+    Object.assign(r.跟进, { 节点: "潜客培育", 明确回复: true });
+  }
+  return r as unknown as Parameters<typeof 建档向导>[0];
 }
 
 async function 建项目(谁: string, 名: string, 下一步: string | null, 指派给?: string) {
@@ -272,7 +281,7 @@ async function 开局(企业: boolean) {
   for (const k of Object.keys(项目id)) delete 项目id[k];
   for (const k of Object.keys(客户id)) delete 客户id[k];
   for (const k of Object.keys(线索id)) delete 线索id[k];
-  号 = 0; 观测.length = 0; 结果.clear();
+  号 = 0; 观测.length = 0; 结果.clear(); 渠道id = null;
   if (企业) vi.stubEnv("CRM_ENTERPRISE", "1");
   开始假时间("2026-01-26 07:00");
   公 = await 建公司();
@@ -281,7 +290,10 @@ async function 开局(企业: boolean) {
   await setSetting("orgRules", {
     公海: { 持有上限开: true, 默认上限: 30, 每人上限: { [公.id["外销6"]]: 2 } },
     超时回收: { 开: true, 节点天数: { 潜客培育: 3, 线索验证: 5, 明确需求: 7 } },
+    // D-34「销售本人不能往前推」按「仅上级推」测；10-26 起企业版默认「负责人可推」，那条在 project-node-direct-mgr 里测
+    ...(企业 ? { 阶段: { 推进权限: "仅上级推", 出口叫法: {} } } : {}),
   });
+  if (企业) 渠道id = (await prisma.channel.create({ data: { name: "模拟渠道", channelOwnerId: 公.id["老板"] } })).id;
   invalidateSettingsCache();
 }
 
@@ -378,7 +390,7 @@ async function 剧本开() {
   await 查("D2-原市场人员改不了", async () =>
     拒(await 作为("市渠1", () => saveLead({ id: 线索id["L2"], name: "L2 改名", source: "市场活动", status: "跟进中" }))));
   拨到("2026-01-27 23:59");
-  得(await 作为("外销1", () => 记沟通(项目id["P3"], { type: "PHONE", content: "P3 晚上又聊了", occurredAt: 现在文本(), 下一步时间: "2026-02-05" })), "外销1 记 P3 沟通");
+  得(await 作为("外销1", () => 记沟通(项目id["P3"], { type: "PHONE", content: "P3 晚上又聊了", occurredAt: 现在文本(), 阶段: "线索", 明确回复: true, 下一步时间: "2026-02-05" })), "外销1 记 P3 沟通");
 
   // ——— D3 周三 1/28 ———
   await 扫("2026-01-28 08:00");
@@ -393,9 +405,9 @@ async function 剧本开() {
   });
   拨到("2026-01-28 09:00");
   await 查("D3-沟通没下一步拒", async () =>
-    拒(await 作为("内销1", () => 记沟通(项目id["P1"], { type: "PHONE", content: "P1 跟进", occurredAt: 现在文本() })), /下一步/));
-  得(await 作为("内销1", () => 记沟通(项目id["P1"], { type: "PHONE", content: "P1 跟进", occurredAt: 现在文本(), 下一步时间: "2026-01-31" })), "内销1 记 P1 沟通");
-  得(await 作为("内销3", () => 记沟通(项目id["P10"], { type: "PHONE", content: "P10 跟进", occurredAt: 现在文本(), 下一步时间: "2026-01-30" })), "内销3 记 P10 沟通");
+    拒(await 作为("内销1", () => 记沟通(项目id["P1"], { type: "PHONE", content: "P1 跟进", occurredAt: 现在文本(), 阶段: "线索", 明确回复: true })), /下一步/));
+  得(await 作为("内销1", () => 记沟通(项目id["P1"], { type: "PHONE", content: "P1 跟进", occurredAt: 现在文本(), 阶段: "线索", 明确回复: true, 下一步时间: "2026-01-31" })), "内销1 记 P1 沟通");
+  得(await 作为("内销3", () => 记沟通(项目id["P10"], { type: "PHONE", content: "P10 跟进", occurredAt: 现在文本(), 阶段: "线索", 明确回复: true, 下一步时间: "2026-01-30" })), "内销3 记 P10 沟通");
   await 查("D3-原负责人能领回", async () => {
     得(await 作为("外销2", () => 放回项目公海(项目id["P4"])), "外销2 放回 P4");
     得(await 作为("外销2", () => 领取项目(项目id["P4"])), "外销2 领回 P4");
