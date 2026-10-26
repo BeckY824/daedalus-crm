@@ -16,6 +16,7 @@ import { 读团队 } from "@/lib/sync/client";
 import { 客户页签归属 } from "@/lib/pool";
 import { 管全队客户 } from "@/lib/constants";
 import { 摊平部门 } from "@/lib/sync/dept-policy";
+import { 拦原负责人 } from "@/lib/enterprise/pool-rules";
 
 export const dynamic = "force-dynamic";
 
@@ -169,6 +170,8 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
       部门选项={部门选项}
       // 企业版虚线下属的客户：只能看（10-25 实测 F4）。团队版、没开组织架构可见范围时一律空
       只读ids={await 虚线只读的(defaultClient, rows.map((r) => r.id))}
+      // 企业版「非原负责人均可领取」（10-26 定稿）：这一页公海里原负责人是我的，领取按钮灰着（接口也拦，pool-actions.ts 领取）
+      原负责人领不回ids={拦原负责人() ? rows.filter((r) => r.pool && r.salesOwnerId === me.id).map((r) => r.id) : []}
       本月新增={sp.createdWithin === "本月"}
       直接推荐={sp.directOf ? ((await prisma.channel.findUnique({ where: { id: sp.directOf }, select: { name: true } }))?.name ?? "这个渠道") : null}
       本批={sp.batch ? { 几位: total } : null}

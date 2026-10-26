@@ -16,8 +16,7 @@ import { 钉住老签约 } from "@/lib/contract-owner";
 import { 带走并记下, 还项目, type 带走的 } from "@/lib/carry-over-db";
 import { 记换负责人 } from "@/lib/owner-log-db";
 import type { 带走数 } from "@/lib/carry-over";
-import { 企业版 } from "@/lib/enterprise/switch";
-import { 公海规则 } from "@/lib/enterprise/pool-rules";
+import { 拦原负责人, 原负责人不能领回提示 } from "@/lib/enterprise/pool-rules";
 import { 领客户带走公海项目 } from "@/lib/enterprise/pool-link";
 
 export type 公海结果 =
@@ -83,11 +82,11 @@ export async function 领取(ids: string[]): Promise<公海结果> {
   const me = await requireUser();
   const b = await getBusiness();
   if (!ids.length) return { ok: true, updated: 0, unchanged: 0, 没权限: 0 };
-  // 企业版关了「原负责人能领回」（pool-rules.ts）：公海里负责人一直留着原来那位，是他的就不让他自己领回
-  const 不能领 = 企业版() && !公海规则.原负责人能领回
+  // 企业版「非原负责人均可领取」（pool-rules.ts，10-26 定稿）：公海里负责人一直留着原来那位，是他的就不让他自己领回
+  const 不能领 = 拦原负责人()
     ? new Set((await 看全部(() => prisma.customer.findMany({ where: { id: { in: ids }, salesOwnerId: me.id, pool: { isNot: null } }, select: { id: true } }))).map((c) => c.id))
     : new Set<string>();
-  if (不能领.size && 不能领.size === new Set(ids).size) return { ok: false, error: `自己放进公海的${b.customer}不能自己领回` };
+  if (不能领.size && 不能领.size === new Set(ids).size) return { ok: false, error: 原负责人不能领回提示 };
   // 换负责人之前先把老签约「签约那一刻是谁的」钉住（排查 X1，和批量分配一样）
   await 钉住老签约();
   const 领到: { id: string; 值: string }[] = [];

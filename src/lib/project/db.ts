@@ -14,13 +14,13 @@ import { 读组织, 直属上级of, 管理员类别of, type 组织 } from "@/lib
 import { 规则开着 } from "@/lib/enterprise/rules";
 import { 挡改设置 } from "@/lib/enterprise/edit-perm";
 import { 生效组织规则 } from "./org-rules-store";
-import { 超时回收日, 已超时, 超时理由, 超时起点 } from "./timeout";
+import { 超时回收日, 已超时, 超时理由, 超时起点, 系统 } from "./timeout";
 import { getSetting, setSetting } from "../settings";
 import { recordAudit } from "../audit";
 import { 读团队 } from "../sync/client";
 import { dayjs } from "../utils";
 import { 看全部 } from "../team-scope";
-import { 公海规则 } from "@/lib/enterprise/pool-rules";
+import { 公海规则, 原负责人不能领回提示 } from "@/lib/enterprise/pool-rules";
 import { 单项目客户跟进公海, 单项目客户跟着领 } from "@/lib/enterprise/pool-link";
 
 type 谁 = { id: string; role: string };
@@ -458,7 +458,7 @@ export async function 放回公海(me: 谁, projectId: string): Promise<结果> 
 const 领走了 = { ok: false as const, error: "这个项目已经被人领走了，刷新看看" };
 
 /**
- * 从公海领取：谁都能领；放回去的那位企业版里能领回（10-24 定），别的版本照旧不能自己领回。领了就是新负责人，记一行 pool-claim。
+ * 从公海领取：除了原负责人谁都能领（企业版 10-26 定稿「非原负责人均可领取」，别的版本本来就不能自己领回）。领了就是新负责人，记一行 pool-claim。
  * 开了持有上限的，到上限了领不了
  */
 export async function 领取公海项目(me: 谁, projectId: string): Promise<结果> {
@@ -472,8 +472,8 @@ export async function 领取公海项目(me: 谁, projectId: string): Promise<�
       ? 领走了 : { ok: false as const, error: "这个项目已经不在了，刷新看看" };
     if (!p.pooledAt) return 领走了;
     if (!(await 在职(tx, me.id))) return { ok: false as const, error: "账号已停用" };
-    // 企业版能不能领回看 公海规则（10-27 会上可能改）
-    if (!(企业版() && 公海规则.原负责人能领回) && me.id === p.ownerId) return { ok: false as const, error: "自己放回公海的项目不能自己领回" };
+    // 原负责人领不回：企业版看 公海规则（10-26 定稿「非原负责人均可领取」），别的版本照旧
+    if (me.id === p.ownerId && !(企业版() && 公海规则.原负责人能领回)) return { ok: false as const, error: 企业版() ? 原负责人不能领回提示 : "自己放回公海的项目不能自己领回" };
     const 超 = await 超上限(tx, 规则, me.id, p);
     if (超) return { ok: false as const, error: 超 };
     await tx.project.update({ where: { id: p.id }, data: { ownerId: me.id, pooledAt: null } });
@@ -526,7 +526,8 @@ export async function 超时预览(规则: 组织规则, 今: Date = new Date())
  * 团队模式下每台只扫自己名下的（和客户公海 自动掉公海 一个道理：别人的跟进本机可能还没拉到）。
  * 「今天扫过了」的记号只管扫过的那一片（Y18）：只扫了某人名下的，记在这个人的号上，不挡全公司扫、也不挡别人。
  * 扫、收都包在 看全部() 里：企业版网页上是谁打开页面就带着谁的范围（按组织看客户），低权限的人先触发时
- * 只查得到自己 + 下属的项目，却记成全公司扫过（质量 3700 复测）。扫多大一片只看上面的 只扫
+ * 只查得到自己 + 下属的项目，却记成全公司扫过（质量 3700 复测）。扫多大一片只看上面的 只扫。
+ * me 只用来定团队模式下扫谁名下的；留痕、操作日志一律记在「系统」名下（QA #16）
  */
 /** 超时收回提醒的标题结尾。这条提醒是给原负责人的：客户跟着换人时不跟着转（carry-over-db 带走一位） */
 export const 收回提醒尾 = "已回到项目公海";
@@ -551,7 +552,8 @@ async function 按规则收回(me: { id: string; name: string }, 今: Date): Pro
       const 现 = await tx.project.findUnique({ where: { id: p.id }, select: 算超时要的 });
       if (!现 || 现.ownerId !== p.ownerId || !超时了(规则, 现, 今)) return false;
       await tx.project.update({ where: { id: p.id }, data: { pooledAt: 今, nextStepAt: null } });
-      await 记转让(tx, p, me.id, p.ownerId, null, "pool-release", 超时理由);
+      // 是系统收的，不记在谁碰巧打开了页面的名下（QA #16）
+      await 记转让(tx, p, 系统.id, p.ownerId, null, "pool-release", 超时理由);
       await 单项目客户跟进公海(tx, p, null, 今);
       await tx.task.create({
         data: {
@@ -566,7 +568,7 @@ async function 按规则收回(me: { id: string; name: string }, 今: Date): Pro
   }
   if (收了.length) {
     await recordAudit({
-      user: me, action: "pool", entity: "Project",
+      user: 系统, action: "pool", entity: "Project",
       summary: `${收了.length} 个项目超过节点处理时长没跟进，自动回到项目公海`,
       detail: { ids: 收了, 节点天数: 规则.超时回收.节点天数 },
     });

@@ -3,8 +3,10 @@
  *   - D12：自动掉公海和项目超时回收（Y18）一样，低权限的人先打开页面也按全公司扫；团队模式「今天扫过了」只记在自己号上
  *   - 单项目客户（D6）：名下只有这一个项目，项目进项目公海（放回 / 超时），客户也进客户公海；领项目把客户一起领过来
  *   - 领客户即领项目：领 / 分配客户公海里的客户，名下项目公海里的项目一起过来
- *   - 原负责人能不能领回：开关在 公海规则，10-24 默认能
- *   - 转让（批量分配）：新负责人看得到联系人、项目、沟通记录，原负责人看不到了
+ *   - 原负责人不能领回（10-26 定稿「非原负责人均可领取」）：开关在 公海规则，默认拦，报「原负责人不能领回」
+ *   - 项目公海从属客户公海：客户进公海名下项目全跟着、谁领谁带走；多项目客户一个项目超期只收这一个
+ *   - 超时回收记在「系统」名下（QA #16），不记成打开页面的那位
+ *   - 直接指定给某人（批量分配）：新负责人看得到联系人、项目、沟通记录，原负责人看不到了
  *   - 开关关着照旧：上面这些企业版的一条都不做
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -23,7 +25,8 @@ import { resetDb } from "./reset";
 import { setSetting, invalidateSettingsCache } from "@/lib/settings";
 import { 以谁的身份, 忘掉企业版范围 } from "@/lib/enterprise/visibility";
 import { 规则 } from "@/lib/enterprise/rules";
-import { 公海规则, 单项目客户进公海理由 } from "@/lib/enterprise/pool-rules";
+import { 公海规则, 单项目客户进公海理由, 原负责人不能领回提示 } from "@/lib/enterprise/pool-rules";
+import { 系统, 超时理由 } from "@/lib/project/timeout";
 import { 自动掉公海 } from "@/lib/pool-db";
 import { 放回公海, 领取公海项目, 公海超时收回 } from "@/lib/project/db";
 import { 默认组织规则 } from "@/lib/project/org-rules";
@@ -145,6 +148,10 @@ describe("单项目客户（D6）", () => {
     expect(await 以谁的身份(乙.id, () => 公海超时收回(乙, 今))).toBe(1);
     expect(await 项目在公海(p)).toBe(true);
     expect(await prisma.customerPool.findUniqueOrThrow({ where: { customerId: c } })).toMatchObject({ userId: null, reason: 单项目客户进公海理由 });
+    // QA #16：乙打开页面触发的，留痕和操作日志都记「系统」，不记乙
+    expect(await prisma.projectNodeLog.findFirstOrThrow({ where: { projectId: p, kind: "pool-release" } })).toMatchObject({ userId: 系统.id, fromOwnerId: 乙.id, reason: 超时理由 });
+    expect(await prisma.auditLog.count({ where: { userId: 乙.id } })).toBe(0);
+    expect(await prisma.auditLog.findFirstOrThrow({ where: { action: "pool", entity: "Project" } })).toMatchObject({ userId: 系统.id, userName: "系统" });
     // 丙领走：客户一起过来，但给乙的收回提醒还留在乙名下
     expect(await 领取公海项目(丙, p)).toEqual({ ok: true });
     expect(await 负责人(c)).toBe(丙.id);
@@ -220,38 +227,120 @@ describe("领客户即领项目", () => {
   });
 });
 
-describe("原负责人能不能领回", () => {
-  it("默认能（10-24 定）：乙放回的项目、放进公海的客户，自己都能领回", async () => {
+describe("原负责人不能领回（10-26 定稿）", () => {
+  it("默认拦：乙放进公海的客户、放回的项目，乙领都报「原负责人不能领回」，丙照领", async () => {
+    expect(公海规则.原负责人能领回).toBe(false);
     const c = await 客户(乙.id);
     const c2 = await 客户(乙.id);
     const p = await 项目(乙.id, c2);
     await prisma.project.create({ data: { name: "另一个", customerId: c2, ownerId: 乙.id, creatorId: 乙.id } });
     当(乙);
     await 放进公海([c]);
-    expect(await 领取([c])).toMatchObject({ ok: true, updated: 1 });
-    await 放回公海(乙, p);
-    expect(await 领取公海项目(乙, p)).toEqual({ ok: true });
-  });
-
-  it("开关改成不能：两级公海都拦原负责人，别人照领", async () => {
-    公海规则.原负责人能领回 = false;
-    const c = await 客户(乙.id);
-    const c2 = await 客户(乙.id);
-    const p = await 项目(乙.id, c2);
-    await prisma.project.create({ data: { name: "另一个", customerId: c2, ownerId: 乙.id, creatorId: 乙.id } });
-    当(乙);
-    await 放进公海([c]);
-    expect(await 领取([c])).toMatchObject({ ok: false, error: expect.stringContaining("不能自己领回") });
+    expect(await 领取([c])).toEqual({ ok: false, error: 原负责人不能领回提示 });
     expect(await 在客户公海(c)).toBe(true);
+    expect(await 负责人(c)).toBe(乙.id);
     await 放回公海(乙, p);
-    expect(await 领取公海项目(乙, p)).toMatchObject({ ok: false, error: expect.stringContaining("不能自己领回") });
+    expect(await 领取公海项目(乙, p)).toEqual({ ok: false, error: 原负责人不能领回提示 });
+    expect(await 项目在公海(p)).toBe(true);
     当(丙);
     expect(await 领取([c])).toMatchObject({ ok: true, updated: 1 });
     expect(await 领取公海项目(丙, p)).toEqual({ ok: true });
   });
+
+  it("超时系统收回的也一样：原负责人乙领不回，丙领得到", async () => {
+    await setSetting("orgRules", { ...默认组织规则, 超时回收: { 开: true, 节点天数: { 潜客培育: 3 } } });
+    const c = await 客户(乙.id);
+    const p = await 项目(乙.id, c, { createdAt: 天前(10, 今) });
+    expect(await 公海超时收回(老板, 今)).toBe(1);
+    expect(await 领取公海项目(乙, p)).toEqual({ ok: false, error: 原负责人不能领回提示 });
+    expect(await 领取公海项目(丙, p)).toEqual({ ok: true });
+  });
+
+  it("一次勾了几位，有乙自己的也有别人的：只领别人的，乙自己当原负责人的留在公海", async () => {
+    const 自己的 = await 客户(乙.id);
+    const 丙的 = await 客户(丙.id);
+    当(乙);
+    await 放进公海([自己的]);
+    当(丙);
+    await 放进公海([丙的]);
+    当(乙);
+    expect(await 领取([自己的, 丙的])).toMatchObject({ ok: true, updated: 1 });
+    expect(await 负责人(丙的)).toBe(乙.id);
+    expect(await 在客户公海(自己的)).toBe(true);
+  });
+
+  it("开关改回能（会上若再改）：原负责人能领回", async () => {
+    公海规则.原负责人能领回 = true;
+    const c = await 客户(乙.id);
+    当(乙);
+    await 放进公海([c]);
+    expect(await 领取([c])).toMatchObject({ ok: true, updated: 1 });
+  });
 });
 
-describe("转让：联系人、项目、沟通记录跟着客户换人", () => {
+describe("项目公海从属客户公海（10-26 定稿）", () => {
+  it("客户进客户公海（主动退回）：名下两个项目都跟着，丙领了客户两个项目都归丙", async () => {
+    const c = await 客户(乙.id);
+    const p1 = await 项目(乙.id, c);
+    const p2 = await 项目(乙.id, c, { phase: "商机", node: "明确需求" });
+    当(乙);
+    expect(await 放进公海([c])).toMatchObject({ ok: true, updated: 1 });
+    当(丙);
+    expect(await 领取([c])).toMatchObject({ ok: true, updated: 1 });
+    for (const p of [p1, p2]) expect((await prisma.project.findUniqueOrThrow({ where: { id: p } })).ownerId).toBe(丙.id);
+    expect(await 负责人(c)).toBe(丙.id);
+  });
+
+  it("客户进了公海，其中一个项目先前已进项目公海：领客户时两个都归丙，项目公海里那个也出来", async () => {
+    const c = await 客户(乙.id);
+    const p1 = await 项目(乙.id, c);
+    const p2 = await 项目(乙.id, c);
+    await 放回公海(乙, p1);
+    expect(await 在客户公海(c)).toBe(false);
+    当(乙);
+    await 放进公海([c]);
+    当(丙);
+    expect(await 领取([c])).toMatchObject({ ok: true, updated: 1 });
+    expect(await prisma.project.findUniqueOrThrow({ where: { id: p1 } })).toMatchObject({ ownerId: 丙.id, pooledAt: null });
+    expect((await prisma.project.findUniqueOrThrow({ where: { id: p2 } })).ownerId).toBe(丙.id);
+  });
+
+  it("单项目客户的项目超期：客户也进客户公海，丙领项目连客户一起领", async () => {
+    await setSetting("orgRules", { ...默认组织规则, 超时回收: { 开: true, 节点天数: { 潜客培育: 3 } } });
+    const c = await 客户(乙.id);
+    const p = await 项目(乙.id, c, { createdAt: 天前(10, 今) });
+    expect(await 公海超时收回(老板, 今)).toBe(1);
+    expect(await 在客户公海(c)).toBe(true);
+    expect(await 领取公海项目(丙, p)).toEqual({ ok: true });
+    expect(await 负责人(c)).toBe(丙.id);
+    expect(await 在客户公海(c)).toBe(false);
+  });
+
+  it("多项目客户只有一个项目超期：只收这一个项目，客户和另一个项目留在乙名下", async () => {
+    await setSetting("orgRules", { ...默认组织规则, 超时回收: { 开: true, 节点天数: { 潜客培育: 3 } } });
+    const c = await 客户(乙.id);
+    const 超期 = await 项目(乙.id, c, { createdAt: 天前(10, 今) });
+    const 新的 = await 项目(乙.id, c, { createdAt: 天前(1, 今) });
+    expect(await 公海超时收回(老板, 今)).toBe(1);
+    expect(await 项目在公海(超期)).toBe(true);
+    expect(await 项目在公海(新的)).toBe(false);
+    expect(await 在客户公海(c)).toBe(false);
+    expect(await 负责人(c)).toBe(乙.id);
+    expect(await 领取公海项目(丙, 超期)).toEqual({ ok: true });
+    expect(await 负责人(c)).toBe(乙.id);
+    expect((await prisma.project.findUniqueOrThrow({ where: { id: 新的 } })).ownerId).toBe(乙.id);
+  });
+
+  it("订单阶段的项目超期也不收", async () => {
+    await setSetting("orgRules", { ...默认组织规则, 超时回收: { 开: true, 节点天数: { 潜客培育: 3, 生产备货: 3 } } });
+    const c = await 客户(乙.id);
+    const p = await 项目(乙.id, c, { createdAt: 天前(60, 今), phase: "订单", node: "生产备货" });
+    expect(await 公海超时收回(老板, 今)).toBe(0);
+    expect(await 项目在公海(p)).toBe(false);
+  });
+});
+
+describe("直接指定给某人：联系人、项目、沟通记录跟着客户换人", () => {
   it("老板把乙的客户批量分配给丙：丙带着自己的身份看得到联系人、项目、沟通记录，乙看不到了；沟通记录的记录人不改", async () => {
     await 开按组织看();
     const c = await 客户(乙.id);
@@ -270,7 +359,7 @@ describe("转让：联系人、项目、沟通记录跟着客户换人", () => {
     expect(await 看(乙)).toEqual([0, 0, 0, 0]);
     expect((await prisma.project.findUniqueOrThrow({ where: { id: p } })).ownerId).toBe(丙.id);
     expect((await prisma.followUp.findUniqueOrThrow({ where: { id: 跟进.id } })).ownerId).toBe(乙.id);
-    // 转让是直接换人，不进公海
+    // 直接指定给某人不进公海（交接中、确认前看不到由交接那个 PR 管，规则「交接要确认」开着才走）
     expect(await 在客户公海(c)).toBe(false);
   });
 });

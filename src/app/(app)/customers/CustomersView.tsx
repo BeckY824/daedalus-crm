@@ -39,6 +39,7 @@ import { useUrlFilters } from "@/lib/url-filters";
 import { 列表不问归属 } from "@/lib/solo";
 import { 公海标签, type 客户页签归属 } from "@/lib/pool";
 import { 放进公海, 领取, 分配公海, 撤销公海, type 公海结果 } from "./pool-actions";
+import { 原负责人不能领回提示 } from "@/lib/enterprise/pool-rules";
 import ResetFilters from "@/components/ResetFilters";
 import CurrencySelect from "@/components/CurrencySelect";
 
@@ -136,6 +137,8 @@ type Props = {
   部门选项?: { value: string; label: string }[];
   /** 企业版虚线下属的客户（这一页里的）：只能看——不摆编辑 / 删除、不让勾批量（10-25 实测 F4）。团队版一律空 */
   只读ids?: string[];
+  /** 企业版这一页公海里原负责人是我的：领取按钮灰着、悬停说「原负责人不能领回」（lib/enterprise/pool-rules.ts）。别的版本一律空 */
+  原负责人领不回ids?: string[];
 };
 
 /**
@@ -154,10 +157,11 @@ type Props = {
 const 无订阅 = () => () => {};
 
 export default function CustomersView({
-  rows, total, page, requestedPage, pageSize, users, 能分配公海 = false, channels, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, 公海数 = null, 客户数 = null, 客户页签 = "我的", 公海里匹配 = 0, aiEnabled, 旧职位 = [], 国家们 = [], 部门选项 = [], 只读ids = [], 金额排序 = "", 等级排序 = "", 排序币种,
+  rows, total, page, requestedPage, pageSize, users, 能分配公海 = false, channels, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, 公海数 = null, 客户数 = null, 客户页签 = "我的", 公海里匹配 = 0, aiEnabled, 旧职位 = [], 国家们 = [], 部门选项 = [], 只读ids = [], 原负责人领不回ids = [], 金额排序 = "", 等级排序 = "", 排序币种,
 }: Props) {
   const router = useRouter();
   const 只读的 = new Set(只读ids);
+  const 领不回 = new Set(原负责人领不回ids);
   // 服务端已取有效页的数据；只修正地址，避免二次请求与开发模式流式重定向错误。
   useEffect(() => {
     if (requestedPage === undefined || requestedPage === String(page)) return;
@@ -448,7 +452,7 @@ export default function CustomersView({
         // 原来还有个「详情」按钮，去掉了：整行点进去就是详情，一行里不摆两条同样的路
         <Space size={2}>
           {r.pool && !不问归属 && (
-            <Button aria-label={`领取 ${r.name}`} title="领取：负责人改成我"
+            <Button aria-label={`领取 ${r.name}`} title={领不回.has(r.id) ? 原负责人不能领回提示 : "领取：负责人改成我"} disabled={领不回.has(r.id)}
               type="text" size="small" icon={<UserAddOutlined />} onClick={async () => 公海提示(await 领取([r.id]), "领取", [r.id])} />
           )}
           {/* 老板直接分给某位同事（2026-10-20）：规矩同领取，只是领的人换成选中的那位 */}
@@ -703,6 +707,9 @@ export default function CustomersView({
             {/* 「公海」页签只有领取，「客户」页签只有放进公海；子集里两种混着，看勾的是什么 */}
             {!不问归属 && (公海页 || (子集 && 选中行.some((r) => r.pool)) ? (
               <Button size="small" icon={<UserAddOutlined />}
+                // 勾的全是自己当原负责人的公海客户：领不了，灰着
+                disabled={选中行.some((r) => r.pool) && 选中行.filter((r) => r.pool).every((r) => 领不回.has(r.id))}
+                title={选中行.some((r) => r.pool) && 选中行.filter((r) => r.pool).every((r) => 领不回.has(r.id)) ? 原负责人不能领回提示 : undefined}
                 onClick={async () => {
                   const ids = 选中行.filter((r) => r.pool).map((r) => r.id);
                   if (!(await 先问转走的项目(ids))) return;

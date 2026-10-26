@@ -59,6 +59,8 @@ export type RecordProps = {
   只读?: boolean | "加跟进" | "全";
   /** 我能把这位放进公海吗：负责人本人或管理员（第 6 块） */
   能放公海?: boolean;
+  /** 企业版：在公海里、我是原负责人——领取按钮灰着，悬停说「原负责人不能领回」（lib/enterprise/pool-rules.ts） */
+  原负责人领不回?: boolean;
   /** 换负责人记录（企业版 D-36），时间正序；左栏「历史负责人」用，没有就不摆 */
   换负责人记录?: import("@/lib/owner-log").换负责人记录[];
   customer: CustomerRow;

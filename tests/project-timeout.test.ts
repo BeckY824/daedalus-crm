@@ -120,7 +120,7 @@ describe("扫库收回", () => {
       expect((await prisma.project.findUniqueOrThrow({ where: { id } })).pooledAt).toBeNull();
     }
     const log = await prisma.projectNodeLog.findFirstOrThrow({ where: { projectId: 超.id } });
-    expect(log).toMatchObject({ kind: "pool-release", fromOwnerId: 乙.id, toOwnerId: null, reason: 超时理由, userId: 老板.id });
+    expect(log).toMatchObject({ kind: "pool-release", fromOwnerId: 乙.id, toOwnerId: null, reason: 超时理由, userId: "system" }); // QA #16：记「系统」，不记打开页面 / 跑定时的那位
     const 待办 = await prisma.task.findMany({ where: { ownerId: 乙.id } });
     expect(待办).toHaveLength(1);
     expect(待办[0].title).toContain("「一号项目」在「潜客培育」超过处理时长");

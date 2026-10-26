@@ -78,7 +78,7 @@ describe("夜里定时扫", () => {
     await 走一分钟(); // 00:05
     expect(await 在公海(p.id)).toBe(true);
     const log = await prisma.projectNodeLog.findFirstOrThrow({ where: { projectId: p.id } });
-    expect(log).toMatchObject({ kind: "pool-release", fromOwnerId: 乙, toOwnerId: null, reason: 超时理由, userId: 老板.id });
+    expect(log).toMatchObject({ kind: "pool-release", fromOwnerId: 乙, toOwnerId: null, reason: 超时理由, userId: "system" }); // QA #16：记「系统」，不记打开页面 / 跑定时的那位
     expect(await prisma.task.count({ where: { ownerId: 乙 } })).toBe(1);
     expect(await prisma.auditLog.count({ where: { action: "pool", entity: "Project" } })).toBe(1);
   });
