@@ -7,9 +7,12 @@
  *   - 日历日：今天、昨天、明天、闰日、2026-02-30 / 2026-13-01 / 0000-00-00 这类验不过的
  *   - 10 个字符但不是日历日的：2026/10/25、2026-1-05、带空格的
  *   - 带 Z 的 ISO、不带 Z 的本地时刻、带 +08:00 的、解析不了的、空串、null、undefined、Date 对象
+ *
+ * 对拍只能说明「和原来一样」。最后一组写死答案钉边界（2026-10-26）：刚好在今天零点不算逾期、早 1 ms 算；
+ * 「现在」跨过零点那 1 ms，昨天的事项才变成逾期。逾期条件() 给库用的两条界线也得落在同一个点上。
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { 逾期判定, 今天零点 } from "@/lib/overdue";
+import { 逾期判定, 今天零点, 是逾期, 逾期条件 } from "@/lib/overdue";
 import { calendarDay, isCalendarDate } from "@/lib/schedule-date";
 
 const originalTZ = process.env.TZ;
@@ -84,4 +87,55 @@ describe.each([
       }
     });
   }
+});
+
+/** 同一个 now 下，单判（是逾期）和一个判定函数连着判（逾期判定，带记忆）都要给出同一个答案 */
+function 都判(值们: (Date | string)[], now: Date): boolean[] {
+  const 判 = 逾期判定(now);
+  const 连着 = [...值们, ...值们].map(判); // 判两遍：第二遍走记住的日历日和零点
+  const 单个 = 值们.map((v) => 是逾期(v, now));
+  expect(连着).toEqual([...单个, ...单个]);
+  return 单个;
+}
+
+describe.each([
+  // 企业版按北京钟：10-26 的北京零点是 2026-10-25T16:00:00.000Z。机器放在伦敦，免得和本机钟碰巧一样
+  ["企业版北京钟", { CRM_ENTERPRISE: "1" }, "2026-10-26T03:00:00.000Z", "2026-10-25T16:00:00.000Z", "2026-10-26", "2026-10-25"],
+  // 本机钟、伦敦：10-25 夏令时结束，10-26 的本地零点是 2026-10-26T00:00:00.000Z
+  ["本机钟（伦敦）", {}, "2026-10-26T10:00:00.000Z", "2026-10-26T00:00:00.000Z", "2026-10-26", "2026-10-25"],
+] as const)("边界：刚好到期 / 差 1 ms（%s）", (_名, 开关, 现在串, 零点串, 今天, 昨天) => {
+  const 零点 = Date.parse(零点串);
+  const 早1ms = new Date(零点 - 1).toISOString();
+  const 设钟 = () => {
+    vi.stubEnv("TZ", "Europe/London");
+    vi.stubEnv("MULTI_TENANT", "");
+    vi.stubEnv("CRM_ENTERPRISE", "");
+    for (const [k, v] of Object.entries(开关)) vi.stubEnv(k, v);
+  };
+
+  it("事项时间：刚好在今天零点不算逾期，早 1 ms 算；串和 Date 一样", () => {
+    设钟();
+    const now = new Date(现在串);
+    expect(今天零点(now).getTime()).toBe(零点);
+    expect(都判([零点串, new Date(零点), 早1ms, new Date(零点 - 1)], now)).toEqual([false, false, true, true]);
+  });
+
+  it("只有日期的事项：今天的不算逾期，昨天的算", () => {
+    设钟();
+    expect(都判([今天, 昨天], new Date(现在串))).toEqual([false, true]);
+  });
+
+  it("「现在」跨过零点那 1 ms：昨天的事项（日期或钟点）从不逾期变成逾期", () => {
+    设钟();
+    const 昨天下午 = new Date(零点 - 8 * 3_600_000).toISOString();
+    expect(都判([昨天, 昨天下午], new Date(零点 - 1))).toEqual([false, false]);
+    expect(都判([昨天, 昨天下午], new Date(零点))).toEqual([true, true]);
+  });
+
+  it("逾期条件() 给库的界线和判定落在同一个点：plannedAt / dueAt < 零点，plannedOn / dueOn < 今天", () => {
+    设钟();
+    const w = 逾期条件({}, new Date(现在串));
+    expect([w.plan.OR[0].plannedOn?.lt, w.task.OR[0].dueOn?.lt]).toEqual([今天, 今天]);
+    expect([w.plan.OR[1].plannedAt?.lt.getTime(), w.task.OR[1].dueAt?.lt.getTime()]).toEqual([零点, 零点]);
+  });
 });
