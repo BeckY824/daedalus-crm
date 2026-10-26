@@ -5,11 +5,15 @@
  * 规矩在 lib/project/nodes.ts、读写在 lib/project/db.ts、建档向导在 lib/project/wizard.ts，这里只管登录、开关、操作日志和刷新。
  */
 import { revalidatePath } from "next/cache";
-import { prisma } from "@/lib/prisma";
+import { prisma, defaultClient } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { recordAudit } from "@/lib/audit";
 import { 不在了 } from "@/lib/not-there";
 import { getBusiness } from "@/lib/business";
+import { 读的我 } from "@/lib/team-scope";
+import { 验号码 } from "@/lib/enterprise/contact-format";
+import { 验联系人号码, 企业号码查重, 全公司查号, 撞号结论, 记号码, 联系人号码撞了 } from "@/lib/enterprise/contact-dedupe";
+import { 登记接着建 } from "@/lib/project/hook";
 import { 规整向导, 向导接着建, type 建好的, type 向导联系人, type 向导项目, type 向导跟进 } from "@/lib/project/wizard";
 import { 改节点, 勾交付, 加角色, 改角色, 加异常类别, 改异常类别, 删项目, 交付项们, 改项目, 加组员, 回邀请, 换组员角色, 移出组员, 放回公海, 领取公海项目, 超上限, 记项目沟通, 超时预览, 公海超时收回, type 交付项 } from "@/lib/project/db";
 import { 合上改动, 是不限, type 规则改动 } from "@/lib/project/org-rules";
@@ -59,8 +63,38 @@ export async function 建档向导(input: 建档向导输入) {
       if (超) return { ok: false as const, error: 超 };
     }
 
+    /*
+      企业版：联系人那一步的电话 / 邮箱 / 微信也按类型验格式、全公司查重（QA #3「邮箱不去重」），
+      和第一步选了号码类型的那个号同一套；事务里再比一次（查完再写），建好后记进联系方式子表、挂在这位联系人上。
+      开关关着不走：联系人的号和原来一样不查
+    */
+    const 企 = 企业版();
+    const 第一步 = 企 && input.客户.企业号码 ? 验号码(input.客户.企业号码.类型, input.客户.企业号码.值) : null;
+    const 联号 = 企 ? 验联系人号码(好.联系人, 第一步?.ok ? 第一步 : null) : [];
+    if ("error" in 联号) return { ok: false as const, error: 联号.error };
+    const 要查 = 联号.filter((号) => !号.同第一步);
+    for (const 号 of 要查) {
+      const 结论 = await 企业号码查重(prisma, 号, me.id, await 读的我(defaultClient));
+      if (结论.状态 !== "首次录入") return { ok: false as const, error: `${号.格}：${结论.提示}` };
+    }
+
     const 建了: Partial<建好的> = {};
-    const r = await saveCustomer({ ...input.客户, id: undefined, updatedAt: null, base: null }, 向导接着建(me, 好, 建了));
+    const 向导 = 向导接着建(me, 好, 建了);
+    const 接着 = !企 ? 向导 : 登记接着建(async (tx, customerId) => {
+      for (const 号 of 要查) {
+        const ids = await 全公司查号(tx, 号.类型, 号.值, 号.键, customerId);
+        if (ids.length) throw new 联系人号码撞了(ids, 号.格);
+      }
+      await 向导(tx, customerId);
+      for (const 号 of 联号) await 记号码(tx, customerId, 建了.contactId ?? null, 号);
+    });
+    let r: Awaited<ReturnType<typeof saveCustomer>>;
+    try {
+      r = await saveCustomer({ ...input.客户, id: undefined, updatedAt: null, base: null }, 接着);
+    } catch (e) {
+      if (!(e instanceof 联系人号码撞了)) throw e;
+      return { ok: false as const, error: `${e.格}：${(await 撞号结论(prisma, e.ids, me.id, await 读的我(defaultClient))).提示}` };
+    }
     if (!r.ok) return r;
     await recordAudit({
       user: me, action: "create", entity: "Project", entityId: 建了.projectId,

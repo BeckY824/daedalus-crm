@@ -8,10 +8,10 @@ import path from "node:path";
 import { 切更新记录, 只留桌面端 } from "@/lib/changelog";
 
 const 全部 = 切更新记录(fs.readFileSync(path.resolve(__dirname, "../CHANGELOG.md"), "utf8"));
-const 这一版 = 全部.find((s) => s.版本 === "0.46.29")!;
+const 这一版 = 全部.find((s) => s.版本 === "0.46.30")!;
 
-it("最上面是 0.46.29（0.46.28 没发，并进这一段），下面紧接 0.46.27；不再有「下一版」", () => {
-  expect(全部.slice(0, 2).map((s) => s.版本)).toEqual(["0.46.29", "0.46.27"]);
+it("最上面是 0.46.30（0.46.28、0.46.29 没发，并进这一段），下面紧接 0.46.27；不再有「下一版」", () => {
+  expect(全部.slice(0, 2).map((s) => s.版本)).toEqual(["0.46.30", "0.46.27"]);
   expect(全部.map((s) => s.版本)).not.toContain("下一版");
 });
 

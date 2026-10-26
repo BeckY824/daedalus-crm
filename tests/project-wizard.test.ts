@@ -166,6 +166,53 @@ describe("建档向导", () => {
   });
 });
 
+describe("企业版：联系人那一步的号码也查重（验收 #3）", () => {
+  beforeEach(() => { vi.stubEnv("CRM_ENTERPRISE", "1"); });
+  const 乙的客户 = async () => {
+    const c = await prisma.customer.create({ data: { name: "乙的客户", phone: "13900000008", salesOwnerId: 乙 } });
+    await prisma.customerExtra.create({ data: { customerId: c.id, email: "Wang@Corp.com" } });
+  };
+
+  it("联系人邮箱撞到同事客户档案上的：拦下，说是哪一格、找谁，一行不写", async () => {
+    await 乙的客户();
+    const r = await 建档向导(输入({ 联系人: { name: "王经理", email: " wang@corp.COM " } }));
+    expect(r).toEqual({ ok: false, error: "联系人邮箱：⛔号码重复，可与 乙 沟通核实" });
+    expect(await 各表行数()).toEqual({ ...全空, customer: 1 });
+    expect(await prisma.contactMethod.count()).toBe(0);
+  });
+
+  it("联系人电话格式不对：拦下，一行不写", async () => {
+    const r = await 建档向导(输入({ 联系人: { name: "王经理", phone: "1390000" } }));
+    expect(r).toEqual({ ok: false, error: "联系人电话：⚠️手机号格式错误" });
+    expect(await 各表行数()).toEqual(全空);
+  });
+
+  it("建好：联系人的号记进子表并挂上联系人；跟第一步同一个号不算自己撞自己", async () => {
+    const r = await 建档向导(输入({
+      客户: { ...输入().客户, phone: "13900000003", 企业号码: { 类型: "手机号", 值: "139 0000 0003" } },
+      联系人: { name: "王经理", phone: "13900000003", email: "Wang@Corp.com", wechat: "WangLi_88" },
+    }));
+    expect(r).toMatchObject({ ok: true });
+    if (!r.ok) return;
+    const p = await prisma.project.findUniqueOrThrow({ where: { id: r.projectId } });
+    const 行 = await prisma.contactMethod.findMany({ orderBy: { kind: "asc" }, select: { customerId: true, contactId: true, kind: true, numberKey: true } });
+    expect(行).toEqual([
+      { customerId: r.customerId, contactId: p.contactId, kind: "email", numberKey: "wang@corp.com" },
+      { customerId: r.customerId, contactId: p.contactId, kind: "phone", numberKey: "13900000003" },
+      { customerId: r.customerId, contactId: p.contactId, kind: "wechat", numberKey: "wangli_88" },
+    ]);
+  });
+});
+
+describe("开关关着：联系人那一步照旧不查重", () => {
+  it("联系人邮箱跟同事的撞了也照样建，不写子表", async () => {
+    const c = await prisma.customer.create({ data: { name: "乙的客户", phone: "13900000008", salesOwnerId: 乙 } });
+    await prisma.customerExtra.create({ data: { customerId: c.id, email: "wang@corp.com" } });
+    expect(await 建档向导(输入({ 联系人: { name: "王经理", email: "wang@corp.com", phone: "1390000" } }))).toMatchObject({ ok: true });
+    expect(await prisma.contactMethod.count()).toBe(0);
+  });
+});
+
 describe("有项目的客户不让删", () => {
   it("预检和真删都拦；同事删不了别人的项目；项目删掉后跟进还在，客户就能删了", async () => {
     const r = await 建档向导(输入());

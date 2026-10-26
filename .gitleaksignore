@@ -31,3 +31,11 @@ f471a1b4b31e877a7e5b3d578f87449cbbb89918:tests/llm-key-source.test.ts:generic-ap
 fd851cf21cf2ded88be2bcc6d3072bf1d37cb00b:src/lib/research/verify/sanctions.ts:generic-api-key:29
 # 上一行说明里原先照抄了那个 token，它自己也被扫出来（5bc99b7），同一个公开值
 5bc99b77f5560c74e6795e2ed1d559d90043f82b:.gitleaksignore:generic-api-key:28
+
+# 企业版手机号归属地的离线号段表（生成的数据文件）：号段压缩编码成的长串（base64），其中两行
+# 被 generic-api-key 当成 Key。是公开号段数据，不是任何凭据。
+58eedc7f10be92fa54dd034d544a7fa900cc4a95:src/lib/enterprise/phone-region-data.ts:generic-api-key:1408
+58eedc7f10be92fa54dd034d544a7fa900cc4a95:src/lib/enterprise/phone-region-data.ts:generic-api-key:1772
+# #229 squash 合进 main 后提交号变了，同样两行要按 main 上的提交再记一次。
+35dea531601cb3363c41f899e31b78a707ae9b87:src/lib/enterprise/phone-region-data.ts:generic-api-key:1408
+35dea531601cb3363c41f899e31b78a707ae9b87:src/lib/enterprise/phone-region-data.ts:generic-api-key:1772

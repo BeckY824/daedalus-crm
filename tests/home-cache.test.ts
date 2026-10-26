@@ -162,7 +162,8 @@ except OSError:
         expect([现.ino, 现.dev]).toEqual([原.ino, 原.dev]);
         // SQLite「还有人在用」那把锁（-shm 第 128 字节的读锁）本进程还拿着：别的进程拿不到写锁
         const 探 = spawnSync("python3", ["-c", 探锁, `${库}-shm`], { encoding: "utf8" });
-        if (!探.error) expect(探.stdout.trim(), 探.stderr).toBe("held");
+        // Windows 上没有 fcntl（python 里也没这个模块），-shm 的锁语义也不同：只在类 Unix 上探
+        if (process.platform !== "win32" && !探.error) expect(探.stdout.trim(), 探.stderr).toBe("held");
         await prisma.customer.findMany({ take: 5 });
         await raw.customer.count();
       }
