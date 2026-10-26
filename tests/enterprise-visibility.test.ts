@@ -4,6 +4,7 @@
  * 虚线上级只能看（改、转、在下面加跟进都拦）；老板、总管理员看全部；没认出人只看公海；后台任务不限定。
  * 虚线上级批量改负责人：客户改不动，客户下面的项目、待办也不能被带走（一周模拟 D2 查出来的）。
  * 虚线下属的客户被挡时说对原因：批量转 / 删 / 放公海 / 批量状态不报「已不存在」，编辑不用团队版的话（10-25 实测 F4 / F5）。
+ * 客户页页签数（公海表相减）带范围时和按 pool 条件数的逐个身份对拍（2026-10-26 企业版 p95）。
  * 用拷出来的一份库、显式单连接，不碰共用的测试库。
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
@@ -37,6 +38,7 @@ import { 规则 } from "@/lib/enterprise/rules";
 import { 虚线只读话 } from "@/lib/enterprise/visibility";
 import { assignSalesOwner, deleteCustomers, 客户删除预检, bulkFollowStatus, patchCustomer, saveCustomer } from "@/app/(app)/customers/actions";
 import { 放进公海 } from "@/app/(app)/customers/pool-actions";
+import { 客户页签数 } from "@/lib/pool-db";
 
 const 老板 = "e_boss";
 const 总管 = "e_dir";
@@ -191,6 +193,27 @@ describe("规则开着", () => {
     expect(await 作为(经理, () => 只读客户(raw, { salesOwnerId: 小张 }))).toBe("全");
     expect(await 作为(经理, () => 只读客户(raw, { salesOwnerId: 小王 }))).toBe(false);
     expect(await 作为(经理, () => 只读客户(raw, { salesOwnerId: 小张, pool: {} }))).toBe(false);
+  });
+
+  it("客户页页签数：带范围也 = 按 pool 条件两头数的（逐个身份对拍；左栏角标 = 两数相加）", async () => {
+    // 再放两位进公海：一位负责人是经理链上的（看得到的人名下，不能数两遍），一位是外人的
+    const 加的 = [await 客户id("B小王的"), await 客户id("E外人的")];
+    await raw.customerPool.createMany({ data: 加的.map((customerId) => ({ customerId })) });
+    try {
+      const 照旧数 = async () => ({
+        公海: await db.customer.count({ where: { pool: { isNot: null } } }),
+        非公海: await db.customer.count({ where: { pool: { is: null } } }),
+      });
+      for (const 谁 of [老板, 总管, 经理, 小王, 小张, 小赵, 外人, "ghost"]) {
+        const [新, 旧, 角标] = await 作为(谁, async () => [await 客户页签数(), await 照旧数(), await db.customer.count()] as const);
+        expect({ 谁, ...新 }).toEqual({ 谁, ...旧 });
+        expect(新.公海 + 新.非公海).toBe(角标);
+      }
+      expect(await 作为(经理, 客户页签数)).toEqual({ 公海: 3, 非公海: 3 });
+      expect(await 作为("ghost", 客户页签数)).toEqual({ 公海: 3, 非公海: 0 });
+    } finally {
+      await raw.customerPool.deleteMany({ where: { customerId: { in: 加的 } } });
+    }
   });
 
   it("停用的人、不认识的人只看公海", async () => {
