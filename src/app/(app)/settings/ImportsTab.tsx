@@ -120,6 +120,8 @@ export default function ImportsTab() {
                 <Tag>已撤销</Tag>
               ) : r.recordedRows === 0 ? (
                 <Typography.Text type="secondary">无写入，无需撤销</Typography.Text>
+              ) : !r.能撤 ? (
+                <Typography.Text type="secondary">只能看</Typography.Text>
               ) : (
                 <Popconfirm
                   title="撤销这一批导入？"

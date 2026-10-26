@@ -97,6 +97,8 @@ export function 只按页签(where: Prisma.CustomerWhereInput): "非公海" | "�
 
 export async function 客户筛选条件(
   sp: 客户条件,
+  /** 关键词按谁的字段权限搜（电话藏着就不按号码匹配）；不给 = 当前登录的人。AI 助手经 MCP 调时没有 cookie，要传 */
+  userId?: string,
 ): Promise<Prisma.CustomerWhereInput> {
   // 这一批导入动过的人。撤销过的批次不算（那些人已经删了 / 还原了）
   const 本批 = sp.batch
@@ -106,7 +108,7 @@ export async function 客户筛选条件(
       })
     : null;
 
-  const keyword = await 客户关键词条件(sp.keyword);
+  const keyword = await 客户关键词条件(sp.keyword, false, userId);
 
   const 等级 = 等级条件(sp.level);
   const 部门 = 部门条件(sp.dept);

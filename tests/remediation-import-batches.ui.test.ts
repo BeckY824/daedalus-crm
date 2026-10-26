@@ -16,7 +16,7 @@ beforeAll(async () => {
   bundle = (await build({ stdin: { contents: `
     import React from 'react';import {createRoot} from 'react-dom/client';import {App,ConfigProvider} from 'antd';import zhCN from 'antd/locale/zh_CN';
     import Tab from '@/app/(app)/settings/ImportsTab';import {页脚} from '@/app/(app)/customers/import-steps';import {BusinessProvider} from '@/lib/business-client';import {DEFAULT_BUSINESS} from '@/lib/business-config';
-    window.__undo=[];window.__rows=[{id:'zero',fileName:'zero.csv',userName:'原导入者',at:'2026-10-08T11:00:00.000Z',created:0,updated:0,recordedRows:0,revertedAt:null},{id:'written',fileName:'written.csv',userName:'另一位历史操作者',at:'2026-10-08T10:00:00.000Z',created:1,updated:2,recordedRows:3,revertedAt:null},{id:'interrupted',fileName:'interrupted.csv',userName:'第三位',at:'2026-10-08T09:00:00.000Z',created:0,updated:0,recordedRows:1,revertedAt:null}];
+    window.__undo=[];window.__rows=[{id:'zero',fileName:'zero.csv',userName:'原导入者',at:'2026-10-08T11:00:00.000Z',created:0,updated:0,recordedRows:0,revertedAt:null,能撤:true},{id:'written',fileName:'written.csv',userName:'另一位历史操作者',at:'2026-10-08T10:00:00.000Z',created:1,updated:2,recordedRows:3,revertedAt:null,能撤:true},{id:'interrupted',fileName:'interrupted.csv',userName:'第三位',at:'2026-10-08T09:00:00.000Z',created:0,updated:0,recordedRows:1,revertedAt:null,能撤:true},{id:'readonly',fileName:'readonly.csv',userName:'虚线下属',at:'2026-10-08T08:00:00.000Z',created:1,updated:0,recordedRows:1,revertedAt:null,能撤:false}];
     const root=createRoot(document.getElementById('root'));
     window.__render=(footer=false,counts={新建:0,补空:0})=>root.render(<ConfigProvider locale={zhCN}><App><BusinessProvider value={DEFAULT_BUSINESS}>{footer?<页脚 步={4} 忙={false} 认人列={0} 看={null} set步={()=>{}} 去预览={()=>{}} 落库={()=>{}} 撤={()=>window.__undo.push('footer')} 重来={()=>{}} 完成={()=>{}} 这一批={counts} 客户叫法='客户'/>:<Tab/>}</BusinessProvider></App></ConfigProvider>);window.__render();
   `, loader: "tsx", resolveDir: process.cwd() }, bundle: true, write: false, format: "iife", jsx: "automatic", alias: { "@": path.resolve("src") }, define: { "process.env.NODE_ENV": '\"production\"' }, plugins: [plugin], logLevel: "silent" })).outputFiles[0].text;
@@ -34,6 +34,8 @@ it("历史操作者可见；零写入不挂撤销，补空确认写清还原且�
   try {
     const zero=page.locator('[data-row-key="zero"]'); expect(await zero.getByRole('button',{name:/撤\s*销/}).count()).toBe(0); await zero.getByText('无写入，无需撤销').waitFor();
     await page.locator('[data-row-key="written"]').getByText('另一位历史操作者').waitFor();
+    // 企业版虚线下属的批次：能看不能撤，不挂撤销
+    const 只读=page.locator('[data-row-key="readonly"]'); await 只读.getByText('只能看',{exact:true}).waitFor(); expect(await 只读.getByRole('button',{name:/撤\s*销/}).count()).toBe(0);
     await page.locator('[data-row-key="written"]').getByRole('button',{name:/撤\s*销/}).click();
     await page.getByText(/还原 2 位补过空的/).waitFor(); await page.getByRole('button',{name:/不\s*了/}).click();
     expect(await page.evaluate(()=>Reflect.get(window,'__undo'))).toEqual([]);

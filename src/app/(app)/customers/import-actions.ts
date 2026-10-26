@@ -28,6 +28,7 @@ import { revalidatePath } from "next/cache";
 import { prisma, defaultClient } from "@/lib/prisma";
 import { 看全部, 限定的我, 看得到 } from "@/lib/team-scope";
 import { requireUser } from "@/lib/auth";
+import { 企业版 } from "@/lib/enterprise/switch";
 import { getBusiness } from "@/lib/business";
 import { resolveAttribution } from "@/lib/attribution";
 import { recordAudit } from "@/lib/audit";
@@ -536,12 +537,34 @@ export type 批次 = {
   updated: number;
   recordedRows: number;
   revertedAt: string | null;
+  /** 我能不能撤这一批（企业版虚线下属导的只能看） */
+  能撤: boolean;
 };
+
+/**
+ * 企业版：谁的导入批次我看得到、撤得了（Y26 10-26：原来只查登录，业务员能列出、撤掉老板导的整批）。
+ * 照权限矩阵的客户范围：老板、总管理员全部；其余 看 = 自己 + 实线下属 + 虚线下属那几条线，撤 = 自己 + 实线下属。
+ * 不按「按组织看客户」规则开没开：撤销会删客户，规则关着也不该让谁都能撤别人的批次。
+ * null = 不限（个人版、团队版照旧：桌面端本机只有自己，团队版同步过来的批次也照旧都列）
+ */
+async function 批次范围(me: { id: string; role: string }): Promise<{ 看: string[]; 撤: string[] } | null> {
+  if (!企业版()) return null;
+  const { 读组织 } = await import("@/lib/enterprise/org");
+  const { 组织范围of } = await import("@/lib/enterprise/visibility");
+  const 范围 = 组织范围of(await 读组织(), me.role, me.id);
+  return 范围 && { 看: 范围.读 ?? 范围.写, 撤: 范围.写 };
+}
 
 /** 最近几批。设置页「数据」栏列它们，每批一颗撤销 */
 export async function 最近批次(take = 10): Promise<批次[]> {
-  await requireUser();
-  const rows = await prisma.importBatch.findMany({ orderBy: [{ at: "desc" }, { id: "desc" }], take, include: { _count: { select: { rows: true } } } });
+  const me = await requireUser();
+  const 范围 = await 批次范围(me);
+  const rows = await prisma.importBatch.findMany({
+    where: 范围 ? { userId: { in: 范围.看 } } : undefined,
+    orderBy: [{ at: "desc" }, { id: "desc" }],
+    take,
+    include: { _count: { select: { rows: true } } },
+  });
   return rows.map((r) => ({
     id: r.id,
     at: r.at.toISOString(),
@@ -551,6 +574,7 @@ export async function 最近批次(take = 10): Promise<批次[]> {
     updated: r.updated,
     recordedRows: r._count.rows,
     revertedAt: r.revertedAt?.toISOString() ?? null,
+    能撤: !范围 || 范围.撤.includes(r.userId),
   }));
 }
 
@@ -579,6 +603,10 @@ export async function 撤销批次(batchId: string): Promise<撤销结果> {
   const b = await getBusiness();
   const batch = await 读批次(batchId);
   if (!batch) return { ok: false, error: "这一批导入记录已经不在了" };
+  const 范围 = await 批次范围(me);
+  // 看不到的批次和不存在一样说，不透露有这一批
+  if (范围 && !范围.看.includes(batch.userId)) return { ok: false, error: "这一批导入记录已经不在了" };
+  if (范围 && !范围.撤.includes(batch.userId)) return { ok: false, error: "这一批是虚线下属导入的：只能看，不能撤销" };
   if (batch.revertedAt) return { ok: false, error: "这一批已经撤销过了" };
   // 中途失败可能还没更新created/updated；实际写入记录才是能否撤销的依据。
   if (batch.rows.length === 0) return { ok: false, error: "这一批没有写入记录，无需撤销" };

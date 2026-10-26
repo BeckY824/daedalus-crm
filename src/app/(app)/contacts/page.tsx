@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { 搜索词, 号码片段 } from "@/lib/search-keyword";
+import { 搜索词, 号码片段, 号码藏着 } from "@/lib/search-keyword";
 import ContactsView from "./ContactsView";
 import type { Prisma } from "@/generated/prisma";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
@@ -17,12 +17,14 @@ export default async function ContactsPage({
   const sp = await searchParams;
   // 关键词去掉前后空格再搜（2026-10-04 J-008）：复制来的「张三 」原来一个都搜不到
   const 词 = 搜索词(sp.keyword);
+  // 企业版电话设成「藏」的人不按号码搜（Y27）；开关关着照旧
+  const 号码条件 = 词 && !(await 号码藏着()) ? [{ phone: { contains: 号码片段(词) ?? 词 } }] : [];
 
   const where: Prisma.ContactWhereInput = 词
     ? {
         OR: [
           { name: { contains: 词 } },
-          { phone: { contains: 号码片段(词) ?? 词 } },
+          ...号码条件,
           // 搜索框写着能搜微信（2026-10-02 排查 H6）
           { wechat: { contains: 词 } },
           { customer: { name: { contains: 词 } } },
@@ -33,7 +35,7 @@ export default async function ContactsPage({
 
   // 未归属保留原客户名，搜索它不会重新关联已删除的客户，也不会扩大账号可见范围。
   const 散的where: Prisma.UnassignedContactWhereInput = 词
-    ? { OR: [{ name: { contains: 词 } }, { phone: { contains: 号码片段(词) ?? 词 } }, { wechat: { contains: 词 } }, { fromCustomerName: { contains: 词 } }] }
+    ? { OR: [{ name: { contains: 词 } }, ...号码条件, { wechat: { contains: 词 } }, { fromCustomerName: { contains: 词 } }] }
     : {};
 
   const [总数, rows, 散的总数, 散的, firstCustomer, users] = await Promise.all([

@@ -6,6 +6,7 @@
  * 2. 号码带空格：人照名片念着敲「138 0000」，库里存的是规整过的「13800001111」（lib/phone.ts），对不上；
  * 3. SQLite 的 LIKE 里 % 和 _ 是通配符，Prisma 不转义：搜「100%」把「100分客户」也搜出来，搜「a_b」连「axb」也算。
  */
+import { 企业版 } from "./enterprise/switch";
 import { 号键SQL } from "./phone-dedupe";
 import { prisma } from "./prisma";
 import type { Prisma } from "@/generated/prisma";
@@ -69,6 +70,19 @@ function 包含模式(k: string): string {
   }).join("") + "*";
 }
 
+/**
+ * 企业版字段权限把电话设成「藏」的人，搜索也不按号码匹配（2026-10-26 Y27）。
+ * 列表上号码打了码，可拿完整号码、前 7 位、后 4 位一搜还是能把人搜出来——等于从搜索框试出号码。
+ * 客户 / 联系人 / 线索的电话、外贸档案的 WhatsApp 都算「电话」。姓名、邮箱等照常能搜。
+ * 开关关着不读库，个人版、团队版（含共享区）照旧按号码搜。
+ * userId 不给 = 当前登录的人；不走 cookie 的入口（AI 助手经 MCP 调）必须传
+ */
+export async function 号码藏着(userId?: string): Promise<boolean> {
+  if (!企业版()) return false;
+  const { 字段权限of } = await import("./enterprise/field-perm");
+  return (await 字段权限of(userId))("电话") === "藏";
+}
+
 /** 小in组成一个OR，整条查询保留一次全局orderBy/skip/take。 */
 export function 客户id集合(ids: readonly string[]): Prisma.CustomerWhereInput {
   const chunks: Prisma.CustomerWhereInput[] = [];
@@ -77,24 +91,29 @@ export function 客户id集合(ids: readonly string[]): Prisma.CustomerWhereInpu
 }
 
 /** 仅内置列名参与SQL；值全部参数绑定。最终模型查询继续经过租户/业务员限定。 */
-export async function 客户关键词条件(raw: unknown, onlyPicker = false): Promise<Prisma.CustomerWhereInput> {
+export async function 客户关键词条件(raw: unknown, onlyPicker = false, userId?: string): Promise<Prisma.CustomerWhereInput> {
   const k = 搜索词(raw);
   if (!k) return {};
+  const 藏号 = await 号码藏着(userId);
   const phone = 号码片段(k);
   const pattern = 包含模式(k), phonePattern = 包含模式(phone ?? k), sitePattern = 包含模式(网址域名(k) ?? k);
   const fields = onlyPicker ? ["name", "school"] : ["name", "school", "major", "grade", "remark"];
   const parts = fields.map(c => `c."${c}" GLOB ?`);
   const values = fields.map(() => pattern);
-  parts.push('c."phone" GLOB ?'); values.push(phonePattern);
-  if (phone) { parts.push(`${号键SQL('c."phone"')} GLOB ?`); values.push(phonePattern); }
+  if (!藏号) {
+    parts.push('c."phone" GLOB ?'); values.push(phonePattern);
+    if (phone) { parts.push(`${号键SQL('c."phone"')} GLOB ?`); values.push(phonePattern); }
+  }
   if (!onlyPicker) {
+    // 电话藏着时 WhatsApp、联系人电话两列不进条件（Y27）
+    const 号值 = 藏号 ? [] : [pattern, phonePattern];
     // 三张子表用不相关的 IN 子查询：SQLite 各扫一遍、记成一张表，每个客户只查表。
     // 原来写 EXISTS（按 customerId 相关），没被本表列命中的每个客户都要回子表各查一次；
     // 10 万客户一次搜索 ~50 ms → ~26 ms，带扩展资料/联系人的库 ~140 → ~60 ms。customerId 三张表都非空，结果和 EXISTS 一样（2026-10-26）
-    parts.push('c.id IN (SELECT e."customerId" FROM "CustomerExtra" e WHERE e.whatsapp GLOB ? OR e.whatsapp GLOB ? OR e.email GLOB ? OR e.wechat GLOB ? OR e.country GLOB ? OR e.website GLOB ? OR e."alibabaId" GLOB ?)');
-    values.push(pattern,phonePattern,pattern,pattern,pattern,sitePattern,pattern);
-    parts.push('c.id IN (SELECT t."customerId" FROM "Contact" t WHERE t.name GLOB ? OR t.phone GLOB ? OR t.phone GLOB ? OR t.email GLOB ? OR t.wechat GLOB ?)');
-    values.push(pattern,pattern,phonePattern,pattern,pattern);
+    parts.push(`c.id IN (SELECT e."customerId" FROM "CustomerExtra" e WHERE ${藏号 ? "" : "e.whatsapp GLOB ? OR e.whatsapp GLOB ? OR "}e.email GLOB ? OR e.wechat GLOB ? OR e.country GLOB ? OR e.website GLOB ? OR e."alibabaId" GLOB ?)`);
+    values.push(...号值,pattern,pattern,pattern,sitePattern,pattern);
+    parts.push(`c.id IN (SELECT t."customerId" FROM "Contact" t WHERE t.name GLOB ? OR ${藏号 ? "" : "t.phone GLOB ? OR t.phone GLOB ? OR "}t.email GLOB ? OR t.wechat GLOB ?)`);
+    values.push(pattern,...号值,pattern,pattern);
     parts.push('c.id IN (SELECT o."customerId" FROM "TradeOrder" o WHERE o.no GLOB ?)'); values.push(pattern);
   }
   const rows = await prisma.$queryRawUnsafe<{id:string}[]>(`SELECT c.id FROM "Customer" c WHERE ${parts.join(" OR ")}`, ...values);
@@ -103,15 +122,18 @@ export async function 客户关键词条件(raw: unknown, onlyPicker = false): P
 }
 
 /** 线索与客户共用号码片段/Unicode字面规则；裸查询仅取ID，最终列表仍走权限限定。 */
-export async function 线索关键词条件(raw: unknown): Promise<Prisma.LeadWhereInput> {
+export async function 线索关键词条件(raw: unknown, userId?: string): Promise<Prisma.LeadWhereInput> {
   const k = 搜索词(raw);
   if (!k) return {};
+  const 藏号 = await 号码藏着(userId);
   const phone = 号码片段(k);
   const pattern = 包含模式(k);
   const parts = ["name", "contact", "email", "industry", "remark"].map(c => `l."${c}" GLOB ?`);
   const values = parts.map(() => pattern);
-  parts.push('l."phone" GLOB ?'); values.push(包含模式(phone ?? k));
-  if (phone) { parts.push(`${号键SQL('l."phone"')} GLOB ?`); values.push(包含模式(phone)); }
+  if (!藏号) {
+    parts.push('l."phone" GLOB ?'); values.push(包含模式(phone ?? k));
+    if (phone) { parts.push(`${号键SQL('l."phone"')} GLOB ?`); values.push(包含模式(phone)); }
+  }
   const rows = await prisma.$queryRawUnsafe<{id:string}[]>(`SELECT l.id FROM "Lead" l WHERE ${parts.join(" OR ")}`, ...values);
   const chunks: Prisma.LeadWhereInput[] = [];
   for (let i=0;i<rows.length;i+=500) chunks.push({id:{in:rows.slice(i,i+500).map(r=>r.id)}});
