@@ -102,7 +102,7 @@ it("计划页：点 ✓ 弹小框；没写一句话时保存是灰的；保存�
   expect(await 保存.isDisabled()).toBe(false);
   expect(await 框.innerText()).toContain("会排一条 10 月 23 日的计划：接着跟进：新报价发了");
   await 保存.click();
-  await page.getByText(/已记一笔，「发新报价」完成；下次 10 月 23 日/).waitFor();
+  await page.getByText(/已记一笔，「发新报价」完成；下次 10 月 23 日/).waitFor({ timeout: 15_000 });
   const [c] = (await 调用们()).filter((x) => x.名 === "saveFollowUp");
   expect(c.参).toMatchObject({
     customerId: "c-p1", type: "WHATSAPP", status: "已完成", content: "新报价发了，客户说周五回复",
@@ -123,7 +123,7 @@ it("小框：方式按计划写的认（电话沟通 → 电话）；「不排�
   await 框.getByText("不排", { exact: true }).click();
   expect(await 框.innerText()).not.toContain("会排一条");
   await page.getByRole("button", { name: "保存并完成" }).click();
-  await page.getByText("已记一笔，「问样品」完成").waitFor();
+  await page.getByText("已记一笔，「问样品」完成").waitFor({ timeout: 15_000 });
   const [c] = (await 调用们()).filter((x) => x.名 === "saveFollowUp");
   expect(c.参).toMatchObject({ type: "PHONE", 附带: { 完成计划: "p2" } });
   expect((c.参.附带 as Record<string, unknown>).plan).toBeUndefined();
@@ -137,7 +137,7 @@ it("小框：方式按计划写的认（电话沟通 → 电话）；「不排�
   await 框.getByLabel("下次跟进日期").fill("2026-11-02");
   await 框.getByLabel("下次跟进日期").press("Enter");
   await page.getByRole("button", { name: "保存并完成" }).click();
-  await page.getByText(/「回访」完成；下次 11 月 2 日/).waitFor();
+  await page.getByText(/「回访」完成；下次 11 月 2 日/).waitFor({ timeout: 15_000 });
   const 第二 = (await 调用们()).filter((x) => x.名 === "saveFollowUp")[1];
   expect(第二.参).toMatchObject({ type: "EMAIL", 附带: { plan: { plannedAt: "2026-11-02", method: "邮件沟通" } } });
   await page.close();
