@@ -5,7 +5,7 @@
 import type { Prisma } from "@/generated/prisma";
 import { prisma } from "../prisma";
 import { 查完再写 } from "../check-then-write";
-import { 改节点问题, 原因上限, 要写原因, 下一步, 节点序号, type 位置 } from "./nodes";
+import { 改节点问题, 原因上限, 要写原因, 下一步, 节点序号, 字典of, type 位置 } from "./nodes";
 import { 还差, 必填叫法, 节点推进生效, 按必填走, 节点必填, type 必填数据 } from "./required";
 import { 规整项目, 规整沟通, type 向导项目, type 向导跟进 } from "./wizard";
 import { 持有上限of, type 组织规则 } from "./org-rules";
@@ -224,7 +224,7 @@ export async function 改异常类别(me: 谁, id: string, patch: { name?: unkno
 const 带推进 = (到: string[]) => (到.length ? { 自动推到: 到 } : {});
 
 /**
- * 改节点：往前只能一步一步走，往后随便退（nodes.ts 改节点问题），点结局也走这里。每改一次记一行 ProjectNodeLog。
+ * 改节点：往前只能一步一步走，往后随便退（nodes.ts 改节点问题；企业版按企业版字典，跨阶段不能退），点结局也走这里。每改一次记一行 ProjectNodeLog。
  * 有结局记下 closedAt，回到进行中（= 从异常状态恢复、从丢单捡回来）清掉。
  * 进异常状态要选一个在用的异常类别，备注可空；类别和备注只在异常状态时留在项目上，节点变更里永远留着。
  * 企业版点线索流失、丢单要写原因（第四个参数的 备注），只记在节点变更里
@@ -240,9 +240,10 @@ export async function 改节点(
     if (!p) return { ok: false as const, error: "这个项目已经不在了，刷新看看" };
     if (!能改节点(me, p, org)) return { ok: false as const, error: p.pooledAt ? "这个项目在公海里，先领取再改" : "只有项目负责人、老板或主管能改节点" };
     const result = 到.result || null;
-    const 问题 = 改节点问题({ ...到, result }, p, 异常, 企业版());
+    const 字典 = 字典of(企业版());
+    const 问题 = 改节点问题({ ...到, result }, p, 异常, 企业版(), 字典);
     if (问题) return { ok: false as const, error: 问题 };
-    const 往前 = !result && !p.result && 节点序号(到) > 节点序号(p);
+    const 往前 = !result && !p.result && 节点序号(到, 字典) > 节点序号(p, 字典);
     const 不给 = 往前 ? 往前推不给(me, p.ownerId, 推的组织) : null;
     if (不给) return { ok: false as const, error: 不给 };
     // 企业版节点必填（D-37）：配了必填的节点，往前推只给老板、主管、负责人的直属上级、总管理员；销售本人填齐了自动推
@@ -492,15 +493,16 @@ type 待查项目 = Prisma.ProjectGetPayload<{ select: typeof 算超时要的 }>
  */
 function 超时了(规则: 组织规则, p: 待查项目, 今: Date): boolean {
   if (p.customer.pool) return false;
-  return 已超时(超时回收日(规则, p, 超时起点(p.createdAt, p.logs[0]?.at, p.customer.lastFollowAt)), 今);
+  return 已超时(超时回收日(规则, p, 超时起点(p.createdAt, p.logs[0]?.at, p.customer.lastFollowAt), 字典of(企业版())), 今);
 }
 
-/** 按这份规则现在超时的项目（还在线索 / 商机、没结局、不在公海、节点设了时长） */
+/** 按这份规则现在超时的项目（还在线索 / 商机、没结局、不在公海、节点设了时长；企业版没设的按默认 7 天） */
 async function 超时的项目(规则: 组织规则, 今: Date, ownerId?: string): Promise<待查项目[]> {
   const 节点 = Object.keys(规则.超时回收.节点天数);
-  if (!规则.超时回收.开 || !节点.length) return [];
+  const 有默认 = !!字典of(企业版()).默认超时天数;
+  if (!规则.超时回收.开 || (!节点.length && !有默认)) return [];
   const 们 = await prisma.project.findMany({
-    where: { pooledAt: null, result: null, phase: { in: [...能进公海的阶段] }, node: { in: 节点 }, customer: { pool: { is: null } }, ...(ownerId ? { ownerId } : {}) },
+    where: { pooledAt: null, result: null, phase: { in: [...能进公海的阶段] }, ...(有默认 ? {} : { node: { in: 节点 } }), customer: { pool: { is: null } }, ...(ownerId ? { ownerId } : {}) },
     select: 算超时要的,
   });
   return 们.filter((p) => 超时了(规则, p, 今));
@@ -686,7 +688,8 @@ async function 往前进来的(tx: Prisma.TransactionClient, p: { id: string; ph
   });
   const 上次 = 们[0];
   if (!上次?.fromPhase || !上次.fromNode) return true;
-  return 节点序号(p) > 节点序号({ phase: 上次.fromPhase, node: 上次.fromNode });
+  const 字典 = 字典of(企业版());
+  return 节点序号(p, 字典) > 节点序号({ phase: 上次.fromPhase, node: 上次.fromNode }, 字典);
 }
 
 /**
@@ -702,7 +705,7 @@ export async function 按必填推进(tx: Prisma.TransactionClient, 规则: 组�
   for (;;) {
     const p = await tx.project.findUnique({ where: { id: projectId } });
     if (!p || p.pooledAt || p.result || !按必填走(规则, p.node)) break;
-    const 下 = 下一步(p);
+    const 下 = 下一步(p, 字典of(企业版()));
     if (!下) break;
     if (!往前 && !(await 往前进来的(tx, p))) break;
     if (还差(规则, await 读必填数据(tx, p)).length) break;

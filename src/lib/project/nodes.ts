@@ -5,6 +5,8 @@
  * 规矩（总控 10-23，按对方结论走）：
  *   - 节点不能往前跳：往前只能一步一步走（一个阶段的最后一个节点往前一步 = 下一阶段第一个节点）；
  *     往后退随便退到之前任何一个节点，跨阶段也行。每改一次记一行 ProjectNodeLog（lib/project/db.ts）
+ *   - 企业版（10-26）节点、出口叫法换成对方那套（stage-dict.ts 企业版字典），跨阶段只能往前：进了商机不能回线索、进了订单不能回商机；
+ *     下面这些函数最后一个参数传字典，不传 = 团队版，和原来一模一样
  *   - 签约审批就是一个普通节点，手动推
  *   - 「已转商机」「赢单」不是结局，是进下一阶段的第一个节点；真正的结局只有四个：线索流失、丢单、成功交付、异常状态
  *   - 成功交付：尾款结清、验收通过两项都勾上才让点
@@ -13,24 +15,20 @@
  *     恢复 = 再改到某个节点（结局清掉），同样守上面的前后规矩
  */
 
-export const 阶段们 = ["线索", "商机", "订单"] as const;
-export type 阶段 = (typeof 阶段们)[number];
+import { 阶段们, 结局们, 团队版字典, 结局叫法, type 阶段, type 结局, type 阶段字典 } from "./stage-dict";
 
-export const 节点们: Record<阶段, readonly string[]> = {
-  线索: ["潜客培育", "线索验证", "线索推进"],
-  商机: ["明确需求", "共识方案", "成交推进", "签约审批", "签订合同", "首款支付"],
-  订单: ["生产备货", "物流运输", "安装实施", "验收交付", "尾款结算"],
-};
+export { 阶段们, 结局们, type 阶段, type 结局 };
+export { 团队版字典, 企业版字典, 字典of, 结局叫法, type 阶段字典 } from "./stage-dict";
 
-/** 每个阶段走完的两条路：前一个进下一阶段（没有下一阶段的就是结局），后一个是没走成 */
+/** 团队版的节点（开关关着一律用这套）；企业版的在 stage-dict.ts 企业版字典，按 字典of(企业版()) 选 */
+export const 节点们: Record<阶段, readonly string[]> = 团队版字典.节点们;
+
+/** 每个阶段走完的两条路：前一个进下一阶段（没有下一阶段的就是结局），后一个是没走成（团队版叫法） */
 export const 出口们: Record<阶段, readonly [string, string]> = {
-  线索: ["已转商机", "线索流失"],
-  商机: ["赢单", "丢单"],
-  订单: ["成功交付", "异常状态"],
+  线索: [团队版字典.出口们.线索[0].叫法, 团队版字典.出口们.线索[1].叫法],
+  商机: [团队版字典.出口们.商机[0].叫法, 团队版字典.出口们.商机[1].叫法],
+  订单: [团队版字典.出口们.订单[0].叫法, 团队版字典.出口们.订单[1].叫法],
 };
-
-export const 结局们 = ["线索流失", "丢单", "成功交付", "异常状态"] as const;
-export type 结局 = (typeof 结局们)[number];
 
 export const 第一个节点 = { phase: "线索" as 阶段, node: 节点们.线索[0] };
 
@@ -44,9 +42,9 @@ export function 是结局(v: unknown): v is 结局 {
   return typeof v === "string" && (结局们 as readonly string[]).includes(v);
 }
 
-/** 这个结局属于哪个阶段（结局只能在自己的阶段里点） */
-export function 结局所在阶段(r: 结局): 阶段 {
-  return r === "线索流失" ? "线索" : r === "丢单" ? "商机" : "订单";
+/** 这个结局属于哪个阶段（结局只能在自己的阶段里点）：看字典里哪个阶段的出口是它 */
+export function 结局所在阶段(r: 结局, 字典: 阶段字典 = 团队版字典): 阶段 {
+  return 阶段们.find((s) => 字典.出口们[s].some((o) => o.结局 === r)) ?? "订单";
 }
 
 /** 异常备注、没成原因最长多少字 */
@@ -72,17 +70,23 @@ export function 改节点问题(
   项目: 位置 & { balanceSettled: boolean; acceptancePassed: boolean },
   异常?: { categoryId?: string | null; 备注?: string | null },
   要原因 = false,
+  字典: 阶段字典 = 团队版字典,
 ): string | null {
   if (!是阶段(到.phase)) return `没有「${到.phase}」这个阶段`;
-  if (!节点们[到.phase].includes(到.node)) return `「${到.phase}」阶段没有「${到.node}」这个节点`;
-  if (节点序号(到) > 节点序号(项目) + 1) {
-    const 下 = 下一步({ phase: 项目.phase, node: 项目.node });
+  if (!字典.节点们[到.phase].includes(到.node)) return `「${到.phase}」阶段没有「${到.node}」这个节点`;
+  // 企业版跨阶段单向（10-26）：进了商机不能回线索，进了订单不能回商机；有结局的（流失 / 异常）恢复也一样
+  if (!字典.跨阶段能退 && 是阶段(项目.phase) && 阶段们.indexOf(到.phase) < 阶段们.indexOf(项目.phase)) {
+    return `项目已经进了${项目.phase}阶段，不能退回${到.phase}阶段`;
+  }
+  if (节点序号(到, 字典) > 节点序号(项目, 字典) + 1) {
+    const 下 = 下一步({ phase: 项目.phase, node: 项目.node }, 字典);
     return 下 ? `节点不能往前跳，只能先推到「${下.node}」` : "节点不能往前跳";
   }
   const r = 到.result ?? null;
   if (r == null) return null;
   if (!是结局(r)) return `没有「${r}」这个结局`;
-  if (结局所在阶段(r) !== 到.phase) return `「${r}」只能在${结局所在阶段(r)}阶段点`;
+  // 每个阶段只能点自己出口里的结局（企业版线索：流失 / 转商机，商机：流失 / 赢单；转商机、赢单是进下一阶段，不是结局）
+  if (结局所在阶段(r, 字典) !== 到.phase) return `「${结局叫法(r, 字典)}」只能在${结局所在阶段(r, 字典)}阶段点`;
   if (要原因 && 要写原因(r)) {
     const 原因 = (异常?.备注 ?? "").trim();
     if (!原因) return `点「${r}」要写一句原因`;
@@ -105,14 +109,14 @@ export function 改节点问题(
  * 「往前推一步」落到哪：同阶段下一个节点；一个阶段的最后一个节点往前推，就是走「已转商机 / 赢单」进下一阶段第一个节点。
  * 订单最后一个节点没有下一步（只剩点结局），返回 null；已经有结局的也返回 null（先恢复再推）。
  */
-export function 下一步(当前: 位置): { phase: 阶段; node: string } | null {
+export function 下一步(当前: 位置, 字典: 阶段字典 = 团队版字典): { phase: 阶段; node: string } | null {
   if (当前.result || !是阶段(当前.phase)) return null;
-  const 列 = 节点们[当前.phase];
+  const 列 = 字典.节点们[当前.phase];
   const i = 列.indexOf(当前.node);
   if (i < 0) return null;
   if (i < 列.length - 1) return { phase: 当前.phase, node: 列[i + 1] };
   const 下阶段 = 阶段们[阶段们.indexOf(当前.phase) + 1];
-  return 下阶段 ? { phase: 下阶段, node: 节点们[下阶段][0] } : null;
+  return 下阶段 ? { phase: 下阶段, node: 字典.节点们[下阶段][0] } : null;
 }
 
 /** 看板分哪几列：三个阶段里还在走的（异常状态留在订单列、标红，等人处理），加上成功交付、没成两列 */
@@ -126,10 +130,15 @@ export function 看板列(p: 位置): 看板列 {
 }
 
 /** 节点在整条路上排第几（从 0 起），进度条用；认不出的当 0 */
-export function 节点序号(p: 位置): number {
+export function 节点序号(p: 位置, 字典: 阶段字典 = 团队版字典): number {
   if (!是阶段(p.phase)) return 0;
-  const 前面 = 阶段们.slice(0, 阶段们.indexOf(p.phase)).reduce((n, s) => n + 节点们[s].length, 0);
-  return 前面 + Math.max(0, 节点们[p.phase].indexOf(p.node));
+  const 前面 = 阶段们.slice(0, 阶段们.indexOf(p.phase)).reduce((n, s) => n + 字典.节点们[s].length, 0);
+  return 前面 + Math.max(0, 字典.节点们[p.phase].indexOf(p.node));
 }
 
-export const 节点总数 = 阶段们.reduce((n, s) => n + 节点们[s].length, 0);
+/** 整条路一共几个节点（不算出口） */
+export function 节点总数of(字典: 阶段字典): number {
+  return 阶段们.reduce((n, s) => n + 字典.节点们[s].length, 0);
+}
+
+export const 节点总数 = 节点总数of(团队版字典);

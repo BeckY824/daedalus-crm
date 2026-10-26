@@ -4,12 +4,14 @@
  *
  * 规矩：
  *   - 老板按节点设最长处理天数，没设的节点不回收；订单阶段、已有结局的、已在公海的都不回收
+ *   - 企业版（10-26，清单 C7）：没设的节点按字典的默认天数（7 天）算；设了的按设的，改了以后新的回收日按新天数
  *   - 起点 = 最近一次「有人管」：建项目、换节点、接手（转让/领取）、客户上记了跟进，取最晚的
  *   - 起点 + 节点天数 那天还没新动静 → 回收（按自然日，和客户公海一样）
  *   - 记沟通时填了下一步时间：下一步那天过完还没跟进就回收，但不会比节点天数更晚（节点天数是上限）
  */
 import { dayjs } from "@/lib/utils";
 import type { 组织规则 } from "./org-rules";
+import { 团队版字典, type 阶段字典 } from "./stage-dict";
 
 export const 超时理由 = "超过节点处理时长没跟进，自动回到项目公海";
 
@@ -29,12 +31,17 @@ export function 超时起点(...时间: (Date | string | null | undefined)[]): D
     .reduce((a, b) => (b > a ? b : a));
 }
 
-/** 哪天会被收回（YYYY-MM-DD）；不会被收回 = null */
-export function 超时回收日(规则: 组织规则, p: 超时项目, 起点: Date | string): string | null {
+/** 这个节点按几天收：设了按设的，没设按字典默认（团队版 null = 不收） */
+export function 节点超时天数(规则: 组织规则, node: string, 字典: 阶段字典 = 团队版字典): number | null {
+  return 规则.超时回收.节点天数[node] || 字典.默认超时天数 || null;
+}
+
+/** 哪天会被收回（YYYY-MM-DD）；不会被收回 = null。字典不传 = 团队版（没设天数不收） */
+export function 超时回收日(规则: 组织规则, p: 超时项目, 起点: Date | string, 字典: 阶段字典 = 团队版字典): string | null {
   if (!规则.超时回收.开) return null;
   if (p.phase !== "线索" && p.phase !== "商机") return null;
   if (p.result || p.pooledAt) return null;
-  const 天数 = 规则.超时回收.节点天数[p.node];
+  const 天数 = 节点超时天数(规则, p.node, 字典);
   if (!天数) return null;
   const 起 = dayjs(起点).startOf("day");
   let 日 = 起.add(天数, "day");

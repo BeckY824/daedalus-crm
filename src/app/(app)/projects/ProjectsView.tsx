@@ -17,6 +17,7 @@ import { 主题颜色 } from "@/lib/chart-theme";
 import { categorical } from "@/lib/palette";
 import type { 项目行, 看板一列 } from "@/lib/project/board";
 import type { 看板列 } from "@/lib/project/nodes";
+import { 字典of, 结局叫法, type 阶段字典 } from "@/lib/project/stage-dict";
 
 /** 看板五列的颜色：三个阶段沿用商机管道的蓝绿黄，成功交付粉、没成灰 */
 const 列色: Record<看板列, string> = {
@@ -40,10 +41,10 @@ function 异常说明(r: 项目行) {
   return [r.exceptionCategory, r.exceptionReason].filter(Boolean).join("：") || undefined;
 }
 
-/** 节点那一格：有结局写结局，异常标红 */
-function 节点文字(r: 项目行) {
+/** 节点那一格：有结局写结局（按字典的叫法，企业版线索流失、丢单都说「流失」），异常标红 */
+function 节点文字(r: 项目行, 字典: 阶段字典) {
   if (r.result === "异常状态") return <Tag color="error" title={异常说明(r)}>异常 · {r.exceptionCategory ?? r.node}</Tag>;
-  if (r.result) return <Tag>{r.result}</Tag>;
+  if (r.result) return <Tag>{结局叫法(r.result, 字典)}</Tag>;
   return <span>{r.phase} · {r.node}</span>;
 }
 
@@ -52,15 +53,18 @@ function 节点文字(r: 项目行) {
  * 看板列头写项目数和按币种分开的金额合计；异常状态的项目留在订单列、左边框标红
  */
 export default function ProjectsView({
-  行, 列: 看板, 取到上限, users, filters,
+  行, 列: 看板, 取到上限, users, filters, 企业版 = false,
 }: {
   行: 项目行[];
   列: 看板一列[];
   取到上限: boolean;
   users: 可选成员[];
   filters: { keyword: string; ownerId: string; pool: string };
+  /** 服务端的 企业版()：结局叫法跟着字典 */
+  企业版?: boolean;
 }) {
   const router = useRouter();
+  const 字典 = 字典of(企业版);
   const b = useBusiness();
   const [看法, set看法] = useLocalPref<"列表" | "看板">("projects-view", "看板");
   const { f, setF, apply, reset, pending } = useUrlFilters("/projects", filters);
@@ -73,7 +77,7 @@ export default function ProjectsView({
   const 列表: 列<项目行>[] = [
     { title: "项目", dataIndex: "name", width: 200, ellipsis: true },
     { title: b.customer, key: "customer", width: 180, render: (_, r) => (r.customerName == null ? <span style={{ color: "var(--text-muted)" }}>{领了再看}</span> : <CustomerLink id={r.customerId} name={r.customerName} />) },
-    { title: "节点", key: "node", width: 170, render: (_, r) => 节点文字(r) },
+    { title: "节点", key: "node", width: 170, render: (_, r) => 节点文字(r, 字典) },
     { title: "金额", key: "amount", width: 130, align: "right", render: (_, r) => 金额(r.amount, r.currency) },
     ...(不问归属 ? [] : [{ title: "负责人", key: "owner", width: 110, render: (_: unknown, r: 项目行) => (r.pooled ? <Tag title={`${r.ownerName} 放回的`}>公海</Tag> : <UserCell name={r.ownerName} />) }]),
     { title: "最近更新", key: "updatedAt", width: 120, render: (_, r) => fmtDate(r.updatedAt) },
@@ -179,7 +183,7 @@ export default function ProjectsView({
                           </div>
                           <div className="pipe-card-m">
                             <span className="pipe-card-o" style={异常 ? { color: "var(--danger-text)" } : undefined}>
-                              {异常 ? `异常 · ${r.exceptionCategory ? `${r.exceptionCategory} · ` : ""}` : r.result && r.result !== "成功交付" ? `${r.result} · ` : ""}{r.node}
+                              {异常 ? `异常 · ${r.exceptionCategory ? `${r.exceptionCategory} · ` : ""}` : r.result && r.result !== "成功交付" ? `${结局叫法(r.result, 字典)} · ` : ""}{r.node}
                             </span>
                             <span className="pipe-card-a">{金额(r.amount, r.currency)}</span>
                           </div>

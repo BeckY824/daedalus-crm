@@ -12,7 +12,7 @@ import { dayjs, fmtDateTime } from "@/lib/utils";
 import { 跟进类型们 } from "@/lib/constants";
 import { 外贸精简 } from "@/lib/business-config";
 import { 金额 } from "@/lib/currency";
-import { 阶段们, 节点们, 出口们, 交付还差, 下一步, 节点序号, 节点总数, 原因上限, 要写原因, type 位置 } from "@/lib/project/nodes";
+import { 阶段们, 交付还差, 下一步, 节点序号, 节点总数of, 原因上限, 要写原因, 字典of, 结局叫法, 团队版字典, type 位置, type 阶段字典 } from "@/lib/project/nodes";
 import { 超时理由 } from "@/lib/project/timeout";
 import { 改项目节点, 勾项目交付, 删除项目, 放回项目公海, 领取项目, 记项目沟通Action } from "../actions";
 import type { 可选成员 } from "@/lib/utils";
@@ -74,34 +74,49 @@ function 删除说明(n: 项目详情["删前清点"], 客户叫法: string) {
   );
 }
 
-/** 「线索·潜客培育」「订单·验收交付（异常状态）」 */
-function 位置文字(p: 位置): string {
-  return `${p.phase}·${p.node}${p.result ? `（${p.result}）` : ""}`;
+/** 「线索·潜客培育」「订单·验收交付（异常状态）」；结局按字典的叫法（企业版线索流失、丢单都说「流失」） */
+function 位置文字(p: 位置, 字典: 阶段字典 = 团队版字典): string {
+  return `${p.phase}·${p.node}${p.result ? `（${结局叫法(p.result, 字典)}）` : ""}`;
 }
 
 /**
  * 下拉里的去处：每个阶段的节点，加上这个阶段的「没走成」结局（订单阶段是成功交付和异常状态）。
  * 异常状态只在项目已经在订单阶段时出现，线索、商机阶段不给这个入口。
- * 往前只能一步（比现在多走超过一步的灰着），往后随便退——和 lib/project/nodes.ts 改节点问题 同一条规矩
+ * 往前只能一步（比现在多走超过一步的灰着），往后随便退——和 lib/project/nodes.ts 改节点问题 同一条规矩。
+ * 企业版（字典跨阶段不能退）：前面阶段的节点、结局都灰着；线索、商机阶段多列一条「→ 转商机 / → 赢单」，
+ * 选它 = 进下一阶段第一个节点（和直接选那个节点一样），让「线索只能流失或转商机、商机只能流失或赢单」在下拉里看得见
  */
-function 去处们(当前: 位置, 不能往前 = false) {
+function 去处们(当前: 位置, 不能往前 = false, 字典: 阶段字典 = 团队版字典) {
   // 配了必填、不是老板主管：往前的节点灰着（靠填齐自动推），结局照旧能点
-  const 太远 = (到: 位置) => 节点序号(到) > 节点序号(当前) + (不能往前 && !到.result ? 0 : 1);
-  return 阶段们.map((s) => {
-    const 尾 = 节点们[s][节点们[s].length - 1];
-    const 结局 = s === "订单" ? 出口们.订单.filter((r) => r !== "异常状态" || 当前.phase === "订单") : [出口们[s][1]];
+  const 太远 = (到: 位置) => 节点序号(到, 字典) > 节点序号(当前, 字典) + (不能往前 && !到.result ? 0 : 1);
+  const 退不回 = (s: string) => !字典.跨阶段能退 && 阶段们.indexOf(s as never) < 阶段们.indexOf(当前.phase as never);
+  return 阶段们.map((s, i) => {
+    const 列 = 字典.节点们[s];
+    const 尾 = 列[列.length - 1];
+    const 结局 = (s === "订单" ? 字典.出口们.订单 : [字典.出口们[s][1]])
+      .map((o) => o.结局)
+      .filter((r): r is NonNullable<typeof r> => !!r && (r !== "异常状态" || 当前.phase === "订单"));
+    const 下阶段 = 阶段们[i + 1];
+    const 走成 = !字典.跨阶段能退 && 下阶段 ? 字典.出口们[s][0] : null;
     return {
       label: s,
       options: [
-        ...节点们[s].map((n) => {
+        ...列.map((n) => {
           const 到 = { phase: s, node: n };
-          return { value: JSON.stringify(到), label: n, disabled: (!当前.result && 当前.phase === s && 当前.node === n) || 太远(到) };
+          return { value: JSON.stringify(到), label: n, disabled: (!当前.result && 当前.phase === s && 当前.node === n) || 太远(到) || 退不回(s) };
         }),
         // 结局落在哪个节点：没走成的停在当前节点（同阶段时），否则停在阶段最后一个节点
         ...结局.map((r) => {
           const 到 = { phase: s, node: 当前.phase === s ? 当前.node : 尾, result: r };
-          return { value: JSON.stringify(到), label: `→ ${r}`, disabled: 当前.result === r || 太远(到) };
+          return { value: JSON.stringify(到), label: `→ ${结局叫法(r, 字典)}`, disabled: 当前.result === r || 太远(到) || 退不回(s) };
         }),
+        // 走成那条（只在项目还在这个阶段时能点）：值里带个 出口 记号，免得和下一阶段第一个节点撞值；改到 之前去掉
+        ...(走成 && 下阶段
+          ? [(() => {
+              const 到 = { phase: 下阶段, node: 字典.节点们[下阶段][0] };
+              return { value: JSON.stringify({ ...到, 出口: 走成.叫法 }), label: `→ ${走成.叫法}`, disabled: 当前.phase !== s || 太远(到) };
+            })()]
+          : []),
       ],
     };
   });
@@ -142,7 +157,9 @@ export default function ProjectDetail({
   const [编辑开着, set编辑开着] = useState(false);
   const [记一条开着, set记一条开着] = useState(false);
   const 当前: 位置 = { phase: p.phase, node: p.node, result: p.result };
-  const 下 = 下一步(当前);
+  const 字典 = 字典of(p.企业版);
+  const 节点总数 = 节点总数of(字典);
+  const 下 = 下一步(当前, 字典);
   const 差 = 交付还差(p);
   const 异常 = p.result === "异常状态";
   const 可改 = 能改 && !p.pooled;
@@ -186,7 +203,7 @@ export default function ProjectDetail({
       message.warning(`还差${差.join("、")}，勾上才能点成功交付`);
       return;
     }
-    void 跑(() => 改项目节点(p.id, 到), `已改到 ${位置文字(到)}`);
+    void 跑(() => 改项目节点(p.id, 到), `已改到 ${位置文字(到, 字典)}`);
   };
 
   const 删 = async () => {
@@ -243,7 +260,7 @@ export default function ProjectDetail({
             <div style={{ color: "var(--text-muted)", marginBottom: 4 }}>现在在</div>
             <div style={{ fontSize: 18, fontWeight: 600 }}>
               {p.phase} · {p.node}
-              {p.result && <Tag style={{ marginLeft: 8 }} color={异常 ? "error" : p.result === "成功交付" ? "success" : "default"}>{p.result}</Tag>}
+              {p.result && <Tag style={{ marginLeft: 8 }} color={异常 ? "error" : p.result === "成功交付" ? "success" : "default"}>{结局叫法(p.result, 字典)}</Tag>}
             </div>
           </div>
           <Space wrap>
@@ -253,8 +270,12 @@ export default function ProjectDetail({
               value={null}
               disabled={!节点可改 || 忙}
               title={节点不能改}
-              options={去处们(当前, !!p.必填?.只能靠填齐 || !!p.不给推)}
-              onChange={(v: string | null) => v && 改到(JSON.parse(v) as 位置)}
+              options={去处们(当前, !!p.必填?.只能靠填齐 || !!p.不给推, 字典)}
+              onChange={(v: string | null) => {
+                if (!v) return;
+                const { phase, node, result } = JSON.parse(v) as 位置;
+                改到({ phase, node, ...(result ? { result } : {}) });
+              }}
             />
             {/* 灰掉的按钮收不到鼠标事件，外面包一层 span 才能悬停出原因 */}
             <Tooltip title={节点不能改 ?? p.不给推 ?? (p.必填?.只能靠填齐 ? "这个节点填齐必填后自动往前推；要先推请找老板或主管" : 下 ? undefined : p.result ? "先改回某个节点再往前推" : "这是最后一个节点了，接下来点结局")}>
@@ -268,10 +289,10 @@ export default function ProjectDetail({
         </div>
         <Progress
           style={{ marginTop: 12, marginBottom: 0 }}
-          percent={Math.round(((p.result === "成功交付" ? 节点总数 : 节点序号(当前)) / 节点总数) * 100)}
+          percent={Math.round(((p.result === "成功交付" ? 节点总数 : 节点序号(当前, 字典)) / 节点总数) * 100)}
           showInfo={false}
           status={异常 ? "exception" : p.result === "成功交付" ? "success" : "active"}
-          aria-label={`第 ${节点序号(当前) + 1} 个节点，共 ${节点总数} 个`}
+          aria-label={`第 ${节点序号(当前, 字典) + 1} 个节点，共 ${节点总数} 个`}
         />
         {p.必填 && (
           <div style={{ marginTop: 12, color: p.必填.还差.length ? "var(--text-muted)" : "var(--success-text)", overflowWrap: "anywhere" }}>
@@ -322,7 +343,7 @@ export default function ProjectDetail({
               style={{ marginTop: 8 }}
               disabled={!可改 || 忙 || 差.length > 0}
               title={不能改 ?? (差.length ? `还差${差.join("、")}` : undefined)}
-              onClick={() => 改到({ phase: "订单", node: p.phase === "订单" ? p.node : 节点们.订单[节点们.订单.length - 1], result: "成功交付" })}
+              onClick={() => 改到({ phase: "订单", node: p.phase === "订单" ? p.node : 字典.节点们.订单[字典.节点们.订单.length - 1], result: "成功交付" })}
             >
               成功交付
             </Button>
@@ -341,7 +362,7 @@ export default function ProjectDetail({
               color: l.kind !== "node" ? "gray" : l.to.result === "异常状态" ? "red" : l.to.result === "成功交付" ? "green" : "blue",
               content: (
                 <div>
-                  <div>{l.kind !== "node" ? 换人文字(l) : l.from ? `${位置文字(l.from)} → ${位置文字(l.to)}` : `建档，落在 ${位置文字(l.to)}`}</div>
+                  <div>{l.kind !== "node" ? 换人文字(l) : l.from ? `${位置文字(l.from, 字典)} → ${位置文字(l.to, 字典)}` : `建档，落在 ${位置文字(l.to, 字典)}`}</div>
                   {l.category && <div style={{ color: "var(--danger-text)" }}>异常类别：{l.category}</div>}
                   {l.reason && l.reason !== 超时理由 && <div style={{ color: "var(--danger-text)", whiteSpace: "pre-wrap" }}>{l.category ? "备注" : "原因"}：{l.reason}</div>}
                   <div style={{ color: "var(--text-muted)", fontSize: 12 }}>{l.reason === 超时理由 ? "系统" : l.who} · {fmtDateTime(l.at)}</div>
@@ -407,13 +428,13 @@ export default function ProjectDetail({
 
       <Modal
         open={!!没成框}
-        title={没成框 ? `定结果：${没成框.result}` : ""}
+        title={没成框 ? `定结果：${结局叫法(没成框.result ?? "", 字典)}` : ""}
         okText="确定"
         okButtonProps={{ danger: true, disabled: !原因.trim(), loading: 忙 }}
         onCancel={() => set没成框(null)}
         onOk={async () => {
           if (!没成框 || !原因.trim()) return;
-          const ok = await 跑(() => 改项目节点(p.id, 没成框, { 备注: 原因 }), `已改到 ${位置文字(没成框)}`);
+          const ok = await 跑(() => 改项目节点(p.id, 没成框, { 备注: 原因 }), `已改到 ${位置文字(没成框, 字典)}`);
           if (ok) set没成框(null);
         }}
       >

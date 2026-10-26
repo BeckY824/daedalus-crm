@@ -5,8 +5,12 @@ import { useRouter } from "next/navigation";
 import { App, Button, Card, Input, InputNumber, Popconfirm, Select, Space, Switch, Tag } from "antd";
 import { 加组员角色, 改组员角色, 加项目异常类别, 改项目异常类别, 改组织规则, 预览超时回收 } from "@/app/(app)/projects/actions";
 import { 上限最大, 时长最大, type 组织规则, type 规则改动 } from "@/lib/project/org-rules";
-import { 节点们 } from "@/lib/project/nodes";
+// 这两张卡（超时回收、节点推进）只在企业版出现（组织规则 只有企业版才读），节点按企业版字典列
+import { 企业版字典, 本套节点名 } from "@/lib/project/stage-dict";
 import { 必填项们, 必填叫法, 能配必填的节点, 建议必填 } from "@/lib/project/required";
+
+const 节点们 = 企业版字典.节点们;
+const 默认天数 = 企业版字典.默认超时天数;
 
 type 字典项 = { id: string; name: string; active: boolean; 用的人: number };
 type 结果 = Promise<{ ok: boolean; error?: string }>;
@@ -203,7 +207,7 @@ function HoldCapCard({
 
 /**
  * 超时回收（企业版组织规则，默认关）：线索、商机阶段按节点设最长处理天数，超过还没跟进的项目自动回到项目公海、负责人收到提醒。
- * 没设天数的节点不回收；订单阶段不回收。开了以后在项目上记沟通要填下一步时间。
+ * 没设天数的节点按默认天数（企业版字典，7 天）回收；订单阶段不回收。开了以后在项目上记沟通要填下一步时间。
  * 保存前先按新设置数一遍「现在会回收几个」，有的话让老板确认
  */
 function TimeoutCard({
@@ -255,7 +259,7 @@ function TimeoutCard({
       }
     >
       <div style={{ color: "var(--text-muted)", marginBottom: 12 }}>
-        开了以后，线索、商机阶段的项目在一个节点上超过处理时长还没跟进，自动回到项目公海，负责人会收到提醒；记沟通时填了下一步时间的，过了那天还没跟进也会回收。项目上记沟通要填下一步时间。没填天数的节点不回收，订单阶段不回收。默认关。
+        开了以后，线索、商机阶段的项目在一个节点上超过处理时长还没跟进，自动回到项目公海，负责人会收到提醒；记沟通时填了下一步时间的，过了那天还没跟进也会回收。项目上记沟通要填下一步时间。{默认天数 ? `没填天数的节点按 ${默认天数} 天算` : "没填天数的节点不回收"}，订单阶段不回收。默认关。
       </div>
       {规则.开 && (
         <>
@@ -268,7 +272,7 @@ function TimeoutCard({
                   <InputNumber
                     aria-label={`「${n}」的处理时长`}
                     min={1} max={时长最大} precision={0} suffix="天" style={{ width: 120, flex: "0 0 auto" }}
-                    placeholder="不回收"
+                    placeholder={默认天数 ? `默认 ${默认天数} 天` : "不回收"}
                     disabled={!!挡}
                     value={天数[n] ?? null}
                     onChange={(v) => set天数((m) => ({ ...m, [n]: v }))}
@@ -348,7 +352,7 @@ function AdvanceCard({
           {!挡 && (
             <Space wrap style={{ marginTop: 4 }}>
               <Button type="primary" disabled={忙 || !改了} onClick={() => void 跑(() => 改组织规则({ 节点推进: { 必填 } }), "已保存")}>保存</Button>
-              <Button disabled={忙} onClick={() => set必填({ ...建议必填 })}>用建议清单</Button>
+              <Button disabled={忙} onClick={() => set必填(Object.fromEntries(Object.entries(建议必填).map(([n, v]) => [本套节点名(n, 企业版字典), v])))}>用建议清单</Button>
             </Space>
           )}
         </>

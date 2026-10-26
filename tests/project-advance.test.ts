@@ -75,12 +75,12 @@ describe("节点必填自动推进", () => {
   });
 
   it("记沟通：本节点沟通 + 下一步时间齐了就推；勾交付：验收通过", async () => {
-    await setSetting("orgRules", 开着({ 潜客培育: ["本节点沟通", "下一步时间"], 验收交付: ["验收通过"] }));
+    await setSetting("orgRules", 开着({ 潜客培育: ["本节点沟通", "下一步时间"], 交付验收: ["验收通过"] }));
     const p = await 项目();
     const r = await 记项目沟通(乙, p.id, { type: "PHONE", content: "聊了", occurredAt: 现在(), 下一步时间: dayjs().add(2, "day").format("YYYY-MM-DD") });
     expect(r).toMatchObject({ ok: true, 自动推到: ["线索验证"] });
 
-    const q = await 项目({ phase: "订单", node: "验收交付" });
+    const q = await 项目({ phase: "订单", node: "交付验收" }); // 企业版字典的叫法
     expect(await 勾交付(乙, q.id, "acceptancePassed", true)).toMatchObject({ ok: true, 自动推到: ["尾款结算"] });
   });
 
