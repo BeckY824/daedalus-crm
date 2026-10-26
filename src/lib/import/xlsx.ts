@@ -16,6 +16,7 @@
  *
  * - **多工作表**：只读第一张。人手上那份名单几乎总是一张表，而「我导的是第二张」
  *   这件事一旦猜错，导进来的是一整份不相干的数据
+ *   （企业版数据导入另走 `读xlsx各表`：每张表单独交出去、各自认类别，人在试跑报告里能看能改）
  * - 公式：读的是 Excel 自己缓存的计算结果（`<v>`），够用
  * - 图片、批注、格式：不读，这里只要值
  * - **日期不在这里认**：Excel 存的是序列号，原样当字符串交出去，
@@ -120,6 +121,46 @@ export function 读xlsx(bytes: Uint8Array): string[][] {
  * 空行丢掉了、标题行之后也会被 成表 丢掉，报错时得说得出 Excel 里的哪一行（2026-10-04 J-058）
  */
 export function 读xlsx带行号(bytes: Uint8Array, 内容上限 = 表内容上限): { rows: string[][]; 行号: number[] } {
+  const 簿 = 打开(bytes, 内容上限);
+  const 第一张 = 簿.表们[0];
+  const sheet = (第一张 && 簿.拿(第一张.文件)) ?? 簿.拿("xl/worksheets/sheet1.xml");
+  if (!sheet) throw new 读不出来("这个 xlsx 里找不到工作表");
+  return 读一张(sheet, 簿);
+}
+
+/**
+ * 企业版数据导入用：按标签页从左到右读**每一张**没隐藏的表，空表跳过。
+ * 飞书多维表格导出常是一个簿子几张表（客户、联系人、商机、跟进各一张），这里每张单独交出去、各认各的类别，
+ * 人在试跑报告里能看到每张表认成了什么、能改——和大批导入「只读第一张」不冲突，那边照旧
+ */
+export function 读xlsx各表(bytes: Uint8Array, 内容上限 = 表内容上限): { 名: string; rows: string[][]; 行号: number[] }[] {
+  const 簿 = 打开(bytes, 内容上限);
+  const out: { 名: string; rows: string[][]; 行号: number[] }[] = [];
+  for (const t of 簿.表们) {
+    if (t.隐藏) continue;
+    const sheet = 簿.拿(t.文件);
+    if (!sheet) continue;
+    const r = 读一张(sheet, 簿);
+    if (r.rows.length) out.push({ 名: t.名, ...r });
+  }
+  if (!簿.表们.length) {
+    const sheet = 簿.拿("xl/worksheets/sheet1.xml");
+    if (!sheet) throw new 读不出来("这个 xlsx 里找不到工作表");
+    out.push({ 名: "Sheet1", ...读一张(sheet, 簿) });
+  }
+  return out;
+}
+
+type 簿子 = {
+  拿: (p: string) => string | null;
+  /** workbook.xml 里 <sheet> 的顺序 = 标签页从左到右 */
+  表们: { 名: string; 文件: string; 隐藏: boolean }[];
+  共享: string[];
+  是1904: boolean;
+  日期样式: boolean[];
+};
+
+function 打开(bytes: Uint8Array, 内容上限: number): 簿子 {
   let 包: Record<string, Uint8Array>;
   let 太大 = 0;
   try {
@@ -160,7 +201,7 @@ export function 读xlsx带行号(bytes: Uint8Array, 内容上限 = 表内容上�
   })();
 
   /*
-    第一张表是哪个文件。
+    每张表是哪个文件。
 
     **不能想当然地读 `xl/worksheets/sheet1.xml`**：那个编号是内部 id，
     删过工作表的簿子里第一张表很可能叫 sheet2.xml。
@@ -168,23 +209,30 @@ export function 读xlsx带行号(bytes: Uint8Array, 内容上限 = 表内容上�
     它的 r:id 经 workbook.xml.rels 指到真正的文件。
   */
   const wb = 拿("xl/workbook.xml");
-  let 表文件 = "xl/worksheets/sheet1.xml";
-  if (wb) {
-    const s = /<sheet\b[^>]*>/.exec(wb)?.[0];
-    const rid = s ? /r:id="([^"]+)"/.exec(s)?.[1] : null;
-    const rels = 拿("xl/_rels/workbook.xml.rels");
+  const rels = 拿("xl/_rels/workbook.xml.rels");
+  const 表们: 簿子["表们"] = [];
+  const sre = /<sheet\b[^>]*>/g;
+  let sm: RegExpExecArray | null;
+  while (wb && (sm = sre.exec(wb))) {
+    const s = sm[0];
+    const rid = /r:id="([^"]+)"/.exec(s)?.[1];
+    let 文件 = "";
     if (rid && rels) {
-      const re = new RegExp(`<Relationship\\b[^>]*Id="${rid}"[^>]*>`);
-      const target = re.exec(rels)?.[0] && /Target="([^"]+)"/.exec(re.exec(rels)![0])?.[1];
-      if (target) 表文件 = target.startsWith("/") ? target.slice(1) : `xl/${target.replace(/^\.\//, "")}`;
+      const rel = new RegExp(`<Relationship\\b[^>]*Id="${rid}"[^>]*>`).exec(rels)?.[0];
+      const target = rel && /Target="([^"]+)"/.exec(rel)?.[1];
+      if (target) 文件 = target.startsWith("/") ? target.slice(1) : `xl/${target.replace(/^\.\//, "")}`;
     }
+    if (!文件) 文件 = 表们.length ? "" : "xl/worksheets/sheet1.xml";
+    if (!文件) continue;
+    表们.push({ 名: 解转义(/\bname="([^"]*)"/.exec(s)?.[1] ?? ""), 文件, 隐藏: /\bstate="(hidden|veryHidden)"/.test(s) });
   }
-  const sheet = 拿(表文件) ?? 拿("xl/worksheets/sheet1.xml");
-  if (!sheet) throw new 读不出来("这个 xlsx 里找不到工作表");
 
   const 是1904 = /<workbookPr\b[^>]*\bdate1904="(1|true)"/i.test(wb ?? "");
   const 日期样式 = 是1904 ? 日期样式表(拿("xl/styles.xml")) : [];
+  return { 拿, 表们, 共享, 是1904, 日期样式 };
+}
 
+function 读一张(sheet: string, { 共享, 是1904, 日期样式 }: 簿子): { rows: string[][]; 行号: number[] } {
   const rows: string[][] = [];
   /** 每一行在表里的真实行号（从 0 起）。合并单元格按行号对位；没有 r 属性的按顺序数 */
   const 行号们: number[] = [];

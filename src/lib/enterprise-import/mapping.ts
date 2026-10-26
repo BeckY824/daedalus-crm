@@ -220,14 +220,32 @@ function 去括号(s: string): string {
   return s.replace(/[(（[【][^)）\]】]*[)）\]】]/g, "").trim();
 }
 
-/** 规则认人：带 @ 的按邮箱，其余按名字；只认唯一命中的，重名不替人挑。认不出返回 "" */
+/** 一格里写了几个人（飞书人员字段「张三,李四」、钉钉「负责人」多选）的分隔符 */
+const 多人分隔 = /[,，、;；/]+/;
+
+/** 「张三,李四」这种一格几个人的，拆开；只有一个人的返回 [] */
+export function 拆多人(写法: string): string[] {
+  const 段 = 写法.split(多人分隔).map((x) => x.trim()).filter(Boolean);
+  return 段.length > 1 ? 段 : [];
+}
+
+/**
+ * 规则认人：带 @ 的按邮箱，其余按名字；只认唯一命中的，重名不替人挑。认不出返回 ""
+ * 一格写了几个人的：整格认不出就按第一个人认（我们一条只有一个负责人，其余的人试跑报告里提醒）
+ */
 export function 规则对负责人(写法: string, 候选: readonly 成员[]): string {
-  const s = 去括号(写法.trim());
-  if (!s) return "";
-  const 中 = s.includes("@")
-    ? 候选.filter((u) => u.email && u.email.toLowerCase() === s.toLowerCase())
-    : 候选.filter((u) => u.name.trim() === s);
-  return 中.length === 1 ? 中[0].id : "";
+  const 认 = (x: string) => {
+    const s = 去括号(x.trim());
+    if (!s) return "";
+    const 中 = s.includes("@")
+      ? 候选.filter((u) => u.email && u.email.toLowerCase() === s.toLowerCase())
+      : 候选.filter((u) => u.name.trim() === s);
+    return 中.length === 1 ? 中[0].id : "";
+  };
+  const 整 = 认(写法);
+  if (整) return 整;
+  const 段 = 拆多人(写法);
+  return 段.length ? 认(段[0]) : "";
 }
 
 /** 从原始记录里收：每种值对照的原值、所有负责人写法。按出现次数从多到少 */

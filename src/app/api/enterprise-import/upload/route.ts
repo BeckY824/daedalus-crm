@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { 企业版 } from "@/lib/enterprise/switch";
 import { 当前是共享区 } from "@/lib/shared-ws/current";
-import { 读文件, type 读出的表 } from "@/lib/enterprise-import/excel";
+import { 读文件们, type 读出的表 } from "@/lib/enterprise-import/excel";
 import { 试跑 } from "@/lib/enterprise-import/report";
 import { 已认映射, 读同步设置 } from "@/lib/enterprise-import/sync";
 import { 实体顺序, type 实体 } from "@/lib/enterprise-import/types";
@@ -13,6 +13,7 @@ export const runtime = "nodejs";
 /**
  * 企业版导入 · Excel 兜底：飞书 / 钉钉导出的文件传上来，试跑出报告（不写数据，人看过再正式导入）。
  *   POST multipart/form-data：files = 一个或几个 .xlsx / .csv；实体.<文件名> = customer|contact|…（可选，人指定这个文件是哪一类）
+ *   一个 xlsx 里几张表的，每张叫「文件名·表名」，也可以按 实体.<文件名·表名> 单独指定
  *   → { 批次Id, 报告 }
  * 走 API 不走 server action：server action 默认只收 1 MB。
  * 以前从 Excel 正式导入过的，照那次人认过的映射来，新冒出来的列才问 AI。
@@ -50,13 +51,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `一次传的文件加起来超过 ${一次上限字节 / 1024 / 1024} MB，请分几次传` }, { status: 413 });
   }
 
+  const 指定实体 = (v: FormDataEntryValue | null) => (typeof v === "string" && (实体顺序 as string[]).includes(v) ? (v as 实体) : null);
   try {
     const 表们: 读出的表[] = [];
     for (const f of 文件们) {
       if (!/\.(xlsx|csv)$/i.test(f.name)) throw new Error(`${f.name}：只收 .xlsx 或 .csv（.xls 请在 Excel 里另存为 .xlsx）`);
-      const 指 = 表单.get(`实体.${f.name}`);
-      const 实 = typeof 指 === "string" && (实体顺序 as string[]).includes(指) ? (指 as 实体) : null;
-      表们.push(读文件({ 名: f.name, bytes: new Uint8Array(await f.arrayBuffer()), 实体: 实 }));
+      for (const t of 读文件们({ 名: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })) {
+        const 实 = 指定实体(表单.get(`实体.${t.名}`));
+        if (实) t.实体 = 实;
+        表们.push(t);
+      }
     }
     const r = await 试跑({ 来源: "excel", 用户Id: 我.id, 表: 表们, 已有映射: await 已认映射("excel") });
     return NextResponse.json(r, { headers: 不存 });

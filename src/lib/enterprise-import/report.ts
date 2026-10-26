@@ -17,7 +17,7 @@ import { 号键 } from "@/lib/phone";
 import { 不掉公海的状态, 公海截止 } from "@/lib/pool";
 import { 预演, type 预演计数 } from "./apply";
 import { 清洗, 数一数, 名键, type 本地索引, type 清洗结果 } from "./clean";
-import { 成记录, type 读出的表 } from "./excel";
+import { 成记录, 拆联系人, type 读出的表 } from "./excel";
 import { 猜映射, 说明键, 值对照, 值说法, 进备注, type 建议器, type 成员, type 表概要 } from "./mapping";
 import { 实体顺序, 字段中文, 实体名, type 来源, type 实体, type 映射, type 原始记录, type 问题, type 待写, type 值对照名, type 列映射 } from "./types";
 
@@ -36,7 +36,7 @@ export type 试跑报告 = {
   来源: 来源;
   生成于: string;
   /** Excel 才有：每个文件读出了什么；实体 null = 认不出是哪一类，要人选（这个文件这次没算进来） */
-  文件: { 名: string; 实体: 实体 | null; 行数: number; 提醒: string[] }[];
+  文件: { 名: string; 实体: 实体 | null; 行数: number; 提醒: string[]; 拆自?: string }[];
   /** 整批要告诉人的话：读文件的、猜映射的（AI 没成功、必填列没认出……）、公海的 */
   提醒: string[];
   合计: { 记录: number; 待写: number; 跳过: number; 提醒: number };
@@ -115,7 +115,10 @@ export type 试跑参数 = {
 export type 试跑结果 = { 批次Id: string; 报告: 试跑报告 };
 
 export async function 试跑(p: 试跑参数): Promise<试跑结果> {
-  const 表们 = p.表 ?? [];
+  // 客户表里带的联系人在这里才拆：类别这时已经定了（上传时人选的、重新试跑时人改的）。
+  // 批次里存没拆的，人再改类别时照新的重拆（以前存过拆好的也没事，再拆一次不变）
+  const 原表们 = p.表 ?? [];
+  const 表们 = 原表们.flatMap(拆联系人);
   const 能用的表 = 表们.filter((t): t is 读出的表 & { 实体: 实体 } => !!t.实体);
   const 提醒: string[] = [];
   for (const t of 表们) {
@@ -182,7 +185,7 @@ export async function 试跑(p: 试跑参数): Promise<试跑结果> {
     userId: p.用户Id,
     report: JSON.stringify(报告),
     // 留原样给「改映射重新试跑」：Excel 存表；接口来的首次导入存原始记录（同步那批直接写，不留）
-    raw: 表们.length ? JSON.stringify(表们) : p.记录?.length && (p.类型 ?? "full") === "full" ? JSON.stringify({ 记录: p.记录 }) : null,
+    raw: 原表们.length ? JSON.stringify(原表们) : p.记录?.length && (p.类型 ?? "full") === "full" ? JSON.stringify({ 记录: p.记录 }) : null,
     mapping: JSON.stringify(m),
     plan: 计划,
     total: 结果.待写.length,
@@ -368,7 +371,7 @@ function 成报告(p: {
   return {
     来源: p.来源,
     生成于: new Date().toISOString(),
-    文件: p.表们.map((t) => ({ 名: t.名, 实体: t.实体, 行数: t.行.length, 提醒: t.提醒 })),
+    文件: p.表们.map((t) => ({ 名: t.名, 实体: t.实体, 行数: t.行.length, 提醒: t.提醒, ...(t.拆自 ? { 拆自: t.拆自 } : {}) })),
     提醒: p.提醒,
     合计,
     按类,
