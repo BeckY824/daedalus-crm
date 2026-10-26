@@ -137,7 +137,8 @@ describe("首页全部商机：不限定时一句 LEFT JOIN，和原来 Prisma �
   it("首页接的是这个函数，限定与否和客户数共用一次判断", () => {
     const src = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/dashboard/Board.tsx"), "utf8");
     expect(src).toMatch(/全部商机\(prisma, await 不限定\(\)\)/);
-    expect(src).toMatch(/客户数\(prisma, now, await 不限定\(\)\)/);
+    expect(src).toMatch(/读范围 = async \(\) => \(\(await 不限定\(\)\) \? null : 读的我\(defaultClient\)\)/);
+    expect(src).toMatch(/客户数\(prisma, now, await 读范围\(\)\)/);
     expect(src).toMatch(/限定的我\(defaultClient\)\.then\(\(我\) => !我\)/);
     expect(src).not.toMatch(/prisma\.opportunity\.findMany\(\{ select: \{ createdAt/);
   });
