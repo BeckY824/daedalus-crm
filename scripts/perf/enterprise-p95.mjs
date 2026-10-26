@@ -104,9 +104,13 @@ for (const u of 名单) {
   u.cookie = `crm_session=${await new SignJWT({ sub: u.id, ims: Date.now() }).setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime("7d").sign(钥)}`;
 }
 
+// 和 enterprise-seed.ts 造客户名的规则一样：第 i 位叫 姓[i % 20] + 名[(i * 7) % 20]，所以一共这 20 个全名
+const 搜的名字 = Array.from({ length: 20 }, (_, k) => "王李张刘陈杨黄赵吴周徐孙马朱胡郭何高林罗"[k] + ["伟", "芳", "娜", "敏", "静", "丽", "强", "磊", "军", "洋", "勇", "艳", "杰", "娟", "涛", "明", "超", "秀英", "霞", "平"][(k * 7) % 20]);
 const 页面 = [
   { 名: "首页", 路径: () => "/dashboard" },
   { 名: "客户列表", 路径: () => "/customers" },
+  // 搜一个人名（10-26 加）：种子里每个全名各 5000 位，走的是关键词那条整表 GLOB；只加这一页，前面几页照旧
+  { 名: "客户搜索", 路径: () => `/customers?keyword=${encodeURIComponent(搜的名字[Math.floor(Math.random() * 搜的名字.length)])}` },
   { 名: "客户详情", 路径: (u) => `/customers/${u.customers[Math.floor(Math.random() * u.customers.length)]}` },
   { 名: "商机列表", 路径: () => "/opportunities" },
   { 名: "商机看板", 路径: () => "/opportunities/pipeline" },
@@ -124,7 +128,7 @@ async function 开(u, 页, 法) {
   try {
     // Next 16 校验 _rsc：它得等于按 Next-Router-State-Tree 等头算出的哈希，对不上就 307 到对的地址（10-24 第一轮全红就是这个）。
     // 这里不带路由树头，哈希就是空串、_rsc 留空；服务端从根整棵树重出，比真实站内切页（只出变了的那段）更重，量出来偏保守
-    const r = await fetch(`${站}${p}${法 === "RSC" ? "?_rsc=" : ""}`, { headers, redirect: "manual" });
+    const r = await fetch(`${站}${p}${法 === "RSC" ? (p.includes("?") ? "&_rsc=" : "?_rsc=") : ""}`, { headers, redirect: "manual" });
     const body = await r.arrayBuffer();
     const ms = performance.now() - t;
     // 被弹回登录页也算错：那说明票据没认，量的就不是这页了
