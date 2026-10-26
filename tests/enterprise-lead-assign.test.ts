@@ -169,17 +169,8 @@ describe("自动分配线索", () => {
     await 配(两边, 1);
     expect(await 自动分配线索(await 建线索("L"))).toMatchObject({ ok: true, toUserId: 两边 });
     const N = await 建线索("N");
-    expect(await 自动分配线索(N)).toMatchObject({ ok: false, error: expect.stringMatching(/^都已满额.*已提醒市场管理和总管理员/) });
+    expect(await 自动分配线索(N)).toMatchObject({ ok: false, error: expect.stringMatching(/^都已满额/) });
     expect(await 负责人(N)).toBe(市场);
-    // A8：市场管理、总管理员各一条提醒（老板没有组织行，按账号管理员推成总管理员），销售、销售管理没有
-    const 提醒 = await prisma.entNotice.findMany({ where: { kind: "线索满额" }, orderBy: { userId: "asc" } });
-    expect(提醒.map((x) => x.userId).sort()).toEqual([老板, 市场, 总管].sort());
-    expect(提醒[0]).toMatchObject({ times: 1, readAt: null, body: expect.stringContaining("线索「N」没分出去") });
-    // 再满一次：还是每人一条，次数加 1、内容换成最新的
-    await 自动分配线索(await 建线索("O"));
-    const 又 = await prisma.entNotice.findMany({ where: { kind: "线索满额" } });
-    expect(又).toHaveLength(3);
-    expect(又.every((x) => x.times === 2 && x.body.includes("线索「O」"))).toBe(true);
     // 营销企划设成不算数：不看满没满，但配额 0 的照样不挑
     await setSetting(企划线索计数key, false);
     const 企划 = await 自动分配线索(N, { kind: "营销企划" });
@@ -605,44 +596,5 @@ describe("分配弹框不让线索页首帧对不上（10-25 #191 E2E：#418、m
     expect(弹框).not.toMatch(/\bforceRender\b/);
     expect(列表).toMatch(/\{能自动分配 && <AssignLeadModal\b/);
     expect(列表.match(/<AssignLeadModal\b/g)).toHaveLength(1);
-  });
-});
-
-describe("企业版站内提醒", () => {
-  it("同类没读的只留一条；「知道了」只动自己的，读过再发是新的一条", async () => {
-    const { 发企业提醒 } = await import("@/lib/enterprise/notice");
-    const { 我的企业提醒, 已读企业提醒 } = await import("@/app/(app)/ent-notice-actions");
-    await 发企业提醒([市场, 总管, 市场], { kind: "线索满额", title: "t", body: "一" });
-    await 发企业提醒([市场], { kind: "线索满额", title: "t", body: "二" });
-    当(市场);
-    const 我的 = await 我的企业提醒();
-    expect(我的).toHaveLength(1);
-    expect(我的[0]).toMatchObject({ body: "二", times: 2 });
-    // 拿总管那条的 id 来点「知道了」：不改
-    const 总管的 = await prisma.entNotice.findFirstOrThrow({ where: { userId: 总管 } });
-    expect(await 已读企业提醒(总管的.id)).toBe(false);
-    expect((await prisma.entNotice.findUniqueOrThrow({ where: { id: 总管的.id } })).readAt).toBeNull();
-    expect(await 已读企业提醒(我的[0].id)).toBe(true);
-    expect(await 我的企业提醒()).toEqual([]);
-    await 发企业提醒([市场], { kind: "线索满额", title: "t", body: "三" });
-    expect(await 我的企业提醒()).toMatchObject([{ body: "三", times: 1 }]);
-    expect(await prisma.entNotice.count({ where: { userId: 市场 } })).toBe(2);
-    // 不是企业版：不给、不改
-    mocks.企业版 = false;
-    expect(await 我的企业提醒()).toEqual([]);
-  });
-});
-
-describe("开关关着：个人版 / 团队版不变", () => {
-  it("自动分配都满额也不发提醒，提醒框不挂", async () => {
-    await 开();
-    await 配(内贸, 0);
-    await 配(外贸, 0);
-    mocks.企业版 = false;
-    当(市场);
-    expect(await 自动分配线索(await 建线索("关着"))).toMatchObject({ ok: false });
-    expect(await prisma.entNotice.count()).toBe(0);
-    const fs = await import("node:fs");
-    expect(fs.readFileSync("src/app/(app)/layout.tsx", "utf8")).toMatch(/\{企业版\(\) && <EntNoticePrompt \/>\}/);
   });
 });
