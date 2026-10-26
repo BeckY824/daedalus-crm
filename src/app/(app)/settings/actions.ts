@@ -7,9 +7,12 @@ import { 钉住老签约 } from "@/lib/contract-owner";
 import { 转项目 } from "@/lib/carry-over-db";
 import { 企业版 } from "@/lib/enterprise/switch";
 import { 读组织, 直属上级of } from "@/lib/enterprise/org";
+import { 规则开着 } from "@/lib/enterprise/rules";
+import { 月份 } from "@/lib/enterprise/lead-assign";
 import { 停用分拣, 停用方式们, 停用进公海理由, 停用项目进公海理由, type 停用方式 } from "@/lib/offboard-db";
 import { 记换负责人 } from "@/lib/owner-log-db";
 import { 转让痕 } from "@/lib/project/db";
+import type { Prisma } from "@/generated/prisma";
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
@@ -77,7 +80,8 @@ async function requireAdmin() {
 
 /**
  * 谁能给这个人办离职（停用、停用前清点）：管理员；企业版再加上他的直属上级（D-36）。
- * 上级不能停用管理员。不是企业版和原来一样，只认管理员
+ * 上级不能停用管理员。不是企业版和原来一样，只认管理员。
+ * 直属上级这一条跟「按组织看客户」开关走：开关关着时组织只是一张表，上级不多出权限（同 lib/project/db 直属才推）
  */
 async function 能办离职(id: string) {
   if (!企业版()) return requireAdmin();
@@ -85,7 +89,7 @@ async function 能办离职(id: string) {
   if (me.role === "ADMIN") return requireAdmin();
   if (await 是共享区()) throw new Error("FORBIDDEN");
   const 他 = typeof id === "string" && id ? await prisma.user.findUnique({ where: { id }, select: { role: true } }) : null;
-  if (他 && 他.role !== "ADMIN" && 直属上级of(await 读组织(), id) === me.id) return me;
+  if (他 && 他.role !== "ADMIN" && (await 规则开着("按组织看客户")) && 直属上级of(await 读组织(), id) === me.id) return me;
   throw new Error("FORBIDDEN");
 }
 
@@ -337,6 +341,7 @@ export async function deactivateUser(id: string, transferToId: string, 方式: �
   */
   // 转之前先钉住老签约「签约那一刻是谁的」：停用留痕说「历史业绩不动」，就得真不动（2026-10-02 排查 X1）
   await 钉住老签约();
+  const 记分配 = await 规则开着("线索分配");
   // 函数式事务：数组式在托管版的工作区代理下会抛错，而且抛之前已经写了（2026-10-02 排查 A3）。
   // 分拣也放在事务里：清点到写完之间有人改了负责人，不会漏转、错转。一个人名下一两百条，给足时间
   const 转走了 = await prisma.$transaction(async (tx) => {
@@ -353,6 +358,7 @@ export async function deactivateUser(id: string, transferToId: string, 方式: �
      *   渠道负责人 —— Channel.channelOwnerId 还指着停用的人，之后这个渠道新带来的学员会继续算到一个离职的人头上
      */
     await tx.lead.updateMany({ where: { id: { in: 分.线索 } }, data: { ownerId: transferToId } });
+    if (记分配) await 记交接分配(tx, 分.线索, id, transferToId, me.id);
     await tx.channel.updateMany({ where: { id: { in: 分.渠道 } }, data: { channelOwnerId: transferToId } });
     // 项目：跟着转走的客户整体转（同转让客户，跟着客户转的项目），企业版再加上他负责、挂在别人客户上的
     const 项目 = 分.项目.length ? await 转项目(tx, { id: { in: 分.项目 }, pooledAt: null }, transferToId, me.id) : [];
@@ -405,6 +411,25 @@ export async function deactivateUser(id: string, transferToId: string, 方式: �
   revalidatePath("/channels");
   revalidatePath("/projects");
   return { ok: true as const };
+}
+
+/**
+ * 企业版「线索分配」开着时，离职转给接手人的线索也记一行分配（EntLeadAssign），和手动分配同一张表：
+ * 分配记录里查得到这条线索怎么到了接手人手上。只记还没转化的；不算进接手人当月的分配数（counted=false），
+ * 交接来的不占配额；走哪条线不填，种类沿用这条线索最近一次分配的（没分配过 = 营销）
+ */
+async function 记交接分配(tx: Prisma.TransactionClient, 线索: string[], from: string, to: string, by: string) {
+  if (!线索.length) return;
+  const 没转化 = (await tx.lead.findMany({ where: { id: { in: 线索 }, convertedAt: null }, select: { id: true } })).map((l) => l.id);
+  if (!没转化.length) return;
+  const 上次 = new Map<string, string>();
+  for (const r of await tx.entLeadAssign.findMany({ where: { leadId: { in: 没转化 } }, orderBy: { createdAt: "desc" }, select: { leadId: true, kind: true } })) {
+    if (!上次.has(r.leadId)) 上次.set(r.leadId, r.kind);
+  }
+  const 月 = 月份();
+  await tx.entLeadAssign.createMany({
+    data: 没转化.map((leadId) => ({ leadId, toUserId: to, fromUserId: from, byUserId: by, line: null, kind: 上次.get(leadId) ?? "营销", counted: false, month: 月 })),
+  });
 }
 
 /** 一次最多停用多少人：和离职交接「200 条一次做完」同一个量 */
