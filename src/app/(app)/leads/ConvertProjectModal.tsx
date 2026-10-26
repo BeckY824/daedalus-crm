@@ -65,7 +65,7 @@ function Body({
   const 差 = !f.content.trim() ? "请填写首条跟进的沟通内容" : 要下一步 && !f.下一步时间 ? "请填下一步时间：到那天还没跟进，项目会自动回到项目公海" : "";
   const 行 = (label: string, el: React.ReactNode, 必填 = false) => (
     <div style={{ marginBottom: 12 }}>
-      <div style={{ marginBottom: 4 }}>{必填 && <span style={{ color: "var(--danger, #cf1322)" }}>* </span>}{label}</div>
+      <div style={{ marginBottom: 4 }}>{必填 && <span style={{ color: "var(--danger)" }}>* </span>}{label}</div>
       {el}
     </div>
   );
