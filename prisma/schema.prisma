@@ -157,6 +157,8 @@ model Customer {
   projects      Project[]
   creator       CustomerCreator?
   ownerLogs     CustomerOwnerLog[]
+  /// 企业版建档时选了号码类型的其他号码（旺旺 ID 等，migrations/054）
+  entNumbers    EntContactNumber[]
 
   @@index([phone])
   @@index([salesOwnerId])
@@ -1207,6 +1209,25 @@ model EntLeadAssign {
   @@index([toUserId, month])
   @@index([fromUserId])
   @@index([leadId])
+}
+
+/// 企业版客户的其他号码（2026-10-26，测试清单 B5）。建档时号码类型选了「旺旺 ID」的那个号存这里，全公司查重按 kind + numberKey 比。
+/// 邮箱、微信不放这里：沿用 CustomerExtra 的 email / wechat 两列（外贸那套查重本来就比它们）；手机号就是 Customer.phone。
+/// 只放现有列里没有的类型，以后加 WhatsApp 之类的也加在这里，不再加列
+model EntContactNumber {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// wangwang（lib/enterprise/contact-dedupe.ts 的 号码库类型）
+  kind       String
+  /// 规整后存的样子（旺旺去掉空格和符号，保留 : 子账号）
+  value      String
+  /// 查重比对用的键：value 小写
+  numberKey  String
+  createdAt  DateTime @default(now())
+
+  @@index([customerId])
+  @@index([kind, numberKey])
 }
 
 /// 企业版每人每月最多接几条分配的线索。没有这一行 = 不限。直属上级、虚线上级、总管理员、老板能设

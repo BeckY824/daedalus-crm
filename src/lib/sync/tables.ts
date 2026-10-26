@@ -63,6 +63,8 @@ export const 不同步表 = [
   "EntDept", "EntMember",
   // 企业版线索分配（2026-10-24）：同上
   "EntLeadAssign", "EntLeadQuota",
+  // 企业版客户的其他号码（2026-10-26，旺旺 ID）：同上
+  "EntContactNumber",
 ] as const;
 
 /**
