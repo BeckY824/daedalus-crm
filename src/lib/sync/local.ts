@@ -19,6 +19,7 @@ import { 是模板名字 } from "@/lib/desktop/synced-name";
 import { 擦净删除残留 } from "./scoped-local";
 import { 记新插 } from "./team-notice-box";
 import { 建被盖表, 记推送时间, 记被盖, 清掉不在的被盖 } from "./overwritten";
+import { 留底器 } from "./trash";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -267,7 +268,7 @@ async function 记本机字段钟(db: Db, 设备: string) {
  *   - 外键是延后检查的（同一批里先子后父也放得进），提交前用 foreign_key_check 找出孤儿：
  *     父行在本机已经删了（甲删客户、乙同时给他记了跟进）——能空的那一列置空，不能空的整行删掉、记下跳过
  */
-export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: string, 选项: { 含本人?: boolean } = {}): Promise<{ 应用: number; 撞: number; 跳: number }> {
+export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: string, 选项: { 含本人?: boolean; 留底?: boolean } = {}): Promise<{ 应用: number; 撞: number; 跳: number }> {
   const 排好 = [...批].filter((e) => 选项.含本人 || !e.h.endsWith(`-${本机设备}`)).sort((a, b) => a.h.localeCompare(b.h));
   if (!排好.length) return { 应用: 0, 撞: 0, 跳: 0 };
   let 撞 = 0;
@@ -286,6 +287,8 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
     await 记本机字段钟(tx, 本机设备);
     await tx.$executeRawUnsafe("UPDATE _sync_state SET applying = 1 WHERE id = 1");
     await tx.$executeRawUnsafe("PRAGMA defer_foreign_keys = ON");
+    // 老板那台：别人删的客户（连同下面的）删之前存进回收站（trash.ts）
+    const 底 = 选项.留底 ? 留底器(tx) : null;
     const 记跳过 = async (t: string, k: string, h: string, why: string) => {
       跳++;
       // 同一条不记两遍（二审：升级后从头重拉，以前跳过的那几条又跳一次，「没同步上」的数字翻倍）
@@ -350,7 +353,11 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
           await tx.$executeRawUnsafe("UPDATE _sync_state SET applying = 1 WHERE id = 1");
           动过的客户.add(并到);
         }
-        if (!更晚.length || 并到) await tx.$executeRawUnsafe(`DELETE FROM ${引(e.t)} WHERE ${引(pk)} = ?`, k);
+        if (!更晚.length || 并到) {
+          // 合并掉的不进回收站：内容已经并到留下的那位
+          if (底 && !并到) await 底.删之前(e.t, k, e.h);
+          await tx.$executeRawUnsafe(`DELETE FROM ${引(e.t)} WHERE ${引(pk)} = ?`, k);
+        }
         await tx.$executeRawUnsafe("INSERT INTO _sync_tomb (tbl, pk, hlc) VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET hlc = MAX(hlc, excluded.hlc)", e.t, k, e.h);
         return;
       }
@@ -434,6 +441,7 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
     }
 
     const 已回放: 改动[] = [];
+    if (底) await 底.先看(排好);
     for (const e of 排好) {
       if (!(同步表 as readonly string[]).includes(e.t)) continue; // 对方版本新、多了一张我这还没有的表：跳过
       await tx.$executeRawUnsafe("SAVEPOINT s1");
@@ -455,7 +463,7 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
       const batch = 已回放.slice(i, i + 200);
       await tx.$executeRawUnsafe(`DELETE FROM _sync_skip WHERE ${batch.map(() => "(tbl = ? AND pk = ? AND hlc = ?)").join(" OR ")}`, ...batch.flatMap(e => [e.t, e.k, e.h]));
     }
-    await 清孤儿(tx, 记跳过);
+    await 清孤儿(tx, 记跳过, 底 ? (t, rowid) => 底.孤儿删之前(t, rowid) : undefined);
     // 老客户端没有 ownerId：能认出来源负责人时补上，无法确认的仍只给老板看。
     if (排好.some((x) => x.t === "UnassignedContact" || x.t === "Customer") && (await 列们(tx, "UnassignedContact")).some((c) => c.name === "ownerId")) {
       await tx.$executeRawUnsafe(`UPDATE "UnassignedContact" SET "ownerId" = (
@@ -475,7 +483,7 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
  * 外键写着 ON DELETE CASCADE 的也整行删（2026-10-05 复查：订单跟着签约走，签约没了订单不能变成「没有签约的老订单」留着）。
  * 删一行可能带出新的孤儿，循环到干净为止。
  */
-async function 清孤儿(tx: Prisma.TransactionClient, 记跳过: (t: string, k: string, h: string, why: string) => Promise<void>) {
+async function 清孤儿(tx: Prisma.TransactionClient, 记跳过: (t: string, k: string, h: string, why: string) => Promise<void>, 删之前?: (t: string, rowid: number) => Promise<void>) {
   for (let 轮 = 0; 轮 < 10; 轮++) {
     const 坏 = await tx.$queryRawUnsafe<{ table: string; rowid: bigint | number | null; parent: string; fkid: bigint | number }[]>("PRAGMA foreign_key_check");
     if (!坏.length) return;
@@ -489,6 +497,7 @@ async function 清孤儿(tx: Prisma.TransactionClient, 记跳过: (t: string, k:
       if (fk && 能空 && String(fk.on_delete).toUpperCase() !== "CASCADE") {
         await tx.$executeRawUnsafe(`UPDATE ${引(b.table)} SET ${引(fk.from)} = NULL WHERE rowid = ?`, 数(b.rowid));
       } else {
+        await 删之前?.(b.table, 数(b.rowid));
         await tx.$executeRawUnsafe(`DELETE FROM ${引(b.table)} WHERE rowid = ?`, 数(b.rowid));
         await 记跳过(b.table, k, "", `孤儿：${b.parent} 在本机已经删了`);
       }
@@ -591,7 +600,7 @@ export async function 只留自己的(db: PrismaClient, 我: string) {
     await tx.unassignedContact.deleteMany({ where: { OR: [{ ownerId: null }, { ownerId: { not: 我 } }] } });
   });
   await 清掉不在的被盖(db);
-  for (const t of ["_sync_log", "_sync_field", "_sync_tomb", "_sync_skip", "_sync_cursor", "_sync_alias", "_sync_push"]) {
+  for (const t of ["_sync_log", "_sync_field", "_sync_tomb", "_sync_skip", "_sync_cursor", "_sync_alias", "_sync_push", "_sync_trash", "_sync_device_owner"]) {
     await db.$executeRawUnsafe(`DELETE FROM ${t}`).catch(() => undefined);
   }
   // 删掉的同事客户不在库文件字节里留副本：整库重建 + 截断 WAL（scoped-local 擦净删除残留）

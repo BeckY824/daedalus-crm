@@ -9,6 +9,7 @@ import { CopyOutlined, SyncOutlined, TeamOutlined } from "@ant-design/icons";
 import { smartTime } from "@/lib/utils";
 import ScopeConflicts from "./ScopeConflicts";
 import OverwrittenCard from "./OverwrittenCard";
+import TrashCard from "./TrashCard";
 import DevicesCard from "./DevicesCard";
 import ConnectCard from "./ConnectCard";
 import TeamPricing from "./TeamPricing";
@@ -379,6 +380,8 @@ export default function TeamTab() {
       <ScopeConflicts onChange={() => void 刷()} />
       {/* 和同事同时改了同一格、被同事后来的改动盖掉的：把我原来写的给我看（lib/sync/overwritten.ts） */}
       <OverwrittenCard onChange={() => void 刷()} />
+      {/* 同事删掉的客户：老板那台删之前留了一份，30 天内能放回去（lib/sync/trash.ts） */}
+      {(s.我是建的人 || s.我是主管) && <TrashCard onChange={() => void 刷()} />}
       {(s.范围?.清理?.AI残留 ?? 0) > 0 && (
         <Alert type="info" showIcon style={{ marginBottom: 16 }} data-testid="scope-ai-residue"
           message={`AI 对话历史里有 ${s.范围!.清理!.AI残留} 条提到了已不在你同步范围内的客户`}

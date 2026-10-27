@@ -13,6 +13,9 @@ import { 管全队客户 } from "@/lib/constants";
 import { getBusiness } from "@/lib/business";
 import { 列出范围冲突, 确认范围冲突, 导出范围冲突 } from "@/lib/sync/scoped-local";
 import { 列出被盖, 看过被盖 } from "@/lib/sync/overwritten";
+import { 列出回收站, 恢复回收站 } from "@/lib/sync/trash";
+import { 列出每日备份, 列出备份里删了的, 从备份捞回 } from "@/lib/sync/trash-backup";
+import { 限定的我 } from "@/lib/team-scope";
 import { 待授权手机, 允许手机, 拒绝手机, 我的设备, 移除设备 } from "@/lib/sync/mobile-desktop";
 import { 连接概况, 发起连接, 查连接, 取消连接 } from "@/lib/sync/device-link";
 
@@ -250,6 +253,73 @@ export async function 看过被盖掉动作(ids: number[]) {
   const n = await 看过被盖(prisma, Array.isArray(ids) ? ids.map(Number) : []);
   revalidatePath("/settings");
   return { ok: true as const, 看过: n };
+}
+
+/* ---------------- 同步删掉的客户（2026-10-26，lib/sync/trash.ts）：同事删的客户在老板这台留底 30 天，能一位一位、或者按人一次恢复 ---------------- */
+export async function 读同步删掉的() {
+  const me = await requireUser();
+  if (!管全队客户(me.role)) return { 人们: [], 条目: [] };
+  const 条目 = await 列出回收站(prisma);
+  const ids = [...new Set(条目.flatMap((x) => (x.删的人 ? [x.删的人] : [])))];
+  const 人们 = ids.length ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : [];
+  return { 人们, 条目 };
+}
+export async function 恢复同步删掉的动作(roots: string[]) {
+  const user = await requireUser();
+  if (!管全队客户(user.role)) return { ok: false as const, error: "只有老板和业务主管能恢复同事删掉的客户" };
+  const 要 = Array.isArray(roots) ? roots.filter((x): x is string => typeof x === "string").slice(0, 2000) : [];
+  if (!要.length) return { ok: false as const, error: "没选要恢复的" };
+  const 名 = new Map((await 列出回收站(prisma)).map((x) => [x.root, x.名称]));
+  const r = await 恢复回收站(prisma, 要);
+  const 说 = 要.length === 1 ? `「${(名.get(要[0]) ?? "").slice(0, 40)}」` : `${要.length} 位客户`;
+  await recordAudit({ user, action: "update", entity: "Setting", entityId: "sync-trash", summary: `从「同事删掉的客户」恢复了${说}（插回 ${r.插回} 条${r.跳过 ? `，本机已有或对不上的 ${r.跳过} 条没动` : ""}）` });
+  // 插回的进了同步日志：马上推一轮，同事那边也放回来（推不上下一轮再推）
+  if (读团队()) void 同步一轮().catch(() => undefined);
+  revalidatePath("/settings");
+  revalidatePath("/customers");
+  return { ok: true as const, ...r };
+}
+
+/*
+  从某天的自动备份里只捞回被删掉的客户（2026-10-26，lib/sync/trash-backup.ts）：回收站没留到的（更早删的、过了 30 天的）。
+  只给老板 / 业务主管 / 个人版：业务员那台转走的客户本来就会删掉，从备份捞回等于把转走的复活
+*/
+async function 能从备份捞() {
+  const user = await requireUser();
+  return 管全队客户(user.role) && !(await 限定的我(prisma)) ? user : null;
+}
+export async function 读备份列表() {
+  return (await 能从备份捞()) ? 列出每日备份() : [];
+}
+export async function 读备份里删了的(文件: string) {
+  if (!(await 能从备份捞())) return { ok: false as const, error: "只有老板和业务主管能从备份里捞回客户" };
+  try {
+    const 条目 = await 列出备份里删了的(prisma, String(文件 ?? ""));
+    const ids = [...new Set(条目.flatMap((x) => (x.删的人 ? [x.删的人] : [])))];
+    const 人们 = ids.length ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : [];
+    return { ok: true as const, 人们, 条目 };
+  } catch (e) {
+    return { ok: false as const, error: e instanceof Error ? e.message : "这份备份读不了" };
+  }
+}
+export async function 从备份捞回动作(文件: string, ids: string[]) {
+  const user = await 能从备份捞();
+  if (!user) return { ok: false as const, error: "只有老板和业务主管能从备份里捞回客户" };
+  const 要 = Array.isArray(ids) ? ids.filter((x): x is string => typeof x === "string").slice(0, 2000) : [];
+  if (!要.length) return { ok: false as const, error: "没选要捞回的" };
+  const f = String(文件 ?? "");
+  try {
+    const 名 = 要.length === 1 ? new Map((await 列出备份里删了的(prisma, f)).map((x) => [x.id, x.名称])) : null;
+    const r = await 从备份捞回(prisma, f, 要);
+    const 说 = 名 ? `「${(名.get(要[0]) ?? "").slice(0, 40)}」` : `${要.length} 位客户`;
+    await recordAudit({ user, action: "update", entity: "Setting", entityId: "backup-rescue", summary: `从 ${f.replace(/^daily-|\.db$/g, "")} 的自动备份捞回了${说}（插回 ${r.插回} 条${r.跳过 ? `，本机已有或对不上的 ${r.跳过} 条没动` : ""}）` });
+    if (读团队()) void 同步一轮().catch(() => undefined);
+    revalidatePath("/settings");
+    revalidatePath("/customers");
+    return { ok: true as const, ...r };
+  } catch (e) {
+    return { ok: false as const, error: e instanceof Error ? e.message : "这份备份读不了" };
+  }
 }
 
 /* ---------- 手机和本人的新电脑（2026-10-15，手机端方案 3.2 / 多设备同步）：授权。活在 lib/sync/mobile-desktop.ts；列出、移除见下面「我的设备」 ---------- */

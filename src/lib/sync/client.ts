@@ -19,6 +19,7 @@ import { createHmac } from "node:crypto";
 import { 范围快照, 记录快照, 清理失权副本, 转为范围冲突, 范围冲突数, 验收范围包, 范围包错误, 范围包未到, 主字段, type 拉到的范围包 } from "./scoped-local";
 import { 提取范围, 行键, 范围字段, 还等吗, type 范围索引, type 卡住的范围 } from "./scope-policy";
 import { 同步表 } from "./tables";
+import { 记设备主人, 有不认识的设备 } from "./trash";
 import { 报查重 } from "./dedupe-client";
 import { 封范围, 规范串 } from "./crypto";
 import { 封, 拆, 新钥匙, 设备钥匙对, 封给, 拆自, 签名钥匙对, 签上, 验, type 钥匙环 } from "./crypto";
@@ -406,6 +407,16 @@ export function 能管理团队(c: 团队配置): boolean {
 }
 const 不在建团队那台 = "移除同事、换邀请码只能在建团队的那台电脑上做：老板的签名钥匙只在那台上，这台换出去的新钥匙同事会拒收";
 
+/**
+ * 记下团队里每台设备是谁的（老板那台，回收站「谁删的」用；sync/trash.ts）。云端只列在册成员的设备，人移出团队后就查不到了，
+ * 所以同步完回收站里有对不上人的设备时问一次、移除成员之前问一次
+ */
+async function 补设备主人(c: 团队配置, 只在要时 = true) {
+  if (!能管理团队(c) || (只在要时 && !(await 有不认识的设备(prisma)))) return;
+  const d = await 云("GET", `/api/sync/devices?teamId=${encodeURIComponent(c.teamId)}`);
+  if (d.状态 === 200) await 记设备主人(prisma, (d.json.devices as { device: string; accountId: string }[]) ?? []);
+}
+
 /** 移除成员（只有建团队的人）：云端移出 + 换入队口令，本机接着换钥匙 */
 export function 移除成员(accountId: string): Promise<结果> {
   return 一个一个来(() => 移除成员里(accountId));
@@ -416,6 +427,8 @@ async function 移除成员里(accountId: string): Promise<结果> {
   // 去云端之前就挡：先移出再发现钥匙换不了，人出去了钥匙却没换，团队卡在半截
   if (!能管理团队(c)) return { ok: false, error: 不在建团队那台 };
   if (在跑) await 在跑.catch(() => undefined);
+  // 移出之前记下他的设备（云端之后就不列了）：回收站里才认得出是他删的
+  await 补设备主人(c, false).catch(() => undefined);
   const r = await 云("POST", "/api/sync/remove", { teamId: c.teamId, accountId });
   if (r.状态 !== 200) return { ok: false, error: String(r.json.error ?? "移除不了") };
   写团队({ ...(读团队() ?? c), joinSecret: String(r.json.joinSecret) });
@@ -762,7 +775,7 @@ async function 跑一轮(选项: { 旧协议?: boolean; 只拉?: boolean } = {})
             记({ pulled: 拉到 });
             continue;
           }
-          const 结果 = await 回放(prisma, 这批, c.device);
+          const 结果 = await 回放(prisma, 这批, c.device, { 留底: 能管理团队(c) });
           拉 += 结果.应用;
           撞 += 结果.撞;
         }
@@ -784,6 +797,7 @@ async function 跑一轮(选项: { 旧协议?: boolean; 只拉?: boolean } = {})
     */
     const 来了新同事 = 拉 > 0 && (await 成员行数()) !== 拉前成员;
     if (Date.now() - 上次对角色 > 5 * 60_000 || (拉 > 0 && 上次对角色 === 0) || 来了新同事) await 对齐角色().catch(() => undefined);
+    if (拉 > 0) await 补设备主人(c).catch(() => undefined);
     return { ok: true, 推, 拉, 撞 };
   } catch (e) {
     const 话 = e instanceof 同步问题 ? e.message : e instanceof Error && /authenticate|版本|钥匙/.test(e.message) ? "解不开别人推来的改动：邀请码里的钥匙不对，请找老板重新要一份" : `同步出错：${e instanceof Error ? e.message.slice(0, 200) : String(e)}`;
@@ -1323,7 +1337,7 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
         if (r.状态 !== 200) return r;
         const batches = (r.json.batches as 拉到的范围包[]) ?? [];
         const 页 = 收页(s, batches);
-        if (页.收.length) { const x = await 回放(prisma, 页.收, c.device); 拉 += x.应用; 撞 += x.撞; }
+        if (页.收.length) { const x = await 回放(prisma, 页.收, c.device, { 留底: 能管理团队(c) }); 拉 += x.应用; 撞 += x.撞; }
         if (页.到.length) after = 页.到[页.到.length - 1].seq;
         cursors[s.id] = { after, revision: s.revision };
         记游标();
@@ -1355,13 +1369,13 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
         if (!页.停了 && y.more && batches.length) 一批批.push({ s: x.s, after });
       }
       // 各范围的包按批次号合起来回放一次（就是它们进中转的先后），游标在回放之后才前进
-      if (收.length) { const z = await 回放(prisma, 收, c.device); 拉 += z.应用; 撞 += z.撞; }
+      if (收.length) { const z = await 回放(prisma, 收, c.device, { 留底: 能管理团队(c) }); 拉 += z.应用; 撞 += z.撞; }
       for (const x of 前进) cursors[x.s.id] = { after: x.after, revision: x.s.revision };
       记游标();
     }
     for (const x of 单个) { const r = await 单拉(x.s, x.after); if (r) return 拉失败(r); }
     // 目录里已经删掉、本机却还留着的记录：照目录补一次删除（候选 6 实机：同一账号另一台领取后，这台公海那一行一直不走）
-    const 补删 = await 照目录补删除(index.values(), c.device);
+    const 补删 = await 照目录补删除(index.values(), c.device, 能管理团队(c));
     拉 += 补删;
     记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "ready" }), stage: "ready", cursors, skipped, held, cleaned }, lastError: null, ...同步上了(), last: { 推: p.推, 拉, 撞 } });
     /*
@@ -1383,6 +1397,7 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
     // 产品图片的文件（D-24，sync/attach-client.ts）：行推完、拉完再在后台传文件，不占着这一轮（质量审 #93 D）。
     // 传不上不算这一轮失败；空间满了要人处理，由它记一句
     图片触发 = import("./attach-client").then((m) => m.后台传附件(), () => undefined);
+    if (拉 > 0) await 补设备主人(c).catch(() => undefined);
     return { ok: true, 推: p.推, 拉, 撞 };
   } catch (e) {
     const 话 = e instanceof 同步问题 ? e.message : `同步出错：${e instanceof Error ? e.message.slice(0, 200) : String(e)}`;
@@ -1398,7 +1413,7 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
  * 只用目录里的编号和钟，不碰任何密文。
  * 旧服务端 / 已经把游标拉过了删除包的设备（游标在删除包之后）靠这一步收尾；新服务端拉取时也会直接给删除包。
  */
-async function 照目录补删除(rows: Iterable<范围索引>, 设备: string): Promise<number> {
+async function 照目录补删除(rows: Iterable<范围索引>, 设备: string, 留底 = false): Promise<number> {
   const 删了 = [...rows].filter((r) => r.deleted && r.clock);
   if (!删了.length) return 0;
   const 待推 = new Set((await prisma.$queryRawUnsafe<{ tbl: string; pk: string }[]>("SELECT DISTINCT tbl, pk FROM _sync_log WHERE seq > COALESCE((SELECT v FROM _sync_cursor WHERE k = 'pushed'), 0)")).map((r) => 行键(r.tbl, r.pk)));
@@ -1414,7 +1429,7 @@ async function 照目录补删除(rows: Iterable<范围索引>, 设备: string):
     }
   }
   if (!要删.length) return 0;
-  return (await 回放(prisma, 要删, 设备, { 含本人: true })).应用;
+  return (await 回放(prisma, 要删, 设备, { 含本人: true, 留底 })).应用;
 }
 
 /** 设置 → 团队显示用：范围同步状态与待核对冲突数 */
