@@ -23,6 +23,7 @@ import type { 改动 } from "@/lib/sync/local";
 // 下面这几样都不牵进服务端模块（Prisma、node:*）：手机页面直接打包
 import { BUSINESS_KEY, mergeBusiness, 外贸订单, type BusinessConfig } from "@/lib/business-config";
 import { 订单前缀 } from "@/lib/follow-link";
+import { FOLLOW_TYPES_KEY, mergeFollowTypes, 合法跟进类型, 跟进类型名, 跟进类型表, type FollowTypeConfig, type 跟进类型 } from "@/lib/follow-types";
 import { DECISION_STATUSES, FOLLOW_STATUSES, OPP_STAGES, STAGE_PROBABILITY } from "@/lib/constants";
 import { 金额 as 显示金额, 规整币种 } from "@/lib/currency";
 import { 认国家, 规整外贸格, 外贸至少一种, type 外贸档案 } from "@/lib/customer-extra";
@@ -371,12 +372,19 @@ export async function 同步一轮(c0: 手机团队, 云: 传输, 库: 手机库
 
 /* ---------------- 手机上记一笔跟进 ---------------- */
 
-const 类型名: Record<string, string> = { PHONE: "电话沟通", MEETING: "线上会议", VISIT: "上门拜访", EMAIL: "邮件沟通", SMS: "短信沟通", WHATSAPP: "WhatsApp", WECHAT: "微信沟通", TASK: "跟进任务", REMIND: "跟进提醒", OTHER: "其他记录" };
 /**
- * 手机上能记的类型（任务 / 提醒走「下次跟进」）。WhatsApp 2026-10-16 加；微信沟通 2026-10-19 加（客户反馈第 3 条），
+ * 内置渠道在手机上的顺序（任务 / 提醒走「下次跟进」）。WhatsApp 2026-10-16 加；微信沟通 2026-10-19 加（客户反馈第 3 条），
  * 存 WECHAT，和电脑上 constants.ts 的跟进类型同一个值。还不认识 WECHAT 的电脑照样落库，界面上按「其他记录」的样子显示（同 0.46.20 加 WhatsApp）
  */
 export const 手机跟进类型 = ["PHONE", "WHATSAPP", "WECHAT", "SMS", "EMAIL", "MEETING", "VISIT", "OTHER"] as const;
+/**
+ * 手机上能选的渠道（D-48，2026-10-27）：跟着团队的跟进渠道设置走——改了名的用新名、藏起来的不列、老板加的自定义渠道排在内置的后面、「其他记录」最后。
+ * 内置的仍按上面的手机顺序
+ */
+export function 手机跟进类型表(cfg: FollowTypeConfig | null | undefined): 跟进类型[] {
+  const 序 = (v: string) => (v === "OTHER" ? 999 : (手机跟进类型 as readonly string[]).includes(v) ? (手机跟进类型 as readonly string[]).indexOf(v) : 500);
+  return [...跟进类型表(cfg, false, { 只渠道: true })].sort((a, b) => 序(a.value) - 序(b.value));
+}
 
 /** 和 Prisma 的 cuid 同一个样子（c + 24 位），只用作主键，不要求真是 cuid 算法 */
 export function 新编号(): string {
@@ -387,7 +395,8 @@ const 本地日期 = (ms: number) => { const d = new Date(ms); return `${d.getFu
 
 export type 记跟进输入 = {
   customerId: string;
-  type: (typeof 手机跟进类型)[number];
+  /** 内置的 PHONE、WECHAT…，或老板加的自定义渠道（C_ 开头），见 手机跟进类型表 */
+  type: string;
   content: string;
   /** 下次跟进：给了就新建一条计划 */
   下次?: { 时间: number; 主题: string; 方式: string } | null;
@@ -406,7 +415,9 @@ export type 记跟进输入 = {
  * 时间存成毫秒数：和桌面端库里 DateTime 的存法一样（Prisma 在 SQLite 里存毫秒），推过去原样落库。
  */
 export async function 记跟进(c: 手机团队, 库: 手机库, 状态: 同步状态, 输入: 记跟进输入, 现在 = Date.now()): Promise<{ id: string; 领取了?: boolean }> {
-  if (!(手机跟进类型 as readonly string[]).includes(输入.type)) throw new 同步问题("跟进类型不对");
+  const 渠道 = await 跟进渠道设置(库);
+  if (!合法跟进类型(渠道, 输入.type)) throw new 同步问题("跟进类型不对");
+  if (!手机跟进类型表(渠道).some((t) => t.value === 输入.type)) throw new 同步问题("这个跟进方式刚被停用了，换一个再保存");
   const 内容 = 输入.content.trim();
   if (!内容) throw new 同步问题("写点什么再保存");
   const 客户 = await 库.取("Customer", 输入.customerId);
@@ -450,7 +461,7 @@ export async function 记跟进(c: 手机团队, 库: 手机库, 状态: 同步�
     customerId: 输入.customerId, contactId: null, opportunityId: 商机id, ownerId: c.userId, createdAt: 现在, updatedAt: 现在,
   });
   if (订单id) 插("FollowUpOrder", { followUpId: id, orderId: 订单id, nodeIdx: 0 });
-  审("create", "FollowUp", id, `记了${客户名}的一条${类型名[输入.type]}跟进（${本地日期(现在)}）`, { 客户: 客户名, 类型: 类型名[输入.type], 状态: "已完成", 内容: 内容.slice(0, 120), 来自: "手机" });
+  审("create", "FollowUp", id, `记了${客户名}的一条${跟进类型名(渠道, 输入.type)}跟进（${本地日期(现在)}）`, { 客户: 客户名, 类型: 跟进类型名(渠道, 输入.type), 状态: "已完成", 内容: 内容.slice(0, 120), 来自: "手机" });
   if (输入.下次) {
     const pid = 新编号();
     插("FollowPlan", {
@@ -510,6 +521,14 @@ export function 读业务(s: 记录 | undefined): BusinessConfig {
 export const 业务行键 = 行键("Setting", BUSINESS_KEY);
 async function 业务设置(库: 手机库): Promise<BusinessConfig> {
   return 读业务(await 库.取("Setting", BUSINESS_KEY));
+}
+/** 团队的跟进渠道设置（Setting:followTypes，D-48）：和业务设置分开存、分开同步。还没同步到就当一项没改 */
+export function 读跟进渠道(s: 记录 | undefined): FollowTypeConfig {
+  try { return mergeFollowTypes(s ? JSON.parse(String(s.r.value ?? "null")) : null); } catch { return mergeFollowTypes(null); }
+}
+export const 跟进渠道行键 = 行键("Setting", FOLLOW_TYPES_KEY);
+async function 跟进渠道设置(库: 手机库): Promise<FollowTypeConfig> {
+  return 读跟进渠道(await 库.取("Setting", FOLLOW_TYPES_KEY));
 }
 
 /**

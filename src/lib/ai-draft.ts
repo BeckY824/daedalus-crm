@@ -13,12 +13,12 @@ import { isCalendarDate } from "./schedule-date";
  */
 import { dayjs } from "@/lib/utils";
 import {
-  FOLLOW_TYPES,
   FOLLOW_RECORD_STATUSES,
   FOLLOW_METHODS,
   FOLLOW_STATUSES,
   DECISION_STATUSES,
 } from "@/lib/constants";
+import { 跟进类型值, type FollowTypeConfig } from "@/lib/follow-types";
 
 export type FollowUpDraft = {
   followUp: {
@@ -37,8 +37,6 @@ export type FollowUpDraft = {
   followStatusSuggestion: string | null;
   decisionStatusSuggestion: string | null;
 };
-
-const FOLLOW_TYPE_VALUES = FOLLOW_TYPES.map((t) => t.value);
 
 function asString(v: unknown, maxLen: number): string {
   return typeof v === "string" ? v.trim().slice(0, maxLen) : "";
@@ -64,7 +62,7 @@ function asIso(v: unknown, keepCalendar = false): string | null {
  */
 export function sanitizeFollowUpDraft(
   raw: unknown,
-  ctx: { contactIds: string[]; opportunityIds: string[] },
+  ctx: { contactIds: string[]; opportunityIds: string[]; followTypes?: FollowTypeConfig | null },
 ): FollowUpDraft {
   const r = (raw ?? {}) as Record<string, unknown>;
   const f = (r.followUp ?? {}) as Record<string, unknown>;
@@ -100,7 +98,8 @@ export function sanitizeFollowUpDraft(
 
   return {
     followUp: {
-      type: inEnum(f.type, FOLLOW_TYPE_VALUES) ?? "OTHER",
+      // 值或名字都认（自定义渠道、改过的名）；藏了的、认不出的落「其他记录」
+      type: 跟进类型值(ctx.followTypes, f.type) ?? "OTHER",
       title: asString(f.title, 200),
       content,
       status: inEnum(f.status, FOLLOW_RECORD_STATUSES) ?? "已完成",

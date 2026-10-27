@@ -18,7 +18,7 @@ import { 不掉公海的状态, 公海截止 } from "@/lib/pool";
 import { 预演, type 预演计数 } from "./apply";
 import { 清洗, 数一数, 名键, type 本地索引, type 清洗结果 } from "./clean";
 import { 成记录, 拆联系人, 拆出的客户ID列, type 读出的表 } from "./excel";
-import { 猜映射, 说明键, 值对照, 值说法, 进备注, type 建议器, type 成员, type 表概要 } from "./mapping";
+import { 猜映射, 说明键, 值对照, 值说法, 进备注, type 建议器, type 成员, type 表概要, type 业务 } from "./mapping";
 import { 实体顺序, 字段中文, 实体名, type 来源, type 实体, type 映射, type 原始记录, type 问题, type 待写, type 值对照名, type 列映射 } from "./types";
 
 /** 报告里最多列多少条问题（存进库的那份）；总数另记，界面上说「还有 N 条没列出」 */
@@ -130,6 +130,7 @@ export async function 试跑(p: 试跑参数): Promise<试跑结果> {
   const 概要: 表概要[] = 能用的表.length ? 能用的表.map((t) => ({ 实体: t.实体, 表头: t.表头, 行: t.行 })) : 记录成概要(p.记录 ?? []);
   const 粗记录 = 能用的表.length ? 能用的表.flatMap((t) => 成记录(t, t.实体, {})) : (p.记录 ?? []);
   const 候选: 成员[] = await 负责人候选();
+  const b = await getBusiness();
   // 默认负责人要是能当负责人的人：管理员 / 停用的写的时候会被换掉，报告上就得先换好，免得报告说给 A、实际落到 B
   const 能任 = (id?: string | null) => !!id && 候选.some((c) => c.id === id);
   const 默认负责人Id = [p.已有映射?.默认负责人Id, await 唯一负责人(), p.用户Id, 候选[0]?.id].find(能任) ?? p.用户Id;
@@ -138,7 +139,7 @@ export async function 试跑(p: 试跑参数): Promise<试跑结果> {
     记录: 粗记录,
     候选,
     默认负责人Id,
-    业务: await getBusiness(),
+    业务: b,
     建议器: p.建议器,
     已有: p.已有映射,
     留AI: p.留AI,
@@ -152,10 +153,9 @@ export async function 试跑(p: 试跑参数): Promise<试跑结果> {
     : (p.记录 ?? []);
 
   // 3) 清洗
-  const 结果 = 清洗(记录, m, await 读本地索引(p.来源));
+  const 结果 = 清洗(记录, m, { ...(await 读本地索引(p.来源)), 跟进渠道: b.followTypes });
 
   // 4) 公海
-  const b = await getBusiness();
   const 公海 = b.poolDays ? { 天数: b.poolDays, 会掉: 会掉公海(结果, b.poolDays) } : null;
   if (公海?.会掉) {
     提醒.push(
@@ -163,7 +163,7 @@ export async function 试跑(p: 试跑参数): Promise<试跑结果> {
     );
   }
 
-  const 报告 = 成报告({ 来源: p.来源, 表们, 概要, 记录数: 记录.length, 结果, m, 候选, 提醒, 公海 });
+  const 报告 = 成报告({ 来源: p.来源, 表们, 概要, 记录数: 记录.length, 结果, m, 候选, 提醒, 公海, 业务: b });
   const 计划 = JSON.stringify(结果.待写);
   // 增量同步拉完马上就写，不用先演一遍
   if ((p.类型 ?? "full") === "full") {
@@ -359,6 +359,7 @@ function 成报告(p: {
   候选: 成员[];
   提醒: string[];
   公海: 试跑报告["公海"];
+  业务?: 业务;
 }): 试跑报告 {
   const { 结果, m } = p;
   const 按类 = 数一数(结果);
@@ -395,7 +396,7 @@ function 成报告(p: {
   const 值: 试跑报告["映射"]["值"] = [];
   for (const k of Object.keys(值对照) as 值对照名[]) {
     for (const [v, to] of Object.entries(m.值[k])) {
-      值.push({ 名: k, 叫法: 值对照[k].叫法, 原值: v, 我们的值: to ? 值说法(k, to) : "", 说明: 说[说明键.值(k, v)] });
+      值.push({ 名: k, 叫法: 值对照[k].叫法, 原值: v, 我们的值: to ? 值说法(k, to, p.业务) : "", 说明: 说[说明键.值(k, v)] });
     }
   }
   const 名字 = new Map(p.候选.map((u) => [u.id, u.name]));

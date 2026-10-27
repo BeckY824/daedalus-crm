@@ -27,7 +27,8 @@ import { 现值选取, 现值表 } from "./current-values";
 import { prisma, defaultClient } from "../prisma";
 import { 读的我, 可见客户 } from "../team-scope";
 import { dayjs } from "../utils";
-import { FOLLOW_TYPE_MAP, OPP_STAGES } from "../constants";
+import { OPP_STAGES } from "../constants";
+import { 跟进类型名, 跟进类型表 } from "../follow-types";
 import { formatTimeline } from "../ai-context";
 import { runQuery } from "../report-run";
 import { recapRange } from "./recap-range";
@@ -40,7 +41,7 @@ import type { BriefRecord } from "../ai-draft";
 import { 扩同义词 } from "./synonyms";
 import { 校验规格, 说人话, 编译, 表们, 查询表, 分组上限, 关联们, type 查询规格, type 表名 } from "./query";
 import { buildProposal, describeProposal, missingFields, 可改字段表, 可改字段名单, type Proposal, type ProposalKind } from "./proposals";
-import { FOLLOW_TYPES, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES } from "../constants";
+import { FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES } from "../constants";
 
 export type ToolContext = {
   userId: string;
@@ -280,9 +281,9 @@ export const TOOLS: Tool[] = [
       if (!c) return { summary: "当前可访问范围内未找到这位", data: { 找到: 0, error: "当前可访问范围内未找到该客户；无法据此判断记录不存在还是无权访问" } };
       c.plans = earliestScheduled(c.plans, p => scheduleOrder(p.plannedAt, p.plannedOn), 1);
       const offset = ctx.recordOffset;
-      const records: BriefRecord[] = c.followUps.map((f, i) => ({ n: offset + i + 1, id: f.id, date: dayjs(f.occurredAt).format("MM-DD"), label: FOLLOW_TYPE_MAP[f.type]?.label ?? f.type, excerpt: (f.source?.text ?? f.content).slice(0, 160) }));
+      const records: BriefRecord[] = c.followUps.map((f, i) => ({ n: offset + i + 1, id: f.id, date: dayjs(f.occurredAt).format("MM-DD"), label: 跟进类型名(ctx.b.followTypes, f.type), excerpt: (f.source?.text ?? f.content).slice(0, 160) }));
       // 编号接着上次的走
-      const timeline = formatTimeline(c.followUps, { numbered: true }).replace(/^\[(\d+)\]/gm, (_m, n) => `[${Number(n) + offset}]`);
+      const timeline = formatTimeline(c.followUps, { numbered: true, followTypes: ctx.b.followTypes }).replace(/^\[(\d+)\]/gm, (_m, n) => `[${Number(n) + offset}]`);
       const sources = c.followUps.filter((f) => f.source?.text).length;
       const b = ctx.b;
       const data = {
@@ -905,7 +906,7 @@ export const TOOLS: Tool[] = [
             customerId: f.customer.id,
             客户: f.customer.name,
             时间: dayjs(f.occurredAt).format("YYYY-MM-DD"),
-            类型: FOLLOW_TYPE_MAP[f.type]?.label ?? f.type,
+            类型: 跟进类型名(ctx.b.followTypes, f.type),
             跟进人: f.owner?.name ?? null,
             // 截断：搜索给的是线索，要读全文再去 get_customer
             内容: f.content.slice(0, 200),
@@ -1172,7 +1173,7 @@ export function proposalVocab(b: BusinessConfig): string {
   return `线索状态：${LEAD_STATUSES.join(" / ")}
 跟进状态：${FOLLOW_STATUSES.map(带值).join(" / ")}
 决策状态：${DECISION_STATUSES.map(带值).join(" / ")}
-跟进类型：${FOLLOW_TYPES.map((t) => t.label).join(" / ")}
+跟进类型：${跟进类型表(b.followTypes).map((t) => t.label).join(" / ")}
 计划方式：${FOLLOW_METHODS.join(" / ")}
 商机阶段：${OPP_STAGES.join(" / ")}
 档案里能改的字段：${可改字段名单.map((f) => `${f}（${字段表[f].label}）`).join("、")}

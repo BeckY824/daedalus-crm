@@ -9,7 +9,7 @@ import { prisma, defaultClient } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { recordAudit } from "@/lib/audit";
 import { 不在了 } from "@/lib/not-there";
-import { getBusiness } from "@/lib/business";
+import { getBusiness, getFollowTypes } from "@/lib/business";
 import { 读的我 } from "@/lib/team-scope";
 import { 验号码 } from "@/lib/enterprise/contact-format";
 import { 验联系人号码, 企业号码查重, 全公司查号, 撞号结论, 记号码, 联系人号码撞了 } from "@/lib/enterprise/contact-dedupe";
@@ -53,7 +53,7 @@ export async function 建档向导(input: 建档向导输入) {
     const 规则 = await 生效组织规则();
     // 下一步时间只在开了超时回收时有这格（不是企业版一律没开）：没开时老草稿里留着的也不认、不写，和原来一样
     const 要下一步 = 规则.超时回收.开;
-    const 好 = 规整向导(me, 要下一步 || !input.跟进 ? input : { ...input, 跟进: { ...input.跟进, 下一步时间: null } }, new Date(), 要下一步);
+    const 好 = 规整向导(me, 要下一步 || !input.跟进 ? input : { ...input, 跟进: { ...input.跟进, 下一步时间: null } }, new Date(), 要下一步, await getFollowTypes());
     if ("error" in 好) return { ok: false as const, error: 好.error };
     const 负责人 = await prisma.user.findUnique({ where: { id: 好.项目.ownerId }, select: { name: true, active: true } });
     if (!负责人?.active) return { ok: false as const, error: "项目负责人不存在或已停用，请选一位在职成员" };

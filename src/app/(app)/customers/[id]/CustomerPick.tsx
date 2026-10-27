@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Form, Select } from "antd";
 import { useBusiness } from "@/lib/business-client";
-import { FOLLOW_TYPE_MAP } from "@/lib/constants";
+import { 跟进类型名, type FollowTypeConfig } from "@/lib/follow-types";
 import { smartTime } from "@/lib/utils";
 import { 截止说法 } from "@/lib/deadline";
 import { 搜客户, 取客户近况, type 可挑客户, type 客户近况 } from "./pick";
@@ -99,7 +99,7 @@ export default function CustomerPick({
       label={b.customer}
       initialValue={预选?.id}
       rules={[{ required: true, message: `先挑一位${b.customer}` }]}
-      extra={<近况行 近况={近况} 给计划={给计划} 不提计划={不提计划} />}
+      extra={<近况行 近况={近况} 给计划={给计划} 不提计划={不提计划} 渠道={b.followTypes} />}
     >
       <Select
         autoFocus
@@ -131,11 +131,11 @@ export default function CustomerPick({
  * 挑中之后的那行淡字。没挑之前也占着这一行、先说一句它是干什么的：
  * 空着一截像是排版坏了；挑中再冒出来，又会把下面整张表往下推一下。
  */
-function 近况行({ 近况, 给计划, 不提计划 }: { 近况: 客户近况 | null; 给计划?: boolean; 不提计划?: boolean }) {
+function 近况行({ 近况, 给计划, 不提计划, 渠道 }: { 近况: 客户近况 | null; 给计划?: boolean; 不提计划?: boolean; 渠道?: FollowTypeConfig }) {
   if (!近况) return <span className="pick-ctx pick-ctx-0">挑好之后，这里会写上次谈到哪儿</span>;
   const f = 近况.上次跟进;
   const p = 近况.未完成计划;
-  const 方式 = f ? FOLLOW_TYPE_MAP[f.type]?.label ?? f.type : "";
+  const 方式 = f ? 跟进类型名(渠道, f.type) : "";
   // 标题空着就拿内容开头顶上；标题和方式一样（「线上会议 · 线上会议」）就不重复
   const 标题 = f ? f.title || f.content.slice(0, 24) + (f.content.length > 24 ? "…" : "") : "";
   return (

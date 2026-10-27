@@ -8,7 +8,8 @@ import { recordAiUse } from "@/lib/ai-usage";
 import { chatJSON } from "@/lib/llm";
 import { sanitizeFollowUpDraft, sanitizeBrief, type FollowUpDraft, type CustomerBrief } from "@/lib/ai-draft";
 import { dayjs, 现在带周几 } from "@/lib/utils";
-import { FOLLOW_TYPE_MAP, FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
+import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
+import { 跟进类型表, 跟进类型名 } from "@/lib/follow-types";
 import { getBusiness } from "@/lib/business";
 import { statusLabel, stageLabel, 外贸精简, 外贸订单, type BusinessConfig } from "@/lib/business-config";
 
@@ -55,6 +56,16 @@ async function 解析速记(input: {
   const b = await getBusiness();
   const wait = consumeUserAiQuota(user);
   if (wait !== null) return { ok: false, error: `AI 调用太频繁，请 ${wait} 秒后再试` };
+  // 这家改过的渠道（D-48）：自己加的、改过名的写给模型；藏起来的不让它选（选了也会落成「其他记录」）
+  const 能选 = 跟进类型表(b.followTypes);
+  const 加的 = 能选.filter((t) => t.自定义).map((t) => `${t.value} ${t.label}`);
+  const 改名 = Object.entries(b.followTypes?.rename ?? {}).map(([v, n]) => `${v} 在本公司叫「${n}」`);
+  const 不用 = b.followTypes?.hidden ?? [];
+  const 渠道补充 = [
+    加的.length ? `；本公司还加了这些渠道（取值 名称）：${加的.join(" / ")}` : "",
+    改名.length ? `；${改名.join("，")}` : "",
+    不用.length ? `；本公司不用 ${不用.join("、")}，不要选` : "",
+  ].join("");
 
   const text = input.text.trim();
   if (text.length < 5) return { ok: false, error: "内容太短，AI 没有可整理的信息" };
@@ -114,7 +125,7 @@ ${text}
 }
 
 字段规则：
-- type 取值：PHONE 电话 / MEETING 线上会议 / VISIT 上门拜访 / EMAIL 邮件 / WHATSAPP WhatsApp 上的聊天（含语音消息） / WECHAT 微信或企业微信上的聊天（含语音） / SMS 短信等别的文字消息 / TASK 跟进任务 / REMIND 跟进提醒 / OTHER 其他
+- type 取值：PHONE 电话 / MEETING 线上会议 / VISIT 上门拜访 / EMAIL 邮件 / WHATSAPP WhatsApp 上的聊天（含语音消息） / WECHAT 微信或企业微信上的聊天（含语音） / SMS 短信等别的文字消息 / TASK 跟进任务 / REMIND 跟进提醒 / OTHER 其他${渠道补充}
 - content：以销售第一人称整理沟通要点，只保留原话里的事实，禁止编造与发挥
 - durationMinutes：原话明确提到时长才填（分钟数），否则 null
 - 时间一律写成「YYYY-MM-DD HH:mm」；相对时间基于现在时间换算（"下周三晚上"→下周三 19:00；上午按 10:00、下午按 15:00、晚上按 19:00 估）
@@ -132,9 +143,10 @@ ${text}
     const draft = sanitizeFollowUpDraft(raw, {
       contactIds: customer.contacts.map((c) => c.id),
       opportunityIds: customer.opportunities.map((o) => o.id),
+      followTypes: b.followTypes,
     });
     // 解析本身不写业务数据，但按「AI 动了什么都可追溯」的口径留一条使用痕迹
-    await recordAiUse(user, "parse", `AI 解析跟进速记（${b.customer}「${customer.name}」，识别为${FOLLOW_TYPE_MAP[draft.followUp.type]?.label ?? draft.followUp.type}）`, input.customerId);
+    await recordAiUse(user, "parse", `AI 解析跟进速记（${b.customer}「${customer.name}」，识别为${跟进类型名(b.followTypes, draft.followUp.type)}）`, input.customerId);
     return { ok: true, draft };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "AI 解析失败，请稍后重试" };
@@ -203,13 +215,13 @@ async function 生成简报(input: {
 
   // 时间线倒序给太多没意义，取最近 30 条、每条内容截断，控制 prompt 体量。
   // 不携带电话号码等联系方式——简报用不上，最小上下文原则。
-  const timeline = formatTimeline(customer.followUps, { numbered: true });
+  const timeline = formatTimeline(customer.followUps, { numbered: true, followTypes: b.followTypes });
   const question = input.question?.trim().slice(0, 200);
   const records: BriefRecord[] = customer.followUps.map((f, i) => ({
     n: i + 1,
     id: f.id,
     date: dayjs(f.occurredAt).format("MM-DD"),
-    label: FOLLOW_TYPE_MAP[f.type]?.label ?? f.type,
+    label: 跟进类型名(b.followTypes, f.type),
     excerpt: (f.source?.text ?? f.content).slice(0, 160),
   }));
   const sourceCount = customer.followUps.filter((f) => f.source?.text).length;

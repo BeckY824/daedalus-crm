@@ -9,7 +9,9 @@ import { 只读客户 } from "@/lib/team-scope";
 import { 虚线只读话 } from "@/lib/enterprise/visibility";
 import type { Prisma } from "@/generated/prisma";
 import { requireUser } from "@/lib/auth";
-import { FOLLOW_TYPES, FOLLOW_RECORD_STATUSES } from "@/lib/constants";
+import { FOLLOW_RECORD_STATUSES } from "@/lib/constants";
+import { getFollowTypes } from "@/lib/business";
+import { 合法跟进类型, 跟进类型名 } from "@/lib/follow-types";
 import { 客户存了推项目 } from "@/lib/project/auto-advance";
 import { recordAudit } from "@/lib/audit";
 import { 领取 } from "../pool-actions";
@@ -39,9 +41,9 @@ function 刷新待办(客户id: string) {
   for (const p of [`/customers/${客户id}`, "/dashboard", "/follow-ups/plans"]) revalidatePath(p);
 }
 
-/** 跟进类型在界面上叫什么。日志给人看，不写 CALL 这种值 */
-function 类型名(v: string): string {
-  return FOLLOW_TYPES.find((t) => t.value === v)?.label ?? v;
+/** 跟进类型在界面上叫什么（含自定义渠道、改过的名）。日志给人看，不写 PHONE 这种值 */
+async function 类型名(v: string): Promise<string> {
+  return 跟进类型名(await getFollowTypes(), v);
 }
 
 /* ---------------- 跟进记录 ---------------- */
@@ -95,7 +97,7 @@ const SOURCE_TEXT_MAX = 5000;
  */
 type 带时间的跟进 = { type: string; title: string; content: string; status: string; dueAt: Date | null; dueOn?: string | null; dueHasTime?: boolean | null };
 const 会带待办 = (f: 带时间的跟进) => (f.type === "TASK" || f.type === "REMIND") && Boolean(f.dueAt);
-const 待办标题 = (f: 带时间的跟进) => (f.title || f.content).trim().slice(0, 60) || 类型名(f.type);
+const 待办标题 = (f: 带时间的跟进) => (f.title || f.content).trim().slice(0, 60) || 跟进类型名(null, f.type);
 async function 跟着改待办(customerId: string, 旧: 带时间的跟进, 新: 带时间的跟进 | null, db: Prisma.TransactionClient | typeof prisma = prisma) {
   if (!会带待办(旧)) return;
   /*
@@ -140,7 +142,8 @@ export async function saveFollowUp(input: FollowUpInput) {
   try {
     if (!input || typeof input !== "object" || typeof input.content !== "string" || typeof input.customerId !== "string") return { ok: false as const, error: "跟进信息格式不正确" };
     if (!hasVisibleText(input.content)) return { ok: false as const, error: "请填写沟通内容" };
-    if (!FOLLOW_TYPES.some((t) => t.value === input.type)) return { ok: false as const, error: `跟进类型「${input.type}」不是合法取值` };
+    const 渠道 = await getFollowTypes();
+    if (!合法跟进类型(渠道, input.type)) return { ok: false as const, error: `跟进类型「${input.type}」不是合法取值` };
     if (!FOLLOW_RECORD_STATUSES.includes(input.status as (typeof FOLLOW_RECORD_STATUSES)[number])) return { ok: false as const, error: `记录状态「${input.status}」不是合法取值` };
     if (input.durationMinutes != null && !(Number.isFinite(input.durationMinutes) && input.durationMinutes >= 0)) return { ok: false as const, error: "通话时长不能为负数" };
     const 有效日期 = (v: unknown) => parseDateInput(v) !== null;
@@ -206,8 +209,8 @@ export async function saveFollowUp(input: FollowUpInput) {
         if (会带待办(data) && data.status !== "已完成") 待办id = (await tx.task.create({ data: { title: 待办标题(data), dueAt: data.dueAt!, dueOn: data.dueOn, dueHasTime: data.dueHasTime, customerId: input.customerId, ownerId: user.id } })).id;
       }
       audits.push({ user, action: input.id ? "update" : "create", entity: "FollowUp", entityId: id,
-        summary: `${input.id ? "修改" : "记了"}${customer.name}的一条${类型名(data.type)}跟进（${dayjs(data.occurredAt).format("YYYY-MM-DD")}）`,
-        detail: { 客户: customer.name, 类型: 类型名(data.type), 状态: data.status, 内容: data.content.slice(0, 120) } });
+        summary: `${input.id ? "修改" : "记了"}${customer.name}的一条${跟进类型名(渠道, data.type)}跟进（${dayjs(data.occurredAt).format("YYYY-MM-DD")}）`,
+        detail: { 客户: customer.name, 类型: 跟进类型名(渠道, data.type), 状态: data.status, 内容: data.content.slice(0, 120) } });
       if (input.orderId !== undefined) await 挂订单(id, input.customerId, input.orderId, tx);
       for (const item of extra?.tasks ?? []) {
         const 时间 = parseScheduleDate(item.dueAt)!;
@@ -250,8 +253,8 @@ export async function deleteFollowUp(id: string, customerId: string) {
     await 跟着改待办(customerId, 待删, null);
     await recordAudit({
       user: me, action: "delete", entity: "FollowUp", entityId: id,
-      summary: `删除${await 客户名(customerId)}的一条${类型名(待删?.type ?? "")}跟进（${待删 ? dayjs(待删.occurredAt).format("YYYY-MM-DD") : ""}）`,
-      detail: { 类型: 类型名(待删?.type ?? ""), 内容: 待删?.content?.slice(0, 200) ?? null },
+      summary: `删除${await 客户名(customerId)}的一条${await 类型名(待删?.type ?? "")}跟进（${待删 ? dayjs(待删.occurredAt).format("YYYY-MM-DD") : ""}）`,
+      detail: { 类型: await 类型名(待删?.type ?? ""), 内容: 待删?.content?.slice(0, 200) ?? null },
     });
   
     const latest = await prisma.followUp.findFirst({
@@ -338,7 +341,7 @@ export async function restoreFollowUp(快照: 删掉的跟进) {
     await prisma.customer.update({ where: { id: 快照.customerId }, data: { lastFollowAt: latest?.occurredAt ?? null } });
     await recordAudit({
       user: me, action: "create", entity: "FollowUp", entityId: 快照.id,
-      summary: `撤销删除：${await 客户名(快照.customerId)}的一条${类型名(快照.type)}跟进回来了`,
+      summary: `撤销删除：${await 客户名(快照.customerId)}的一条${await 类型名(快照.type)}跟进回来了`,
     });
     revalidatePath(`/customers/${快照.customerId}`);
     revalidatePath("/follow-ups");
@@ -538,6 +541,8 @@ export async function completePlan(id: string, 完成 = true) {
 export async function 撤销记一笔(input: { customerId: string; 跟进id: string; 计划id: string; 下次计划id?: string | null }) {
   try {
     const user = await requireUser();
+    // 事务外先取：事务里再查库会排在事务后面等
+    const 渠道 = await getFollowTypes();
     const result = await prisma.$transaction(async (tx) => {
       const customer = await tx.customer.findUnique({ where: { id: input.customerId }, select: { name: true } });
       if (!customer) return { ok: false as const, error: "这位客户已经不在了，撤不回来" };
@@ -547,7 +552,7 @@ export async function 撤销记一笔(input: { customerId: string; 跟进id: str
       const 跟进 = await tx.followUp.findFirst({ where: { id: input.跟进id, customerId: input.customerId }, select: { id: true, type: true, occurredAt: true } });
       if (跟进) {
         await tx.followUp.delete({ where: { id: 跟进.id } });
-        audits.push({ user, action: "delete", entity: "FollowUp", entityId: 跟进.id, summary: `撤销：删掉${customer.name}刚记的一条${类型名(跟进.type)}跟进（${dayjs(跟进.occurredAt).format("YYYY-MM-DD")}）` });
+        audits.push({ user, action: "delete", entity: "FollowUp", entityId: 跟进.id, summary: `撤销：删掉${customer.name}刚记的一条${跟进类型名(渠道, 跟进.type)}跟进（${dayjs(跟进.occurredAt).format("YYYY-MM-DD")}）` });
       }
       const 下次 = input.下次计划id ? await tx.followPlan.findFirst({ where: { id: input.下次计划id, customerId: input.customerId, done: false }, select: { id: true, subject: true } }) : null;
       if (下次) {

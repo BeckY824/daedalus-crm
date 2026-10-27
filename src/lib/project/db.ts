@@ -16,6 +16,7 @@ import { 挡改设置 } from "@/lib/enterprise/edit-perm";
 import { 生效组织规则 } from "./org-rules-store";
 import { 超时回收日, 已超时, 超时理由, 超时起点, 系统 } from "./timeout";
 import { getSetting, setSetting } from "../settings";
+import { getFollowTypes } from "../business";
 import { recordAudit } from "../audit";
 import { 读团队 } from "../sync/client";
 import { dayjs } from "../utils";
@@ -597,6 +598,8 @@ async function 按规则收回(me: { id: string; name: string }, 今: Date): Pro
 export async function 记项目沟通(me: 谁, projectId: string, input: 向导跟进, now: Date = new Date()): Promise<结果 & { followUpId?: string; 自动推到?: string[] }> {
   if (!input || typeof input !== "object") return { ok: false, error: "要记什么？" };
   const 规则 = await 生效组织规则();
+  // 事务外先取：SQLite 事务里再读设置会排队等自己
+  const 渠道 = await getFollowTypes();
   return 查完再写(async (tx) => {
     const p = await tx.project.findUnique({ where: { id: String(projectId ?? "") } });
     if (!p) return { ok: false as const, error: "这个项目已经不在了，刷新看看" };
@@ -606,7 +609,7 @@ export async function 记项目沟通(me: 谁, projectId: string, input: 向导�
       if (组员?.inviteStatus !== "JOINED") return { ok: false as const, error: "只有项目负责人、项目组成员、老板或主管能记沟通" };
     }
     const 要下一步 = 规则.超时回收.开 && !p.result && (能进公海的阶段 as readonly string[]).includes(p.phase);
-    const 好 = 规整沟通(input, { 要下一步, now });
+    const 好 = 规整沟通(input, { 要下一步, now, 渠道 });
     if ("error" in 好) return { ok: false as const, error: 好.error };
     const 跟进 = await tx.followUp.create({
       data: { type: 好.type, content: 好.content, occurredAt: 好.occurredAt, title: "", status: "已完成", customerId: p.customerId, contactId: p.contactId, ownerId: me.id },

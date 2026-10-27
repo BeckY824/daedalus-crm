@@ -123,8 +123,9 @@ export const 范围可读 = (scope: 范围 | null, accountId: string, owner: boo
  *   团队只有 0 / 1 个一级部门时不传，和原来完全一样。
  * - 进组：已经同意进组的项目范围（SyncProjectInvite accepted）。能读，能像互看一样只加跟进家族的行，改不了项目本身
  * - 虚线：虚线链上的人（acct_，dept-policy 虚线下属）。他们名下的客户能读；写默认一律不许，虚线加跟进 = true 时同互看只加跟进家族
+ * - 改设置：老板以外还能改的 Setting key（2026-10-27 D-48：总管理、管理员能改跟进渠道 followTypes；业务配置 business 照旧只有老板）
  */
-export type 读限 = { 部门?: (scope: 范围) => boolean; 进组?: ReadonlySet<string>; 虚线?: ReadonlySet<string>; 虚线加跟进?: boolean };
+export type 读限 = { 部门?: (scope: 范围) => boolean; 进组?: ReadonlySet<string>; 虚线?: ReadonlySet<string>; 虚线加跟进?: boolean; 改设置?: ReadonlySet<string> };
 /**
  * 互看时同事的客户只许「加跟进」：新建跟进、它的来源 / 关联订单、操作日志。改资料、删、转交、改别人的计划和待办一律不许。
  * 计划、待办不在里面：服务器看不到它们的负责人（范围元数据只有客户编号），建了以后本人也改不了、勾不掉，干脆不让在同事的客户上建
@@ -137,6 +138,8 @@ export const 互看可加 = new Set(["FollowUp", "FollowUpSource", "FollowUpOrde
  */
 export function 范围可写(old: 范围索引 | undefined, n: 范围索引, rows: 范围行表, accountId: string, owner: boolean, 互看 = false, 主管 = false, 限?: 读限): boolean {
   if (owner) return true;
+  // 设置行不挂在谁名下：能不能改只看 key；删掉一律不许（删了全队就回默认）
+  if (n.t === "Setting") return !n.deleted && !!限?.改设置?.has(n.k);
   // 进组只给读和加跟进，不算「本人可写」（否则组员能改项目、转交）
   if (本人可写(old, n, rows, accountId, 主管, 限?.部门 && { 部门: 限.部门 })) return true;
   // 互看 / 进组：同事的客户、进了组的项目下只许新建跟进家族的行（重发同一包在收推送时按 eventId 去重，到不了这里）

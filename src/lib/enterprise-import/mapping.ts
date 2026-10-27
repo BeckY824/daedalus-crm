@@ -11,7 +11,8 @@
  *
  * 猜出来的是建议，试跑报告里人都能改；正式导入和之后的同步照人确认过的那一份走。
  */
-import { FOLLOW_STATUSES, FOLLOW_TYPES, LEAD_STATUSES, OPP_STAGES } from "../constants";
+import { FOLLOW_STATUSES, LEAD_STATUSES, OPP_STAGES } from "../constants";
+import { 跟进类型表, 跟进类型名, 跟进类型值, type FollowTypeConfig } from "../follow-types";
 import { 规整表头 } from "../import/fields";
 import { 认枚举 } from "../import/plan";
 import { 阶段值, type BusinessConfig } from "../business-config";
@@ -23,7 +24,8 @@ export const 进备注 = "+remark";
 /** 输单不是我们的一个阶段，是商机状态 LOST；阶段对照里用这个词表示 */
 export const 输单 = "输单";
 
-type 业务 = Pick<BusinessConfig, "template" | "stageLabels" | "statusLabels"> | null | undefined;
+/** followTypes：本公司改过名、自己加的跟进渠道（D-48），原系统的「上门」「展会」能直接认成本公司的渠道 */
+export type 业务 = (Pick<BusinessConfig, "template" | "stageLabels" | "statusLabels"> & { followTypes?: FollowTypeConfig | null }) | null | undefined;
 
 /**
  * 每一类的别名表：标准字段 → 原系统可能的叫法。比较时过 规整表头（全角半角、括号里的说明、空格标点都不算）。
@@ -138,22 +140,22 @@ export const 值对照: Record<值对照名, { 实体: 实体; 字段: string; �
   跟进状态: { 实体: "customer", 字段: "followStatus", 叫法: "客户跟进状态" },
 };
 
-export function 合法值(名: 值对照名): string[] {
+export function 合法值(名: 值对照名, b?: 业务): string[] {
   switch (名) {
     case "阶段":
       return [...OPP_STAGES, 输单];
     case "线索状态":
       return [...LEAD_STATUSES];
     case "跟进类型":
-      return FOLLOW_TYPES.map((t) => t.value);
+      return 跟进类型表(b?.followTypes).map((t) => t.value);
     case "跟进状态":
       return [...FOLLOW_STATUSES];
   }
 }
 
 /** 合法值 → 给人 / 给 AI 看的说法（跟进类型存的是英文） */
-export function 值说法(名: 值对照名, v: string): string {
-  if (名 === "跟进类型") return FOLLOW_TYPES.find((t) => t.value === v)?.label ?? v;
+export function 值说法(名: 值对照名, v: string, b?: 业务): string {
+  if (名 === "跟进类型") return 跟进类型名(b?.followTypes, v);
   return v;
 }
 
@@ -203,8 +205,8 @@ export function 规则对值(名: 值对照名, 原值: string, b?: 业务): str
     const v = 阶段值(b, s);
     if ((OPP_STAGES as readonly string[]).includes(v)) return v;
   } else if (名 === "跟进类型") {
-    const t = FOLLOW_TYPES.find((x) => x.value === s.toUpperCase() || x.label === s);
-    if (t) return t.value;
+    const t = 跟进类型值(b?.followTypes, s);
+    if (t) return t;
   } else {
     const hit = 认枚举(s, 合法值(名), 名 === "跟进状态" ? b?.statusLabels : undefined);
     if (hit) return hit;
@@ -446,7 +448,7 @@ export async function 猜映射(p: 猜映射参数): Promise<猜映射结果> {
       m.说明[说明键.值(k, v)] = "规则";
       if (!hit) 认不出.push(v);
     }
-    if (认不出.length) 待问值[k] = { 原值: 认不出.slice(0, 每项上限), 可选: 合法值(k).map((v) => 值说法(k, v)) };
+    if (认不出.length) 待问值[k] = { 原值: 认不出.slice(0, 每项上限), 可选: 合法值(k, p.业务).map((v) => 值说法(k, v, p.业务)) };
   }
   const 待问人: string[] = [];
   for (const w of 原.负责人) {
@@ -471,7 +473,7 @@ export async function 猜映射(p: 猜映射参数): Promise<猜映射结果> {
       };
       try {
         const out = await 选.建议器(输入);
-        const n = 收AI建议(m, out, 输入, p.候选);
+        const n = 收AI建议(m, out, 输入, p.候选, p.业务);
         if (n) 提醒.push(`AI 补认了 ${n} 项，报告里标了「AI」，请过一眼`);
       } catch (e) {
         提醒.push(`AI 这一步没成功（${e instanceof Error ? e.message.slice(0, 80) : "未知错误"}），先按规则认的；规则认不出的在报告里手动对`);
@@ -493,7 +495,7 @@ export async function 猜映射(p: 猜映射参数): Promise<猜映射结果> {
 }
 
 /** 把 AI 的回答校验后落进映射，返回落了几项。不合法的（字段不存在、被占了、值不在可选里、人不在名单里或重名）一律丢掉 */
-export function 收AI建议(m: 映射, out: AI输出, 输入: AI输入, 候选: readonly 成员[]): number {
+export function 收AI建议(m: 映射, out: AI输出, 输入: AI输入, 候选: readonly 成员[], b?: 业务): number {
   let n = 0;
   m.说明 ??= {};
   for (const [e, cols] of Object.entries(out.列 ?? {}) as [实体, Record<string, string>][]) {
@@ -514,7 +516,7 @@ export function 收AI建议(m: 映射, out: AI输出, 输入: AI输入, 候选: 
     if (!m.值[k] || !vs || typeof vs !== "object") continue;
     for (const [v, 说] of Object.entries(vs)) {
       if (!问了.has(v) || typeof 说 !== "string") continue;
-      const 合法 = 合法值(k).find((x) => x === 说 || 值说法(k, x) === 说);
+      const 合法 = 合法值(k, b).find((x) => x === 说 || 值说法(k, x, b) === 说);
       if (!合法) continue;
       m.值[k][v] = 合法;
       m.说明[说明键.值(k, v)] = "AI";

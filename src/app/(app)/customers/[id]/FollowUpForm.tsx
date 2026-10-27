@@ -10,7 +10,8 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal, Form, Input, Select, InputNumber, Row, Col, App, Button, Checkbox, Space, Typography } from "antd";
 import { ThunderboltOutlined } from "@ant-design/icons";
-import { FOLLOW_TYPES, FOLLOW_RECORD_STATUSES, 跟进类型们 } from "@/lib/constants";
+import { FOLLOW_RECORD_STATUSES } from "@/lib/constants";
+import { 跟进类型表, 跟进类型名 } from "@/lib/follow-types";
 import { dayjs, fmtDateTime } from "@/lib/utils";
 import { saveFollowUp, completePlan } from "./actions";
 import { parseFollowUpDraft } from "./ai";
@@ -269,7 +270,7 @@ export default function FollowUpForm({
     });
     // 做完留一行摘要在原地，替掉原来那条一闪就走的提示：人一眼看到 AI 认出了什么，再去核对下面的表
     const 摘要 = [
-      FOLLOW_TYPES.find((t) => t.value === d.followUp.type)?.label,
+      跟进类型名(b.followTypes, d.followUp.type),
       d.followUp.status,
       d.plan?.plannedAt ? `下次 ${dayjs(d.plan.plannedAt).format("M 月 D 日")}` : null,
       d.tasks.length ? `${d.tasks.length} 条待办` : null,
@@ -480,7 +481,7 @@ export default function FollowUpForm({
         <Row gutter={16}>
           <Col span={8}>
             <Form.Item name="type" label="跟进类型" rules={[{ required: true }]}>
-              <Select options={跟进类型们(外贸精简(b)).filter((t) => !只读 || (t.value !== "TASK" && t.value !== "REMIND")).map((t) => ({ value: t.value, label: t.label }))} />
+              <Select options={跟进类型表(b.followTypes, 外贸精简(b), { 只渠道: 只读 }).map((t) => ({ value: t.value, label: t.label }))} />
             </Form.Item>
           </Col>
           <Col span={8}>

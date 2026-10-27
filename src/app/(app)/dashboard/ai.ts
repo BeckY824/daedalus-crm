@@ -52,7 +52,7 @@ async function 起草唤醒话术(input: {
 
   // 有原文就带上：唤醒话术要"从上次聊到的具体话题切入"，原话比整理后的要点准得多
   const timeline = customer.followUps.length
-    ? formatTimeline(customer.followUps, { eachMax: 600, budget: 2000 })
+    ? formatTimeline(customer.followUps, { eachMax: 600, budget: 2000, followTypes: b.followTypes })
     : "（从未跟进过）";
 
   const prompt = `你替销售「${user.name}」起草一条发给${b.customer}的消息（会从微信、WhatsApp 或邮件发出），用来重新接上中断的沟通。落款或自称一律用「${user.name}」，不要编别的名字或机构名。
@@ -132,7 +132,7 @@ async function 解读盯盘(input: {
 ${b.customer}：${c.name}，跟进状态「${statusLabel(b, c.followStatus)}」，决策状态「${statusLabel(b, c.decisionStatus)}」
 系统提醒：${reasonOf.get(c.id) ?? ""}
 最近跟进（新→旧）：
-${c.followUps.length ? formatTimeline(c.followUps, { eachMax: 400, budget: 800 }) : "（从未跟进过）"}`,
+${c.followUps.length ? formatTimeline(c.followUps, { eachMax: 400, budget: 800, followTypes: b.followTypes }) : "（从未跟进过）"}`,
     )
     .join("\n\n");
 

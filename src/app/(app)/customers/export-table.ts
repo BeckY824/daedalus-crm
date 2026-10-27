@@ -6,7 +6,7 @@
 import type { BusinessConfig } from "@/lib/business-config";
 import { statusLabel, 外贸精简, 签约叫 } from "@/lib/business-config";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
-import { FOLLOW_TYPE_MAP } from "@/lib/constants";
+import { 跟进类型名 } from "@/lib/follow-types";
 import type { 外贸档案 } from "@/lib/customer-extra";
 
 /** 导出要用到的那几样。CustomerRow（列表行）和 客户行（导出取数）都满足 */
@@ -102,7 +102,7 @@ export function 跟进导出表(rows: 跟进导出行[], b: BusinessConfig): { h
   return {
     head: [`${b.customer}姓名`, "联系电话", "时间", "方式", "标题", "内容", "状态", 挂, "记录人"],
     body: rows.map((f) => [
-      f.customerName, f.phone, fmtDateTime(f.occurredAt), FOLLOW_TYPE_MAP[f.type]?.label ?? f.type, f.title, f.content, f.status,
+      f.customerName, f.phone, fmtDateTime(f.occurredAt), 跟进类型名(b.followTypes, f.type), f.title, f.content, f.status,
       f.orderNo ? `订单 ${f.orderNo}` : f.opportunityName ?? "", f.ownerName,
     ]),
   };

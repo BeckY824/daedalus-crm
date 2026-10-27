@@ -7,6 +7,7 @@ import { getSetting, setSetting, invalidateSettingsCache, encryptSecret, decrypt
 import { mergeBusiness, DEFAULT_BUSINESS, BUSINESS_PRESETS, RELABELABLE_STATUSES, statusLabel } from "@/lib/business-config";
 import { FOLLOW_STATUSES } from "@/lib/constants";
 import { getBusiness, saveBusiness } from "@/lib/business";
+import { 空跟进配置 } from "@/lib/follow-types";
 import { getLlmConfig, saveLlmConfig, clearLlmConfig, describeLlmConfig, DEFAULT_BASE_URL, DEFAULT_MODEL } from "@/lib/llm";
 import { buildWatchlist } from "@/lib/sentinel";
 
@@ -67,7 +68,8 @@ describe("敏感值加解密", () => {
 
 describe("业务配置", () => {
   it("没存过时全部是默认值", async () => {
-    expect(await getBusiness()).toEqual(DEFAULT_BUSINESS);
+    // 跟进渠道单独一项（D-48），没存过是一份空配置
+    expect(await getBusiness()).toEqual({ ...DEFAULT_BUSINESS, followTypes: 空跟进配置 });
   });
   it("部分缺失、空串、空数组都回退到默认，不会让页面拿到空标签", () => {
     const m = mergeBusiness({ customer: "  ", fields: { school: "公司", grade: "", major: "行业" }, grades: [] } as never);

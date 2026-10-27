@@ -7,7 +7,7 @@
 import type { Prisma } from "@/generated/prisma";
 import { hasVisibleText } from "../form-validation";
 import { parseDateInput } from "../date-input";
-import { FOLLOW_TYPES } from "../constants";
+import { 合法跟进类型, 跟进类型表, 非渠道, type FollowTypeConfig } from "../follow-types";
 import { 是币种, 默认币种 } from "../currency";
 import { dayjs } from "../utils";
 import { 第一个节点 } from "./nodes";
@@ -31,8 +31,12 @@ export type 规整好的沟通 = { type: string; content: string; occurredAt: Da
 
 export const 要下一步时间 = "开了超时回收：线索、商机阶段的项目记沟通要填下一步时间";
 
-/** 首条跟进记的是一次沟通；待办、提醒要带时间，进了项目页再排 */
-const 首条能记的 = FOLLOW_TYPES.filter((t) => t.value !== "TASK" && t.value !== "REMIND").map((t) => t.value as string);
+/**
+ * 首条跟进记的是一次沟通；待办、提醒要带时间，进了项目页再排。
+ * 自定义渠道（D-48）也能记；藏了、删了的下拉里选不到，这里也不收
+ */
+const 首条能记 = (渠道: FollowTypeConfig | null | undefined, v: string) =>
+  合法跟进类型(渠道, v) && !非渠道.has(v) && 跟进类型表(渠道).some((t) => t.value === v);
 
 const 文字 = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 const 可空 = (v: unknown) => 文字(v) || null;
@@ -55,10 +59,10 @@ export function 规整项目(p: 向导项目, 默认负责人: string): 规整�
  */
 export function 规整沟通(
   f: 向导跟进,
-  opt: { 要下一步: boolean; now?: Date; 叫法?: string },
+  opt: { 要下一步: boolean; now?: Date; 叫法?: string; 渠道?: FollowTypeConfig | null },
 ): 规整好的沟通 | { error: string } {
   const now = opt.now ?? new Date(), 叫 = opt.叫法 ?? "";
-  if (!首条能记的.includes(f.type)) return { error: `${叫}跟进的类型「${f.type}」不能选` };
+  if (!首条能记(opt.渠道, f.type)) return { error: `${叫}跟进的类型「${f.type}」不能选` };
   if (!hasVisibleText(f.content)) return { error: `请填写${叫}跟进的沟通内容` };
   const occurredAt = parseDateInput(f.occurredAt);
   if (!occurredAt) return { error: `${叫}跟进的时间格式不正确` };
@@ -78,6 +82,7 @@ export function 规整向导(
   input: { 联系人?: 向导联系人; 项目?: 向导项目; 跟进?: 向导跟进 },
   now = new Date(),
   要下一步 = false,
+  渠道?: FollowTypeConfig | null,
 ): 规整好的 | { error: string } {
   const c = input.联系人, p = input.项目, f = input.跟进;
   if (!c || !p || !f) return { error: "建档信息不完整，请从头再走一遍" };
@@ -88,7 +93,7 @@ export function 规整向导(
   const 项目 = 规整项目(p, me.id);
   if ("error" in 项目) return 项目;
 
-  const 跟进 = 规整沟通(f, { 要下一步, now, 叫法: "首条" });
+  const 跟进 = 规整沟通(f, { 要下一步, now, 叫法: "首条", 渠道 });
   if ("error" in 跟进) return 跟进;
 
   return {

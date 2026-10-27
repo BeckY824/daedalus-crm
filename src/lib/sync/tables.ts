@@ -81,8 +81,11 @@ export const 不同步列: Record<string, string[]> = {
   User: ["password", "role"],
 };
 
-/** Setting 只同步这几个 key：业务配置是全团队一份；AI Key、本机偏好不同步 */
-export const 同步的设置 = ["business"];
+/**
+ * Setting 只同步这几个 key：业务配置、跟进渠道（2026-10-27 D-48，单独一行：管理员能改渠道、改不了业务配置）是全团队一份；AI Key、本机偏好不同步。
+ * 加 key 不用迁移：每个进程第一轮同步都会重装触发器（client 跑一轮）
+ */
+export const 同步的设置 = ["business", "followTypes"];
 
 /**
  * 指向人（User.id）的列。改身份时一列不漏地改过去。

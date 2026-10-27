@@ -10,8 +10,9 @@
  *   还没填（必填项是空的）                    → 照样出卡片，由 missingFields 拦住确认按钮
  * 校验放在纯函数里，生成时和落库时各跑一遍——卡片上的值人能改，改完的同样不可信。
  */
-import { FOLLOW_TYPES, FOLLOW_TYPE_MAP, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES, GRADES, OPP_STAGES, STAGE_PROBABILITY } from "../constants";
+import { FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES, GRADES, OPP_STAGES, STAGE_PROBABILITY } from "../constants";
 import { DEFAULT_BUSINESS, statusLabel, 签约叫, type BusinessConfig } from "../business-config";
+import { 跟进类型表, 跟进类型名, 跟进类型值, type FollowTypeConfig } from "../follow-types";
 import { dayjs } from "../utils";
 import { 是币种, 金额 } from "../currency";
 
@@ -106,12 +107,11 @@ function parseWhen(v: unknown, keepCalendar = false): { ok: true; at: string } |
   return d ? { ok: true, at: keepCalendar && /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : d.toISOString() } : { ok: false };
 }
 
-/** 跟进类型：模型可能给「电话沟通」也可能给「PHONE」，两种都收 */
-function normalizeFollowType(v: unknown): string | null {
+/** 跟进类型：模型可能给「电话沟通」也可能给「PHONE」，两种都收；这家自己加的、改过名的也认，藏起来的不收 */
+function normalizeFollowType(v: unknown, cfg?: FollowTypeConfig | null): string | null {
   const s = str(v, 20);
   if (!s) return null;
-  if (FOLLOW_TYPE_MAP[s]) return s;
-  return FOLLOW_TYPES.find((t) => t.label === s)?.value ?? null;
+  return 跟进类型值(cfg, s);
 }
 
 /** 枚举值：给了就必须对；没给就用默认值 */
@@ -149,7 +149,7 @@ export function buildProposal(
   kind: ProposalKind,
   customer: { id: string; name: string },
   args: Record<string, unknown>,
-  b: Pick<BusinessConfig, "sources" | "fields" | "grades"> & { currency?: string },
+  b: Pick<BusinessConfig, "sources" | "fields" | "grades"> & { currency?: string; followTypes?: FollowTypeConfig },
 ): ProposalResult {
   const base = { id, customerId: customer.id, customerName: customer.name, reason: str(args.reason, 120) };
   if (!base.reason) return { ok: false, error: "reason 必填：用一句话说明为什么建议这么做" };
@@ -165,8 +165,8 @@ export function buildProposal(
   }
 
   if (kind === "add_followup") {
-    const type = normalizeFollowType(args.type) ?? "";
-    if (args.type && !type) return { ok: false, error: `type 必须是这几种之一：${FOLLOW_TYPES.map((t) => t.label).join("/")}` };
+    const type = normalizeFollowType(args.type, b.followTypes) ?? "";
+    if (args.type && !type) return { ok: false, error: `type 必须是这几种之一：${跟进类型表(b.followTypes).map((t) => t.label).join("/")}` };
     const when = parseWhen(args.occurredAt);
     if (!when.ok) return { ok: false, error: "occurredAt 解析不了，用 YYYY-MM-DD HH:mm" };
     return {
@@ -300,7 +300,7 @@ export function buildProposal(
  * 卡片用它决定「确认」按钮能不能点，服务端用它兜底——前端禁用按钮不算防线。
  */
 /** 卡片上说话要跟模版走的那几样（外贸：签约叫订单、「已签约」显示成「已下单」，2026-10-06 F.3） */
-type 叫法 = Pick<BusinessConfig, "statusLabels" | "template"> | null | undefined;
+type 叫法 = (Pick<BusinessConfig, "statusLabels" | "template"> & { followTypes?: FollowTypeConfig }) | null | undefined;
 
 export function missingFields(p: Proposal, b?: 叫法): string[] {
   const miss: string[] = [];
@@ -339,7 +339,7 @@ export function describeProposal(p: Proposal, customerNoun: string, 字段表: R
     // p.to 是存储值（「已签约」），说给人听要用这家的叫法（外贸「已下单」、通用「已试听」照业务配置）
     return `把${customerNoun}「${p.customerName}」的${f}改成「${p.to ? statusLabel(b, p.to) : "…"}」`;
   }
-  if (p.kind === "add_followup") return `给「${p.customerName}」记一条${FOLLOW_TYPE_MAP[p.type]?.label ?? p.type}`;
+  if (p.kind === "add_followup") return `给「${p.customerName}」记一条${跟进类型名(b?.followTypes, p.type)}`;
   if (p.kind === "add_plan") return `给「${p.customerName}」排一次${p.method || "跟进"}`;
   if (p.kind === "update_customer") {
     const 项 = p.changes.map((c) => 字段表[c.field].label);

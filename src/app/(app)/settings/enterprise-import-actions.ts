@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { getBusiness } from "@/lib/business";
 import { requireUser } from "@/lib/auth";
 import { 企业版 } from "@/lib/enterprise/switch";
 import { 当前是共享区 } from "@/lib/shared-ws/current";
@@ -86,7 +87,7 @@ const 列多少批 = 200;
 
 export async function 企业版导入概况(): Promise<企业版概况> {
   await 要管理员();
-  const [批们, 待定冲突, 快照们, 成员们, 同步] = await Promise.all([
+  const [批们, 待定冲突, 快照们, 成员们, 同步, 业务] = await Promise.all([
     prisma.entImportBatch.findMany({
       where: { kind: { in: ["full", "sync"] } },
       orderBy: { createdAt: "desc" },
@@ -97,6 +98,7 @@ export async function 企业版导入概况(): Promise<企业版概况> {
     列快照(),
     prisma.user.findMany({ orderBy: { createdAt: "asc" }, select: { id: true, name: true, active: true } }),
     Promise.all(来源们.map(async (源) => ({ 来源: 源, 名: 来源名[源], 能同步: 能同步的来源.includes(源), 设置: await 读同步设置(源), 在同步: 正在同步(源) }))),
+    getBusiness(),
   ]);
   const 名 = new Map(成员们.map((u) => [u.id, u.name]));
   return {
@@ -129,7 +131,7 @@ export async function 企业版导入概况(): Promise<企业版概况> {
     快照们: 快照们.map((s) => ({ id: s.id, 来源: s.来源, 名: 来源名[s.来源] ?? s.来源, 条数: s.条数, 人名: (s.人Id && 名.get(s.人Id)) || "", 时间: s.时间.toISOString() })),
     成员们: 成员们.filter((u) => u.active).map((u) => ({ id: u.id, name: u.name })),
     合法值们: Object.fromEntries(
-      (Object.keys(值对照) as 值对照名[]).map((名) => [名, 合法值(名).map((v) => ({ 值: v, 说法: 值说法(名, v) }))]),
+      (Object.keys(值对照) as 值对照名[]).map((名) => [名, 合法值(名, 业务).map((v) => ({ 值: v, 说法: 值说法(名, v, 业务) }))]),
     ) as 企业版概况["合法值们"],
   };
 }
@@ -153,7 +155,7 @@ export async function 下载对照表(批次Id: string): Promise<string> {
   await 要管理员();
   const r = await 取试跑报告(批次Id);
   if (!r) throw new Error("找不到这次试跑，请重新上传");
-  return 导出对照表(r.报告, await 负责人候选());
+  return 导出对照表(r.报告, await 负责人候选(), await getBusiness());
 }
 
 /** 填好的对照表传回来：和报告不一样的当人改的，重新试跑一遍；填错的行不算，列在 问题 里 */
@@ -163,7 +165,7 @@ export async function 填回对照表(批次Id: string, 表单: FormData): Promi
   if (!f || typeof f === "string") throw new Error("没收到对照表，请重新选一下");
   const r = await 取试跑报告(批次Id);
   if (!r) throw new Error("找不到这次试跑，请重新上传");
-  const 读 = 读回对照表({ 名: f.name, bytes: new Uint8Array(await f.arrayBuffer()) }, r.报告, await 负责人候选());
+  const 读 = 读回对照表({ 名: f.name, bytes: new Uint8Array(await f.arrayBuffer()) }, r.报告, await 负责人候选(), await getBusiness());
   const 报告 = 读.改了 ? (await 重新试跑(批次Id, 读.改, me.id)).报告 : r.报告;
   return { 报告, 改了: 读.改了, 问题: 读.问题 };
 }

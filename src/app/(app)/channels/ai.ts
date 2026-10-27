@@ -7,7 +7,7 @@ import { consumeUserAiQuota } from "@/lib/ai-quota";
 import { recordAiUse } from "@/lib/ai-usage";
 import { chatJSON } from "@/lib/llm";
 import { dayjs } from "@/lib/utils";
-import { FOLLOW_TYPE_MAP } from "@/lib/constants";
+import { 跟进类型名 } from "@/lib/follow-types";
 import { getBusiness } from "@/lib/business";
 import { 带额度 } from "@/lib/tenant/ai-allowance";
 import { AI客户输入错误 } from "@/lib/ai-input";
@@ -53,7 +53,7 @@ async function 起草邀请(input: {
   const origin = customer.referrerCustomer?.name ?? customer.channel?.name ?? null;
   const timeline = customer.followUps.length
     ? customer.followUps
-        .map((f) => `- ${dayjs(f.occurredAt).format("MM-DD")} ${FOLLOW_TYPE_MAP[f.type]?.label ?? f.type}：${f.content.slice(0, 200)}`)
+        .map((f) => `- ${dayjs(f.occurredAt).format("MM-DD")} ${跟进类型名(b.followTypes, f.type)}：${f.content.slice(0, 200)}`)
         .join("\n")
     : "（无跟进记录）";
 

@@ -33,7 +33,9 @@ import { 调云 } from "@/lib/sync/client";
 import { isEmail } from "@/lib/tenant/accounts";
 import { createSession } from "@/lib/auth";
 import { saveLlmConfig, clearLlmConfig, resolveLlmConfigForTest, testLlm, type ModelOption } from "@/lib/llm";
-import { getBusiness, saveBusiness, mergeBusiness, 状态名问题, 阶段名问题, type BusinessConfig } from "@/lib/business";
+import { getBusiness, saveBusiness, mergeBusiness, 状态名问题, 阶段名问题, getFollowTypes, saveFollowTypes, type BusinessConfig } from "@/lib/business";
+import { mergeFollowTypes, 跟进配置问题, 全部跟进类型, type FollowTypeConfig } from "@/lib/follow-types";
+import { 本机能管人 } from "@/lib/desktop/team-role";
 import { 判断可用 } from "@/lib/jev/client";
 import { 自动判断开着, 设自动判断 } from "@/lib/jev/settings";
 
@@ -748,8 +750,42 @@ export async function saveBusinessSettings(cfg: BusinessConfig) {
 
 const BUSINESS_FIELD_LABELS: Record<keyof BusinessConfig, string> = {
   brief: "业务简介", customer: "核心名词", fields: "档案字段名", grades: "年级选项", sources: "线索来源", industries: "行业选项", statusLabels: "状态显示名", stageLabels: "商机阶段名",
-  template: "模版", currency: "本位币", poolDays: "自动放进公海", projectMode: "项目模式", salesCanDelete: "业务员能删客户",
+  template: "模版", currency: "本位币", poolDays: "自动放进公海", projectMode: "项目模式", salesCanDelete: "业务员能删客户", followTypes: "跟进渠道",
 };
+
+/* ---------- 跟进渠道 ---------- */
+
+/**
+ * 谁能改跟进渠道（2026-10-27 用户：「老板和管理员可以，业务员保持同步」）：
+ * 老板（本机 ADMIN），加上团队里的总管理、管理员（本机是 MANAGER，按业务角色认，见 lib/desktop/team-role）。
+ * 业务员只能从列表里选。共享工作区照旧谁都不行
+ */
+async function 能改跟进渠道() {
+  const me = await requireUser();
+  if (await 是共享区()) throw new Error("FORBIDDEN");
+  if (me.role === "ADMIN" || (process.env.DESKTOP_LOCAL === "1" && 本机能管人())) return me;
+  throw new Error("FORBIDDEN");
+}
+
+export async function saveFollowTypeSettings(input: FollowTypeConfig) {
+  const me = await 能改跟进渠道();
+  const cfg = mergeFollowTypes(input);
+  const 问题 = 跟进配置问题(cfg);
+  if (问题) return { ok: false as const, error: 问题 };
+  const before = await getFollowTypes();
+  // 删过的自定义渠道不能凭空消失：表单没带回来的也留成「已删」，老记录才叫得出原名
+  for (const c of before.custom) if (!cfg.custom.some((x) => x.value === c.value)) cfg.custom.push({ ...c, deleted: true });
+  if (JSON.stringify(before) === JSON.stringify(cfg)) return { ok: true as const };
+  await saveFollowTypes(cfg);
+  const 名 = (c: FollowTypeConfig) => 全部跟进类型(c).filter((t) => !c.hidden.includes(t.value) && !c.custom.some((x) => x.value === t.value && (x.hidden || x.deleted))).map((t) => t.label);
+  await recordAudit({
+    user: me, action: "update", entity: "Setting", entityId: "followTypes",
+    summary: "修改了跟进渠道",
+    detail: { 改前: 名(before), 改后: 名(cfg) },
+  });
+  revalidatePath("/", "layout");
+  return { ok: true as const };
+}
 
 /* ---------- 桌面端 ---------- */
 
