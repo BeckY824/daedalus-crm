@@ -11,5 +11,7 @@ export async function getBusiness(): Promise<BusinessConfig> {
 }
 
 export async function saveBusiness(cfg: BusinessConfig): Promise<void> {
-  await setSetting(BUSINESS_KEY, mergeBusiness(cfg));
+  // 「业务员能删客户」默认开着：开着就不写进库，库里和老版本一字不差；老板关掉才存 false
+  const { salesCanDelete, ...rest } = mergeBusiness(cfg);
+  await setSetting(BUSINESS_KEY, salesCanDelete ? rest : { ...rest, salesCanDelete });
 }

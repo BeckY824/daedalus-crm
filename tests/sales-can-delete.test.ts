@@ -19,7 +19,7 @@ vi.mock("@/lib/team-scope", async (orig) => ({
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
 import { deleteCustomers, 客户删除预检 } from "@/app/(app)/customers/actions";
-import { getBusiness, saveBusiness } from "@/lib/business";
+import { getBusiness, saveBusiness, BUSINESS_KEY } from "@/lib/business";
 
 let id = "";
 beforeEach(async () => {
@@ -52,4 +52,15 @@ it("关掉了老板自己照删（不是受限的业务员）", async () => {
   await saveBusiness({ ...(await getBusiness()), salesCanDelete: false });
   expect(await 客户删除预检([id])).toEqual({ ok: true });
   expect(await deleteCustomers([id])).toMatchObject({ ok: true, deleted: 1 });
+});
+
+it("开着时不写进库（和老版本一字不差），关掉才存 false，再打开又不写", async () => {
+  const 库里 = async () => JSON.parse((await prisma.setting.findUniqueOrThrow({ where: { key: BUSINESS_KEY } })).value);
+  await saveBusiness({ ...(await getBusiness()), salesCanDelete: true });
+  expect("salesCanDelete" in (await 库里())).toBe(false);
+  await saveBusiness({ ...(await getBusiness()), salesCanDelete: false });
+  expect((await 库里()).salesCanDelete).toBe(false);
+  await saveBusiness({ ...(await getBusiness()), salesCanDelete: true });
+  expect("salesCanDelete" in (await 库里())).toBe(false);
+  expect((await getBusiness()).salesCanDelete).toBe(true);
 });
