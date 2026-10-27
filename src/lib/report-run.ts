@@ -8,7 +8,7 @@ import { prisma } from "./prisma";
 import { 签约归属人 } from "./contract-owner";
 import { 带币种, 签约币种, 签约金额 } from "./money-db";
 import { dayjs } from "./utils";
-import { FOLLOW_TYPE_MAP } from "./constants";
+import { 跟进类型名 } from "./follow-types";
 import { sumRows, rateRows, bucketMonth, type QuerySpec, type ResultRow, type GroupBy } from "./report-query";
 import type { BusinessConfig } from "./business-config";
 import { statusLabel } from "./business-config";
@@ -106,7 +106,7 @@ export async function runQuery(spec: QuerySpec, b: BusinessConfig, customerWhere
   });
   return sumRows(
     followUps.map((f) => ({
-      ...keyOf(spec.groupBy, f.occurredAt, { sales: { id: f.owner.id, label: f.owner.name }, type: FOLLOW_TYPE_MAP[f.type]?.label ?? f.type }),
+      ...keyOf(spec.groupBy, f.occurredAt, { sales: { id: f.owner.id, label: f.owner.name }, type: 跟进类型名(b.followTypes, f.type) }),
       value: 1,
     })),
     { byMonth },

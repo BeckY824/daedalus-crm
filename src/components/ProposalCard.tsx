@@ -1,5 +1,6 @@
 "use client";
 
+import { 跟进类型表 } from "@/lib/follow-types";
 import DatePicker from "@/components/BusinessDatePicker";
 import OptionInput from "@/components/OptionInput";
 import Shortcut from "./Shortcut";
@@ -16,7 +17,7 @@ import { useBusiness } from "@/lib/business-client";
 import { 币种符号 } from "@/lib/currency";
 import { 建议结果, 记下建议结果, 清掉建议结果, 记下回执, 读回执 } from "@/lib/ai-jobs";
 import { statusLabel, stageLabel, 签约叫, 外贸精简, type BusinessConfig } from "@/lib/business-config";
-import { 跟进类型们, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES, OPP_STAGES } from "@/lib/constants";
+import { FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES, OPP_STAGES } from "@/lib/constants";
 import { dayjs } from "@/lib/utils";
 import { isCalendarDate } from "@/lib/schedule-date";
 import { useMotionTheme } from "@/components/MotionTheme";
@@ -304,7 +305,7 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
                 size="small"
                 style={{ width: 160 }}
                 value={draft.type}
-                options={跟进类型们(外贸精简(b)).map((t) => ({ value: t.value, label: t.label }))}
+                options={跟进类型表(b.followTypes, 外贸精简(b)).map((t) => ({ value: t.value, label: t.label }))}
                 onChange={(v) => setDraft({ ...draft, type: v })}
               />
             </Field>

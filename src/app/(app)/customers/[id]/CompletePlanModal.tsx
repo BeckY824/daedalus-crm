@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Modal, Input, Select, Segmented, Button, Space, App, Typography } from "antd";
 import type { Dayjs } from "dayjs";
 import { dayjs } from "@/lib/utils";
-import { 跟进类型们, FOLLOW_TYPE_MAP } from "@/lib/constants";
+import { 跟进类型表, 跟进类型名, 跟进类型值, 非渠道, type FollowTypeConfig } from "@/lib/follow-types";
 import { useBusiness } from "@/lib/business-client";
 import { 外贸精简 } from "@/lib/business-config";
 import { hasVisibleText } from "@/lib/form-validation";
@@ -29,11 +29,19 @@ export type 要完成的计划 = {
   有WhatsApp?: boolean;
 };
 
-/** 计划上写的方式 → 跟进类型。对不上的：外贸当 WhatsApp，别的当电话 */
-export function 方式到类型(method: string | null | undefined, 外贸: boolean): string {
+/**
+ * 计划上写的方式 → 跟进类型。对不上的：外贸当 WhatsApp，别的当电话。
+ * 先按名字认（含自定义渠道、改过的名）；按关键词猜出来的要是被藏了，换成下拉里第一个能选的渠道
+ */
+export function 方式到类型(method: string | null | undefined, 外贸: boolean, 渠道?: FollowTypeConfig | null): string {
   const m = String(method ?? "").trim();
-  const 按名 = Object.values(FOLLOW_TYPE_MAP).find((t) => t.label === m || t.value === m.toUpperCase());
-  if (按名 && 按名.value !== "TASK" && 按名.value !== "REMIND") return 按名.value;
+  const 按名 = 跟进类型值(渠道, m);
+  if (按名 && !非渠道.has(按名)) return 按名;
+  const 猜 = 按关键词(m, 外贸);
+  const 能选 = 跟进类型表(渠道, 外贸, { 只渠道: true });
+  return 能选.some((t) => t.value === 猜) ? 猜 : (能选[0]?.value ?? 猜);
+}
+function 按关键词(m: string, 外贸: boolean): string {
   if (/whats\s*app/i.test(m)) return "WHATSAPP";
   if (/微信/.test(m)) return "WECHAT"; // 企业微信也算（2026-10-19 加微信沟通）
   if (/短信|消息/.test(m)) return "SMS";
@@ -49,10 +57,10 @@ export function 方式到类型(method: string | null | undefined, 外贸: boole
  * 计划上的方式空着、或者是「电话沟通」——那是建计划时的老默认，多半没人挑过——而客户有 WhatsApp 号：WhatsApp。
  * 计划上明明白白写了别的（邮件、拜访……）照它的
  */
-export function 默认完成类型(method: string | null | undefined, 外贸: boolean, 有WhatsApp = false): string {
+export function 默认完成类型(method: string | null | undefined, 外贸: boolean, 有WhatsApp = false, 渠道?: FollowTypeConfig | null): string {
   const m = String(method ?? "").trim();
-  if (有WhatsApp && (!m || m === "电话沟通")) return "WHATSAPP";
-  return 方式到类型(m, 外贸);
+  if (有WhatsApp && (!m || m === "电话沟通")) return 方式到类型("WhatsApp", 外贸, 渠道);
+  return 方式到类型(m, 外贸, 渠道);
 }
 
 /** 下次那条计划的主题：和手机上一样，取这次那句话的第一句 */
@@ -123,7 +131,7 @@ function CompletePlanDialog({ plan, onClose, onDone }: 框参数 & { plan: 要�
   const b = useBusiness();
   const 外贸 = 外贸精简(b);
   const { message } = App.useApp();
-  const [类型, set类型] = useState(() => 默认完成类型(plan.method, 外贸, plan.有WhatsApp));
+  const [类型, set类型] = useState(() => 默认完成类型(plan.method, 外贸, plan.有WhatsApp, b.followTypes));
   const [字, set字] = useState("");
   const [下次, set下次] = useState<下次>("7");
   const [日子, set日子] = useState<Dayjs | null>(() => dayjs().add(7, "day"));
@@ -148,7 +156,7 @@ function CompletePlanDialog({ plan, onClose, onDone }: 框参数 & { plan: 要�
         occurredAt: new Date().toISOString(),
         附带: {
           tasks: [],
-          ...(下次日 ? { plan: { subject: 下次主题(内容), plannedAt: 下次日, method: FOLLOW_TYPE_MAP[类型]?.label ?? "电话沟通" } } : {}),
+          ...(下次日 ? { plan: { subject: 下次主题(内容), plannedAt: 下次日, method: 跟进类型名(b.followTypes, 类型) } } : {}),
           完成计划: plan.id,
         },
       }).catch(() => ({ ok: false as const, error: "没保存上，请稍后重试" }));
@@ -194,7 +202,7 @@ function CompletePlanDialog({ plan, onClose, onDone }: 框参数 & { plan: 要�
               style={{ width: 180 }}
               value={类型}
               onChange={set类型}
-              options={跟进类型们(外贸).filter((t) => t.value !== "TASK" && t.value !== "REMIND").map((t) => ({ value: t.value, label: t.label }))}
+              options={跟进类型表(b.followTypes, 外贸, { 只渠道: true }).map((t) => ({ value: t.value, label: t.label }))}
             />
           </div>
           <div className="done-plan-row">

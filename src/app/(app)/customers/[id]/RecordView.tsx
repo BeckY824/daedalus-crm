@@ -23,9 +23,10 @@ import {
 } from "@ant-design/icons";
 import { motion, AnimatePresence } from "motion/react";
 import InlineConfirm from "@/components/InlineConfirm";
-import { 跟进类型们, FOLLOW_TYPE_MAP, FOLLOW_STATUSES, DECISION_STATUSES, FOLLOW_RECORD_STATUS_COLOR } from "@/lib/constants";
+import { FOLLOW_STATUSES, DECISION_STATUSES, FOLLOW_RECORD_STATUS_COLOR } from "@/lib/constants";
 import { 成员选项, dayjs, duration, fmtDate, fmtDateTime, initial, avatarColor, AVATAR_TEXT, 独自一人 } from "@/lib/utils";
-import { RowLink, FollowStatusTag, StageTag, DecisionStatusTag, FOLLOW_TYPE_ICON } from "@/components/ui";
+import { RowLink, FollowStatusTag, StageTag, DecisionStatusTag, 跟进图标 } from "@/components/ui";
+import { 跟进类型表, 跟进类型元, 全部跟进类型 } from "@/lib/follow-types";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel, 外贸订单, 外贸精简, 签约叫 } from "@/lib/business-config";
 import { 国家候选, WhatsApp网址, 官网网址, 客户等级, 客户等级说明, type 客户等级 as 客户等级值 } from "@/lib/customer-extra";
@@ -130,6 +131,7 @@ export default function RecordView({
     不摆预计签约、推荐关系、渠道负责人；档案里多国家 / WhatsApp / 微信 / 邮箱 / 来源
   */
   const 外贸 = 外贸精简(b);
+  const 能选类型 = new Set(跟进类型表(b.followTypes, 外贸).map((t) => t.value));
   const 是订单 = 外贸订单(b);
   const 叫 = 签约叫(b);
   const 档 = customer.extra;
@@ -436,7 +438,7 @@ export default function RecordView({
           <Dropdown
             menu={{
               items: [
-                ...跟进类型们(外贸).filter((t) => !只读 || (t.value !== "TASK" && t.value !== "REMIND")).map((t) => ({ key: t.value, label: t.label, onClick: () => openFollow({ type: t.value } as FollowUpRow) })),
+                ...跟进类型表(b.followTypes, 外贸, { 只渠道: 只读 }).map((t) => ({ key: t.value, label: t.label, onClick: () => openFollow({ type: t.value } as FollowUpRow) })),
                 // 同事的客户（互看）：只能记跟进，编辑、删除、放公海都不摆
                 ...(只读 ? [] : [
                 { type: "divider" as const },
@@ -802,8 +804,9 @@ export default function RecordView({
           )}
 
           <div className="rec-filters">
-            {["全部", ...跟进类型们(外贸).map((t) => t.value), "CONTRACT"].map((k) => {
-              const label = k === "全部" ? "全部" : k === "CONTRACT" ? 叫 : FOLLOW_TYPE_MAP[k]?.label ?? k;
+            {/* 能选的渠道 + 藏起来但这位客户有记录的（不然那几条只能在「全部」里翻） */}
+            {["全部", ...全部跟进类型(b.followTypes, 外贸).filter((t) => 能选类型.has(t.value) || history.rows.some((f) => f.type === t.value)).map((t) => t.value), "CONTRACT"].map((k) => {
+              const label = k === "全部" ? "全部" : k === "CONTRACT" ? 叫 : 跟进类型元(b.followTypes, k).label;
               return (
                 <span key={k} className={`rec-chip${filter === k ? " rec-chip-on" : ""}`} onClick={() => setFilter(k)}>
                   {label}
@@ -1141,12 +1144,12 @@ function StatusPicker({
 
 function FollowItem({ f, showOwner, index, onEdit, onDelete, 可改 = true }: { f: FollowUpRow; showOwner: boolean; index: number; onEdit: () => void; onDelete: () => void; 可改?: boolean }) {
   const { 曲线, 时长, 间隔 } = useMotionTheme();
-  const meta = FOLLOW_TYPE_MAP[f.type] ?? FOLLOW_TYPE_MAP.OTHER;
+  const meta = 跟进类型元(useBusiness().followTypes, f.type);
   const [srcOpen, setSrcOpen] = useState(false);
   return (
     <motion.div id={`fu-${f.id}`} className="rec-tl-item" layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: Math.min(index, 8) * 间隔, duration: 时长.base, ease: 曲线.ease }}>
       <div className="rec-tl-dot" style={{ background: meta.color }}>
-        {FOLLOW_TYPE_ICON[f.type]}
+        {跟进图标(meta.icon)}
       </div>
       <div className="rec-tl-body">
         <div className="rec-tl-head">

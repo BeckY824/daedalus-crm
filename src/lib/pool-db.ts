@@ -11,7 +11,7 @@ import { 看全部 } from "@/lib/team-scope";
 import { dayjs } from "@/lib/utils";
 import { 不掉公海的状态, 公海截止, 自动理由 } from "@/lib/pool";
 
-/** 本机记的「今天扫过了」。不进团队同步（同步的设置 只有 business），每台各扫各的 */
+/** 本机记的「今天扫过了」。不进团队同步（同步的设置 只有 business、followTypes），每台各扫各的 */
 const 扫过键 = "poolSweptOn";
 
 /**

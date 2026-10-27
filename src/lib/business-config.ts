@@ -19,6 +19,7 @@ import {
 } from "./constants";
 import { 规整币种 } from "./currency";
 import { 订单 } from "./features";
+import type { FollowTypeConfig } from "./follow-types";
 
 /**
  * 模版（2026-10-03）：新用户注册后选「通用」还是「外贸」。和预设是两回事——预设只是一组措辞，
@@ -69,6 +70,12 @@ export type BusinessConfig = {
    * 防业务员离职前把自己的客户删了同步给全队。和整个 business 一样只有老板能改、随团队同步。一个人用时不摆、不起作用
    */
   salesCanDelete: boolean;
+  /**
+   * 跟进渠道（2026-10-27 D-48）：内置的改名 / 藏，加自定义渠道。**不存在 business 里**——单独一项设置「followTypes」，
+   * 老板和管理员都能改（business 只有老板能改），见 lib/follow-types.ts。getBusiness 读的时候顺手并进来，
+   * 客户端 useBusiness() 一样拿得到；saveBusiness 不存它。手拼的配置没有这一项时按一项没改算
+   */
+  followTypes?: FollowTypeConfig;
 };
 
 export const DEFAULT_BUSINESS: BusinessConfig = {

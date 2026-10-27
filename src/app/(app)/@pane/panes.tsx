@@ -6,7 +6,8 @@ import CustomerRoster from "@/components/CustomerRoster";
 import ConversationList from "@/app/(app)/dashboard/ConversationList";
 import { 列对话 } from "@/app/(app)/dashboard/threads";
 import { llmEnabled } from "@/lib/llm";
-import { FOLLOW_TYPE_MAP } from "@/lib/constants";
+import { 跟进类型名 } from "@/lib/follow-types";
+import { getFollowTypes } from "@/lib/business";
 
 /**
  * 中栏（312px）的内容。眼下**只有一种**：学员记录页的窄名单。
@@ -58,6 +59,7 @@ export async function 学员名单() {
       plans: { where: { done: false }, orderBy: [{ plannedAt: "asc" }, { id: "asc" }], select: { plannedAt: true, plannedOn: true } },
     },
   });
+  const 渠道 = await getFollowTypes();
   const 位 = new Map(ids?.map((id, i) => [id, i]));
   const rows = ids ? 取.sort((a, b) => 位.get(a.id)! - 位.get(b.id)!) : 取;
   return (
@@ -73,7 +75,7 @@ export async function 学员名单() {
             mine: c.salesOwnerId === me.id,
             lastNote: c.followUps[0]?.content?.trim().slice(0, 60) || null,
             // 渠道名 > 转介绍 > 最近一次跟进方式，都没有就留空。
-            source: c.channel?.name ?? (c.referrerCustomerId ? "转介绍" : c.followUps[0] ? (FOLLOW_TYPE_MAP[c.followUps[0].type]?.label ?? null) : null),
+            source: c.channel?.name ?? (c.referrerCustomerId ? "转介绍" : c.followUps[0] ? 跟进类型名(渠道, c.followUps[0].type) : null),
             nextPlanAt: p ? scheduleValue(p.plannedAt, p.plannedOn) : null,
           };
         }),

@@ -7,7 +7,7 @@
  * "use server" 文件只能导出 async 函数，所以同步的拼装逻辑放在 lib。
  */
 import { dayjs } from "./utils";
-import { FOLLOW_TYPE_MAP } from "./constants";
+import { 跟进类型名, type FollowTypeConfig } from "./follow-types";
 
 /** 单条原文最多带这么多字进 prompt；全部原文合计不超过总预算 */
 export const SOURCE_EACH_MAX = 1200;
@@ -27,12 +27,12 @@ export type TimelineEntry = {
  * 把跟进时间线拼成 prompt 片段（入参应为新→旧）。
  * 有原文的记录附上原文；新→旧优先分配原文预算，旧的只留要点。
  */
-export function formatTimeline(followUps: TimelineEntry[], opts: { eachMax?: number; budget?: number; numbered?: boolean } = {}): string {
+export function formatTimeline(followUps: TimelineEntry[], opts: { eachMax?: number; budget?: number; numbered?: boolean; followTypes?: FollowTypeConfig | null } = {}): string {
   let budget = opts.budget ?? SOURCE_TOTAL_BUDGET;
   const eachMax = opts.eachMax ?? SOURCE_EACH_MAX;
   return followUps
     .map((f, idx) => {
-      const label = FOLLOW_TYPE_MAP[f.type]?.label ?? f.type;
+      const label = 跟进类型名(opts.followTypes, f.type);
       const dur = f.duration ? `，${Math.round(f.duration / 60)}分钟` : "";
       const who = f.owner?.name ? `${f.owner.name}${dur}` : dur.replace(/^，/, "");
       const title = f.title ? `【${f.title}】` : "";

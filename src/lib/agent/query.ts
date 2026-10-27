@@ -21,6 +21,7 @@
 import { dayjs } from "../utils";
 import { calendarColumns } from "./calendar-query";
 import { DEFAULT_BUSINESS, statusLabel, type BusinessConfig } from "../business-config";
+import { 全部跟进类型, 跟进类型名 } from "../follow-types";
 import {
   FOLLOW_STATUSES,
   DECISION_STATUSES,
@@ -178,6 +179,11 @@ export type 表名 = keyof typeof 表们;
 /** 每个请求独立生成显示字段，不修改跨租户共享的静态白名单。只读查询允许历史自由文本职位。 */
 export function 查询表(表: 表名, b?: BusinessConfig): { 模型: string; 名: string; 字段: Record<string, 字段> } {
   const original = 表们[表];
+  // 跟进类型带上这家自己加的渠道（D-48）；藏了、删了的也能查——老记录还是这个值
+  if (b && 表 === "跟进记录") {
+    const 跟进 = 表们.跟进记录;
+    return { ...跟进, 字段: { ...跟进.字段, 类型: { ...跟进.字段.类型, 取值: 全部跟进类型(b.followTypes).map((t) => t.value) } } };
+  }
   if (!b || 表 !== "客户") return original;
   const fields = b.fields ?? DEFAULT_BUSINESS.fields;
   return { ...original, 名: b.customer, 字段: {
@@ -289,7 +295,10 @@ function 认条件(表: 表名, raw: unknown, b?: BusinessConfig): 条件 {
   if (r.值 == null || r.值 === "") throw 错(`「${f.名} ${运算符[op].名}」少了一个值`);
 
   const 原值 = (value: string) => b && (f.列 === "followStatus" || f.列 === "decisionStatus")
-    ? f.取值?.find(v => statusLabel(b, v) === value) ?? value : value;
+    ? f.取值?.find(v => statusLabel(b, v) === value) ?? value
+    : b && 表 === "跟进记录" && f.列 === "type"
+      ? 全部跟进类型(b.followTypes).find((t) => t.value === value || t.label === value)?.value ?? value
+      : value;
   if (op === "属于") {
     const xs = (Array.isArray(r.值) ? r.值.map((x) => String(x).trim()).filter(Boolean) : [String(r.值).trim()]).map(原值);
     if (!xs.length) throw 错(`「${f.名} 属于」要至少一个值`);
@@ -379,7 +388,7 @@ export function 校验规格(raw: unknown, b?: BusinessConfig): 查询规格 {
 /* ---------- 翻回人话（过程条要用） ---------- */
 
 const 值成话 = (c: 条件, f: 字段, b?: BusinessConfig): string => {
-  const show = (v: string) => b && (f.列 === "followStatus" || f.列 === "decisionStatus") ? statusLabel(b, v) : v;
+  const show = (v: string) => b && (f.列 === "followStatus" || f.列 === "decisionStatus") ? statusLabel(b, v) : b && f.列 === "type" && f.名 === "类型" ? 跟进类型名(b.followTypes, v) : v;
   if (c.运算 === "属于") return (c.值 as string[]).map(show).join(" 或 ");
   if (c.运算 === "最近天数") return `${c.值} 天`;
   if (f.型 === "真假") return c.值 ? "是" : "否";

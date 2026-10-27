@@ -9,7 +9,7 @@ import { PageHead } from "@/components/ui";
 import { useBusiness } from "@/lib/business-client";
 import { useMe, 默认负责人 } from "@/lib/me-client";
 import { 草稿全名, 读草稿, 存草稿, 清草稿, 有内容 } from "@/lib/form-guard";
-import { 跟进类型们 } from "@/lib/constants";
+import { 跟进类型表 } from "@/lib/follow-types";
 import { 币种选项, 默认币种 } from "@/lib/currency";
 import { 金额格式 } from "@/lib/money-input";
 import { 成员选项, 独自一人, dayjs, type 可选成员 } from "@/lib/utils";
@@ -87,7 +87,7 @@ function WizardBody({ users, 要下一步, 企业版, 全名, 旧 }: { users: �
   const { message } = App.useApp();
   const b = useBusiness();
   const 我 = useMe();
-  const 能选类型 = 跟进类型们(外贸精简(b)).filter((t) => t.value !== "TASK" && t.value !== "REMIND");
+  const 能选类型 = 跟进类型表(b.followTypes, 外贸精简(b), { 只渠道: true });
   // 不在候选里的「我」（老板、管理员不做销售）默认还是记在我名下（服务端也这么填）：下拉里补上我自己，不然那一格露出内部编号
   const 负责人选项 = 我 && !users.some((u) => u.id === 我.id) ? [...成员选项(users), { value: 我.id, label: 我.name }] : 成员选项(users);
   const 新稿 = (): 稿 => {

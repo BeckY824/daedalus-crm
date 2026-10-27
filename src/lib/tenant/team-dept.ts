@@ -39,6 +39,9 @@ export function 角色of(编制: Awaited<ReturnType<typeof 团队编制>>, accou
   return 是业务角色(r) ? r : 推业务角色(false, 老);
 }
 
+/** 总管理、管理员除了老板以外还能改的设置（D-48 跟进渠道）。业务配置照旧只有老板 */
+const 管理员能改的设置: ReadonlySet<string> = new Set(["followTypes"]);
+
 /**
  * sync-scoped auth 用：owner / manager / share 三样（意思不变）+ 限（部门判定、已进的项目组）。
  * 团队少于两个一级部门、范围是全公司时没有部门判定：和 1b 之前算出来一模一样
@@ -52,7 +55,7 @@ export async function 读写身份(o: { teamId: string; accountId: string; 建�
   const 档 = 读写档({ 建的人: o.建的人, 范围, 互看开关: o.互看开关, 部门 });
   const 进组 = new Set((await db.syncProjectInvite.findMany({ where: { teamId: o.teamId, accountId: o.accountId, status: "accepted" }, select: { scopeId: true } })).map((x) => x.scopeId));
   const 虚线 = 虚线下属(new Map([...编制.roles].map(([a, r]) => [a, r.dottedManagerId])), o.accountId, new Set(members.map((m) => m.accountId)));
-  const 限: 读限 = { ...(档.部门 ? { 部门: 档.部门 } : {}), ...(进组.size ? { 进组 } : {}), ...(虚线.size ? { 虚线, 虚线加跟进: 虚线上级规则.可改 === "加跟进" } : {}) };
+  const 限: 读限 = { ...(档.部门 ? { 部门: 档.部门 } : {}), ...(进组.size ? { 进组 } : {}), ...(虚线.size ? { 虚线, 虚线加跟进: 虚线上级规则.可改 === "加跟进" } : {}), ...(能管人.has(角色) ? { 改设置: 管理员能改的设置 } : {}) };
   return { owner: 档.owner, manager: 档.manager, share: 档.share, 限, 角色, 范围 };
 }
 

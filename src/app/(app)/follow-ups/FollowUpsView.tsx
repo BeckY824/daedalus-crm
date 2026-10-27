@@ -12,7 +12,8 @@ import { PageHead, CustomerLink, UserCell, FollowTypeCell } from "@/components/u
 import DataList, { type 列 } from "@/components/DataList";
 import { useBusiness } from "@/lib/business-client";
 import { 外贸精简 } from "@/lib/business-config";
-import { 跟进类型们, FOLLOW_RECORD_STATUS_COLOR } from "@/lib/constants";
+import { FOLLOW_RECORD_STATUS_COLOR } from "@/lib/constants";
+import { 全部跟进类型 } from "@/lib/follow-types";
 import { duration, 成员选项, 可选成员, smartTime } from "@/lib/utils";
 import { useUrlFilters } from "@/lib/url-filters";
 import FollowUpForm from "../customers/[id]/FollowUpForm";
@@ -175,7 +176,7 @@ export default function FollowUpsView({
               allowClear
               value={f.type || undefined}
               onChange={(v) => apply({ type: v ?? "" })}
-              options={跟进类型们(外贸精简(b)).map((t) => ({ value: t.value, label: t.label }))}
+              options={全部跟进类型(b.followTypes, 外贸精简(b)).filter((t) => !b.followTypes?.custom.some((c) => c.value === t.value && c.deleted)).map((t) => ({ value: t.value, label: t.label }))}
             />
             {!不问归属 && (
               <Select

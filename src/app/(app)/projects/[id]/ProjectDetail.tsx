@@ -9,7 +9,7 @@ import { 必填叫法 } from "@/lib/project/required";
 import { PageHead, CustomerLink, FollowTypeCell } from "@/components/ui";
 import { useBusiness } from "@/lib/business-client";
 import { dayjs, fmtDateTime } from "@/lib/utils";
-import { 跟进类型们 } from "@/lib/constants";
+import { 跟进类型表 } from "@/lib/follow-types";
 import { 外贸精简 } from "@/lib/business-config";
 import { 金额 } from "@/lib/currency";
 import { 阶段们, 节点们, 出口们, 交付还差, 下一步, 节点序号, 节点总数, 原因上限, 要写原因, type 位置 } from "@/lib/project/nodes";
@@ -467,7 +467,7 @@ function RecordFollowModal({ p, 外贸, onClose, 跑 }: {
   onClose: () => void;
   跑: (f: () => Promise<{ ok: boolean; error?: string }>, 成了?: string) => Promise<boolean>;
 }) {
-  const 能选类型 = 跟进类型们(外贸).filter((t) => t.value !== "TASK" && t.value !== "REMIND");
+  const 能选类型 = 跟进类型表(useBusiness().followTypes, 外贸, { 只渠道: true });
   const [type, setType] = useState<string>(能选类型[0]?.value ?? "PHONE");
   const [occurredAt, setOccurredAt] = useState(() => dayjs().format(沟通时间格式));
   const [content, setContent] = useState("");

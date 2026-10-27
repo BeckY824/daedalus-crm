@@ -20,6 +20,7 @@ import { 现状动效 } from "@/lib/motion";
 import { useSystemReducedMotion } from "@/lib/reduced-motion";
 import { stageLabel, statusLabel, 外贸订单, type BusinessConfig } from "@/lib/business-config";
 import { 订单前缀 } from "@/lib/follow-link";
+import { 跟进类型元, type 跟进类型 } from "@/lib/follow-types";
 import { 国家候选, 客户等级, 客户等级说明 } from "@/lib/customer-extra";
 import { 字段是公司, 字段是行业 } from "@/lib/lead-convert";
 import { DECISION_STATUSES, FOLLOW_STATUSES } from "@/lib/constants";
@@ -76,18 +77,27 @@ const 拍 = (s: 同步.同步状态): 快照 => ({
 
 const 订尺寸 = (cb: () => void) => { window.addEventListener("resize", cb); return () => window.removeEventListener("resize", cb); };
 const 不订 = () => () => {};
-const 类型表 = [
-  { value: "PHONE", 短: "电话", color: "var(--cat-green)", label: "电话沟通" },
-  { value: "WHATSAPP", 短: "WhatsApp", color: "var(--cat-teal)", label: "WhatsApp" },
+/** 内置渠道在手机上的短名和色（没改名时用短名；改了名就用新名） */
+const 内置样子: Record<string, { 短: string; color: string }> = {
+  PHONE: { 短: "电话", color: "var(--cat-green)" },
+  WHATSAPP: { 短: "WhatsApp", color: "var(--cat-teal)" },
   // 微信沟通（2026-10-19 客户反馈第 3 条）：和电脑上同一个色（--cat-lime，外贸功能分支加进 globals.css）；还没合并时先用绿色
-  { value: "WECHAT", 短: "微信", color: "var(--cat-lime, var(--cat-green))", label: "微信沟通" },
-  { value: "SMS", 短: "消息", color: "var(--cat-cyan)", label: "短信沟通" },
-  { value: "EMAIL", 短: "邮件", color: "var(--cat-pink)", label: "邮件沟通" },
-  { value: "MEETING", 短: "会议", color: "var(--cat-blue)", label: "线上会议" },
-  { value: "VISIT", 短: "拜访", color: "var(--cat-violet)", label: "上门拜访" },
-  { value: "OTHER", 短: "其他", color: "var(--text-muted)", label: "其他记录" },
-] as const;
-const 类型 = (v: string) => 类型表.find((x) => x.value === v) ?? { value: v, 短: v, color: "var(--text-muted)", label: v === "TASK" ? "跟进任务" : v === "REMIND" ? "跟进提醒" : "其他记录" };
+  WECHAT: { 短: "微信", color: "var(--cat-lime, var(--cat-green))" },
+  SMS: { 短: "消息", color: "var(--cat-cyan)" },
+  EMAIL: { 短: "邮件", color: "var(--cat-pink)" },
+  MEETING: { 短: "会议", color: "var(--cat-blue)" },
+  VISIT: { 短: "拜访", color: "var(--cat-violet)" },
+  OTHER: { 短: "其他", color: "var(--text-muted)" },
+};
+/** 跟进渠道跟着团队设置走（D-48）：自定义渠道、改过的名都认；认不出的按「其他记录」 */
+const 样子 = (b: BusinessConfig, t: 跟进类型) => ({
+  value: t.value,
+  label: t.label,
+  短: b.followTypes?.rename[t.value] || t.自定义 ? t.label : 内置样子[t.value]?.短 ?? t.label,
+  color: 内置样子[t.value]?.color ?? t.color,
+});
+const 类型表 = (b: BusinessConfig) => 同步.手机跟进类型表(b.followTypes).map((t) => 样子(b, t));
+const 类型 = (b: BusinessConfig, v: string) => 样子(b, 跟进类型元(b.followTypes, v));
 const 阶段表 = ["初步沟通", "需求确认", "方案报价", "谈判审核", "赢单成交"];
 
 function 设备标签() {
@@ -368,7 +378,8 @@ export default function MobileApp() {
     return 连图.取图片(团队, 做取字节(token, () => set断网(true)), 图);
   }, [token, 团队]);
   const 待同步数 = 快照.待推跟进.length + 快照.待推新建.length;
-  const 业务 = useMemo((): BusinessConfig => { void 版本; return 同步.读业务(库?.行.get(同步.业务行键)); }, [版本, 库]);
+  // 跟进渠道单独一项设置（D-48），挂在业务配置上一起往下传，和电脑上 getBusiness() 一样
+  const 业务 = useMemo((): BusinessConfig => { void 版本; return { ...同步.读业务(库?.行.get(同步.业务行键)), followTypes: 同步.读跟进渠道(库?.行.get(同步.跟进渠道行键)) }; }, [版本, 库]);
   const 没同步上 = useMemo(() => {
     const 名 = new Map(客户们.map((c) => [c.id, c.name]));
     return [
@@ -760,8 +771,8 @@ function DetailScreen({ os, c, 现在, 断网, 来自, 业务, 待同步, 取图
             <AnimatePresence initial={false}>
               {c.跟进.slice(0, 50).map((x) => (
                 <motion.li key={x.id} layout initial={{ opacity: 0, y: -8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={弹簧}>
-                  <i style={{ background: 类型(x.type).color }} />
-                  <div className="m-tl-h"><b>{类型(x.type).label}</b><span>{相对时间(x.at, 现在)} · {x.by}</span>
+                  <i style={{ background: 类型(业务, x.type).color }} />
+                  <div className="m-tl-h"><b>{类型(业务, x.type).label}</b><span>{相对时间(x.at, 现在)} · {x.by}</span>
                     {x.待同步 && <em className="m-pending"><CloudSyncOutlined /> 待同步</em>}
                   </div>
                   <p>{x.content}</p>
@@ -888,7 +899,9 @@ function 计划标题(字: string) {
 
 function RecordSheet({ c, os, 我, 断网, 业务, onCancel, onSave }: { c: 客户视图; os: 系统; 我: string; 断网: boolean; 业务: BusinessConfig; onCancel: () => void; onSave: (x: Omit<同步.记跟进输入, "customerId">) => void }) {
   // 有 WhatsApp 号的（外贸客户多半是）默认记成 WhatsApp；只有微信号的默认微信沟通；都没有的照旧默认消息（2026-10-16 / 10-19）
-  const [t, setT] = useState<(typeof 同步.手机跟进类型)[number]>(c.whatsapp ? "WHATSAPP" : c.wechat ? "WECHAT" : "SMS");
+  // 默认的那个被老板藏起来了，就落到第一个能选的
+  const 能选 = 类型表(业务);
+  const [t, setT] = useState<string>(() => { const 想 = c.whatsapp ? "WHATSAPP" : c.wechat ? "WECHAT" : "SMS"; return 能选.some((x) => x.value === 想) ? 想 : 能选[0]?.value ?? "OTHER"; });
   // 关联商机 / 订单（2026-10-19 客户反馈第 8 条）：和电脑上那一格一样，外贸模版商机、订单两组都列，通用模版只有商机
   const 挂订单 = 外贸订单(业务);
   const 订单们 = 挂订单 ? c.可关联.订单 : [];
@@ -908,7 +921,7 @@ function RecordSheet({ c, os, 我, 断网, 业务, onCancel, onSave }: { c: 客�
     let 时间: number | null = null;
     if (下次 === "pick") { const [y, m, d] = 日期.split("-").map(Number); 时间 = new Date(y, m - 1, d, 10).getTime(); }
     else if (下次 !== "none") { const d = new Date(); d.setHours(10, 0, 0, 0); 时间 = d.getTime() + Number(下次) * 86400_000; }
-    onSave({ type: t, content: 内容, 下次: 时间 ? { 时间, 主题: 计划标题(内容), 方式: 类型(t).label } : null, 完成计划: 我的计划 && 完成 ? 我的计划.id : null, 关联: 关联 || null });
+    onSave({ type: t, content: 内容, 下次: 时间 ? { 时间, 主题: 计划标题(内容), 方式: 类型(业务, t).label } : null, 完成计划: 我的计划 && 完成 ? 我的计划.id : null, 关联: 关联 || null });
   };
   const 可存 = 字.trim().length > 0;
 
@@ -922,7 +935,7 @@ function RecordSheet({ c, os, 我, 断网, 业务, onCancel, onSave }: { c: 客�
       <div className="m-record-who"><Avatar name={c.name} size={28} /><span className="m-ellipsis">{c.name}</span><span className="m-flag">{国旗(c.country)}</span></div>
       {c.公海 && <div className="m-callout" data-testid="m-record-pool">{断网 ? "这是公海客户，联网后会替你领取" : "这是公海客户，保存后归你跟进"}</div>}
       <div className="m-chips" role="radiogroup" aria-label="跟进方式">
-        {类型表.map((x) => (
+        {能选.map((x) => (
           <button key={x.value} role="radio" aria-checked={t === x.value} className={t === x.value ? "is-on" : ""} onClick={() => setT(x.value)}>
             <i style={{ background: x.color }} />{x.短}
           </button>

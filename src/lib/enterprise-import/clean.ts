@@ -12,7 +12,8 @@
  *   - 客户：对照表里有 → 落到那条；没导过但我们这边有同号客户 → 连上它（只补空格子）；否则新建
  */
 import { createHash } from "node:crypto";
-import { FOLLOW_TYPES, OPP_STAGES, STAGE_PROBABILITY } from "../constants";
+import { OPP_STAGES, STAGE_PROBABILITY } from "../constants";
+import { 跟进类型名, type FollowTypeConfig } from "../follow-types";
 import { 认日期 } from "../import/plan";
 import { 查电话, 号键 } from "../phone";
 import { 拆多人, 进备注, 输单 } from "./mapping";
@@ -30,6 +31,8 @@ export type 本地索引 = {
   客户号: Map<string, string[]>;
   /** `${客户id}|${商机名键}` → 商机 id（可能多个） */
   商机名: Map<string, string[]>;
+  /** 本公司的跟进渠道（D-48）：自定义渠道的名字。没给就只认内置的 */
+  跟进渠道?: FollowTypeConfig | null;
 };
 
 export const 空索引 = (): 本地索引 => ({ 引用: new Map(), 客户名: new Map(), 客户号: new Map(), 商机名: new Map() });
@@ -431,7 +434,7 @@ export function 清洗(记录: readonly 原始记录[], m: 映射, 本地: 本�
       // followup
       let content = s.值.content ?? "";
       const 类型 = 对值(r, "跟进类型", s.值.type, "OTHER", "跟进方式");
-      const 类型名 = FOLLOW_TYPES.find((t) => t.value === 类型)?.label ?? "跟进";
+      const 类型名 = 跟进类型名(本地.跟进渠道, 类型);
       if (!content && !s.值.title) {
         出问题(r, "跳过", "缺必填", "没有跟进内容，这一条不导");
         continue;

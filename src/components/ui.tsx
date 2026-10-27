@@ -16,11 +16,13 @@ import {
   CarryOutOutlined,
   BellOutlined,
   EllipsisOutlined,
+  TagOutlined,
 } from "@ant-design/icons";
 import Link from "next/link";
 import type { ComponentProps } from "react";
 import { avatarColor, companyInitial, initial, AVATAR_TEXT } from "@/lib/utils";
-import { FOLLOW_STATUS_COLOR, DECISION_STATUS_COLOR, OPP_STAGE_COLOR, FOLLOW_TYPE_MAP } from "@/lib/constants";
+import { FOLLOW_STATUS_COLOR, DECISION_STATUS_COLOR, OPP_STAGE_COLOR } from "@/lib/constants";
+import { 跟进类型元 } from "@/lib/follow-types";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel, stageLabel } from "@/lib/business-config";
 
@@ -231,19 +233,28 @@ export function CustomerLink({ id, name, company, logo = true }: { id: string; n
 /**
  * 跟进类型的图标。记录页的时间线和跟进记录表共用这一份——
  * 两处各画一份的时候，同一个「上门拜访」在一边是商店图标、另一边是彩色标签。
+ * 按 icon 名取（lib/follow-types 的 跟进类型元().icon）：自定义渠道一律是 tag
  */
-export const FOLLOW_TYPE_ICON: Record<string, React.ReactNode> = {
-  PHONE: <PhoneOutlined />,
-  MEETING: <TeamOutlined />,
-  VISIT: <ShopOutlined />,
-  EMAIL: <MailOutlined />,
-  SMS: <MessageOutlined />,
-  WHATSAPP: <WhatsAppOutlined />,
-  WECHAT: <WechatOutlined />,
-  TASK: <CarryOutOutlined />,
-  REMIND: <BellOutlined />,
-  OTHER: <EllipsisOutlined />,
+const 图标表: Record<string, React.ReactNode> = {
+  phone: <PhoneOutlined />,
+  team: <TeamOutlined />,
+  shop: <ShopOutlined />,
+  mail: <MailOutlined />,
+  message: <MessageOutlined />,
+  "whats-app": <WhatsAppOutlined />,
+  wechat: <WechatOutlined />,
+  "carry-out": <CarryOutOutlined />,
+  bell: <BellOutlined />,
+  ellipsis: <EllipsisOutlined />,
+  tag: <TagOutlined />,
 };
+export const 跟进图标 = (icon: string) => 图标表[icon] ?? 图标表.ellipsis;
+
+/** 一个跟进类型值的图标（含自定义渠道；认不出的按「其他记录」） */
+export function FollowTypeIcon({ type }: { type: string }) {
+  const b = useBusiness();
+  return <>{跟进图标(跟进类型元(b.followTypes, type).icon)}</>;
+}
 
 /**
  * 跟进记录表里的「类型」列：**图标 + 文字**，不是一颗彩色药丸（设计稿 17/PAGE）。
@@ -252,11 +263,12 @@ export const FOLLOW_TYPE_ICON: Record<string, React.ReactNode> = {
  * 而真正要读的「内容」那一列反而退到后面。颜色只留给图标，文字照常。
  */
 export function FollowTypeCell({ type }: { type: string }) {
-  const m = FOLLOW_TYPE_MAP[type] ?? FOLLOW_TYPE_MAP.OTHER;
+  const b = useBusiness();
+  const m = 跟进类型元(b.followTypes, type);
   return (
     <span className="ftype">
       <span className="ftype-i" style={{ color: m.color }}>
-        {FOLLOW_TYPE_ICON[type] ?? FOLLOW_TYPE_ICON.OTHER}
+        {跟进图标(m.icon)}
       </span>
       {m.label}
     </span>
