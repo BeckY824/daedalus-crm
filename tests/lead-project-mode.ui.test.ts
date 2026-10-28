@@ -3,6 +3,7 @@
  *
  *   F1 项目模式开着点「新建线索」跳建档向导，市场、渠道建不了单条线索。改成照常弹线索表单
  *   F6 线索只能转客户。项目模式开着行上按钮叫「转项目」，转好去项目页；关着还是「转客户」
+ *   10-28 转项目弹框带首条跟进：团队版内容空着也能转（交 null），写了就带上
  */
 import { beforeAll, afterAll, it, expect } from "vitest";
 import { build, type Plugin } from "esbuild";
@@ -14,7 +15,7 @@ const plugin: Plugin = { name: "leads-ui", setup(b) {
   stub(/^next\/link$/, "export default function L(p){return <a {...p}/>}");
   stub(/^next\/navigation$/, "export const useRouter=()=>({push(u){window.__去.push(u)},refresh(){},replace(){}});");
   stub(/components\/DataList$/, "export default function D(p){const 动=p.列.find(c=>c.key==='act');return <div data-testid='rows'>{p.行.map(r=><div key={r.id}>{动.render(null,r)}</div>)}</div>}");
-  stub(/^\.\/actions$/, "export const saveLead=async()=>({ok:true});export const deleteLeads=async()=>({ok:true});export const mergeLeadInto=async()=>({ok:true});export const convertLead=async()=>window.__转;");
+  stub(/^\.\/actions$/, "export const saveLead=async()=>({ok:true});export const deleteLeads=async()=>({ok:true});export const mergeLeadInto=async()=>({ok:true});export const convertLead=async(id,跟进)=>{window.__交=跟进;return window.__转};");
   stub(/^\.\/assign-actions$/, "export const 自动分配线索=async()=>({});export const 批量自动分配=async()=>({});export const 分配线索=async()=>({});export const 本月分配情况=async()=>[];export const 我分出去的线索=async()=>[];export const 关满额提醒=async()=>({ok:true});");
   b.onLoad({ filter: /.*/, namespace: "stub" }, a => ({ contents: a.pluginData, loader: "jsx", resolveDir: process.cwd() }));
 } };
@@ -61,13 +62,28 @@ it("项目模式关着：点「新建线索」也弹线索表单（和 main 一�
   expect(errors).toEqual([]); await page.close();
 });
 
-it("项目模式开着：行上是「转项目」，转好去项目页（F6）", async () => {
+const 交了 = (page: import("playwright").Page) => page.evaluate(() => (window as unknown as { __交: unknown }).__交);
+
+it("项目模式开着：行上是「转项目」，弹框里首条跟进可先不写，转好去项目页（F6）", async () => {
   const { page, errors, 去了 } = await 打开(true);
   await page.evaluate(() => { (window as unknown as { __转: unknown }).__转 = { ok: true, customerId: "c1", projectId: "p1" }; });
   await page.getByTestId("rows").getByRole("button", { name: /转项目/ }).click();
-  await expect.poll(() => page.locator(".ant-modal-confirm-title").innerText()).toBe("将「甲线索」转为项目？");
+  await expect.poll(() => page.locator(".ant-modal-title").innerText()).toBe("将「甲线索」转为项目");
+  expect(await page.getByTestId("lead-convert-follow").innerText()).toContain("可先不写");
   await page.getByRole("button", { name: "转为项目" }).click();
   await expect.poll(去了).toEqual(["/projects/p1"]);
+  expect(await 交了(page)).toBeNull();
+  expect(errors).toEqual([]); await page.close();
+});
+
+it("项目模式开着：写了首条跟进就带上", async () => {
+  const { page, errors, 去了 } = await 打开(true);
+  await page.evaluate(() => { (window as unknown as { __转: unknown }).__转 = { ok: true, customerId: "c1", projectId: "p1" }; });
+  await page.getByTestId("rows").getByRole("button", { name: /转项目/ }).click();
+  await page.getByLabel("沟通内容").fill("电话聊了需求");
+  await page.getByRole("button", { name: "转为项目" }).click();
+  await expect.poll(去了).toEqual(["/projects/p1"]);
+  expect(await 交了(page)).toMatchObject({ content: "电话聊了需求", 下一步时间: null });
   expect(errors).toEqual([]); await page.close();
 });
 

@@ -23,6 +23,8 @@ export type 项目详情 = {
   /** null = 公海里同事客户的项目，领取后再给（page.tsx 露客户）；联系人、沟通这时也是空的 */
   customer: { id: string; name: string; school: string | null } | null;
   contact: { id: string; name: string; position: string | null } | null;
+  /** 线索转化时建的：来源线索名（删了是「已删除的线索」）；不是从线索来的、或公海里还没领取时为 null */
+  来源线索: string | null;
   ownerId: string; ownerName: string; creatorName: string; createdAt: string;
   /** 历史负责人（只企业版有，别的版本是空的）：把这个项目放回过公海的人，最近放回的在前，同一个人只列一次 */
   historyOwners: string[];
@@ -67,7 +69,8 @@ export type 项目详情 = {
 };
 
 const 行样: React.CSSProperties = { display: "flex", gap: 12, alignItems: "center", marginBottom: 8, minWidth: 0 };
-const 键样: React.CSSProperties = { color: "var(--text-muted)", flex: "0 0 48px" };
+// 四个字的键（来源线索）在 14px 下要 ~56px，48px 会折成两行（照企业版 10-27）
+const 键样: React.CSSProperties = { color: "var(--text-muted)", flex: "0 0 60px", whiteSpace: "nowrap" };
 
 /** 删项目的确认框：列出一起删掉的几样，说清沟通记录本身不删 */
 function 删除说明(n: 项目详情["删前清点"], 客户叫法: string) {
@@ -310,6 +313,7 @@ export default function ProjectDetail({
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, marginBottom: 16 }}>
         <Card title="项目" extra={可改 && <Button type="link" size="small" disabled={忙} onClick={() => set编辑开着(true)}>编辑</Button>}>
           <div style={行样}><span style={键样}>{b.customer}</span>{p.customer ? <CustomerLink id={p.customer.id} name={p.customer.name} company={p.customer.school} /> : <span style={{ color: "var(--text-muted)" }}>领取后显示</span>}</div>
+          {p.来源线索 && <div style={行样}><span style={键样}>来源线索</span><span className="clamp-1" style={{ minWidth: 0 }} title={p.来源线索}>{p.来源线索}</span></div>}
           {p.contact && <div style={行样}><span style={键样}>联系人</span>{p.contact.name}{p.contact.position ? ` · ${p.contact.position}` : ""}</div>}
           <div style={行样}><span style={键样}>金额</span>{金额(p.amount, p.currency)}</div>
           {/* 在公海里时 ownerName 是原负责人：不写成「负责人 X」，也不把系统收回说成 X 放回的（QA #14） */}

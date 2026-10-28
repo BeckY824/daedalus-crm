@@ -48,6 +48,10 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     生效组织规则(),
   ]);
   const 类别名 = new Map(类别们.map((c) => [c.id, c.name]));
+  // 线索转化时建的项目记着来源线索（10-28，照企业版 0fc70458）；线索后来删了就说「已删除的线索」
+  const 来源线索 = p.sourceLeadId
+    ? (await prisma.lead.findUnique({ where: { id: p.sourceLeadId }, select: { name: true } }))?.name ?? "已删除的线索"
+    : null;
   const 公海 = !!p.pooledAt;
   const 企业 = 企业版();
 
@@ -80,6 +84,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const 详情: 项目详情 = {
     id: p.id, name: p.name, remark: p.remark, amount: p.amount, currency: p.currency,
     customer: 露 ? { id: p.customer.id, name: p.customer.name, school: p.customer.school } : null, contact: 露 ? p.contact : null,
+    来源线索: 露 ? 来源线索 : null,
     ownerId: p.ownerId, ownerName: 叫(p.ownerId)!, historyOwners: 历史负责人.map((x) => 叫(x)!), creatorName: 叫(p.creatorId)!, createdAt: p.createdAt.toISOString(),
     phase: p.phase, node: p.node, result: p.result, exceptionReason: p.exceptionReason, exceptionCategory: p.exceptionCategory?.name ?? null,
     pooled: 公海, 企业版: 企业,

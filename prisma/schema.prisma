@@ -900,6 +900,8 @@ model Project {
   updatedAt            DateTime                  @updatedAt
   /// 有结局的那一刻；回到进行中就清掉
   closedAt             DateTime?
+  /// 来源线索：线索转化时建的项目记一笔是哪条线索（只记 id、不建关联）；建档向导建的为空
+  sourceLeadId         String?
 
   members   ProjectMember[]
   logs      ProjectNodeLog[]
@@ -908,6 +910,7 @@ model Project {
   @@index([customerId])
   @@index([ownerId])
   @@index([pooledAt])
+  @@index([sourceLeadId])
 }
 
 /// 项目组成员，多对多。1a 负责人直接加人写 JOINED；1b 的进组邀请用 INVITED / DECLINED 和 invitedById

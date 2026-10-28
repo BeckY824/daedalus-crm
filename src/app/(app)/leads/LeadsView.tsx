@@ -23,6 +23,8 @@ import DataList, { type 列 } from "@/components/DataList";
 import { LEAD_STATUSES, LEAD_STATUS_COLOR } from "@/lib/constants";
 import { 成员选项, 独自一人, 可选成员, smartTime } from "@/lib/utils";
 import { saveLead, deleteLeads, convertLead, mergeLeadInto, type 线索撞号 } from "./actions";
+import ConvertProjectModal from "./ConvertProjectModal";
+import type { 向导跟进 } from "@/lib/project/wizard";
 import { useBusiness } from "@/lib/business-client";
 import { useUrlFilters } from "@/lib/url-filters";
 import { 聚焦首项 } from "@/lib/modal-focus";
@@ -60,6 +62,7 @@ export default function LeadsView({
   me,
   能自动分配 = false,
   项目模式 = false,
+  转项目: 转项目规则 = { 必填: false, 要下一步: false },
   线索分配开着 = false,
   满额提醒 = [],
 }: {
@@ -75,6 +78,8 @@ export default function LeadsView({
   能自动分配?: boolean;
   /** 开了项目模式（10-25 F1、F6；10-28 团队版也一样）：新建线索照常弹表单，能只建一条线索；转化顺手建项目 */
   项目模式?: boolean;
+  /** 项目模式下转项目弹框的首条跟进：必填 = 企业版或开了超时回收；要下一步 = 开了超时回收（和服务端 转项目前查 一个判法） */
+  转项目?: { 必填: boolean; 要下一步: boolean };
   /** 企业版「线索分配」规则开着：负责人只能经「分配」换，编辑框里负责人只读；页头摆「我分出去的」 */
   线索分配开着?: boolean;
   /** 企业版自动分配因都已满额没分出去的提醒，只有市场管理、总管理员有（lib/enterprise/lead-full-notice.ts） */
@@ -94,6 +99,8 @@ export default function LeadsView({
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
   const [分配中, set分配中] = useState<Row | null>(null);
+  // 项目模式下点「转项目」：弹框先记首条跟进（团队版可空着），再转
+  const [转中, set转中] = useState<Row | null>(null);
   const [form] = Form.useForm();
 
   useEffect(() => {
@@ -138,7 +145,7 @@ export default function LeadsView({
    * 转客户撞了号（J-024）：原来只报「请勿重复建档」，线索永远转不了。
    * 看得到那位客户 → 问要不要并过去；看不到（业务员撞同事的）→ 说清是谁的、找谁并
    */
-  function 撞号了(r: Row, 撞: 线索撞号, 说法: string) {
+  function 撞号了(r: Row, 撞: 线索撞号, 说法: string, 跟进?: 向导跟进 | null) {
     if (!撞.能并 || !撞.customerId) {
       modal.info({ title: 撞.客户名 ? `电话已经是「${撞.客户名}」的号码` : `电话已经在同事 ${撞.负责人} 名下`, content: 说法, okText: "知道了" });
       return;
@@ -150,13 +157,31 @@ export default function LeadsView({
       okText: `并到「${撞.客户名}」`,
       cancelText: "取消",
       async onOk() {
-        const res = await mergeLeadInto(r.id, 到);
+        const res = await mergeLeadInto(r.id, 到, 跟进);
         if (res.ok) {
           message.success(`已并到「${撞.客户名}」${res.projectId ? "，建好了项目" : ""}`);
           router.push(res.projectId ? `/projects/${res.projectId}` : `/customers/${res.customerId}`);
         } else message.error(res.error);
       },
     });
+  }
+
+  // 按实际会填的格子、用当前叫法说（2026-10-04 L-016），见 lib/lead-convert.ts 转化会带上
+  function 转化说明(r: Row) {
+    const 带 = 转化会带上(r, b.fields);
+    return `会建一位${b.customer}${带 ? `，${带}一起带过去` : ""}${项目模式 ? `，并在名下建一个项目「${r.name}」` : ""}，线索标记为已转化。`;
+  }
+
+  async function 转(r: Row, 跟进?: 向导跟进 | null) {
+    const res = await convertLead(r.id, 跟进);
+    if (res.ok) {
+      set转中(null);
+      message.success(res.projectId ? "已转为项目" : `已转为${b.customer}`);
+      router.push(res.projectId ? `/projects/${res.projectId}` : `/customers/${res.customerId}`);
+    } else if (res.撞号) {
+      set转中(null);
+      撞号了(r, res.撞号, res.error, 跟进);
+    } else message.error(res.error);
   }
 
   /** 「已分给 某某（本月已分 N / 配额 M）」：D-38 的说法，单条和批量共用 */
@@ -239,24 +264,15 @@ export default function LeadsView({
               size="small"
               icon={<SwapRightOutlined />}
               onClick={() =>
-                modal.confirm({
-                  title: 项目模式 ? `将「${r.name}」转为项目？` : `将「${r.name}」转为${b.customer}？`,
-                  // 按实际会填的格子、用当前叫法说（2026-10-04 L-016），见 lib/lead-convert.ts 转化会带上
-                  content: (() => {
-                    const 带 = 转化会带上(r, b.fields);
-                    return `会建一位${b.customer}${带 ? `，${带}一起带过去` : ""}${项目模式 ? `，并在名下建一个项目「${r.name}」` : ""}，线索标记为已转化。`;
-                  })(),
-                  okText: 项目模式 ? "转为项目" : `转为${b.customer}`,
-                  cancelText: "取消",
-                  async onOk() {
-                    const res = await convertLead(r.id);
-                    if (res.ok) {
-                      message.success(res.projectId ? "已转为项目" : `已转为${b.customer}`);
-                      router.push(res.projectId ? `/projects/${res.projectId}` : `/customers/${res.customerId}`);
-                    } else if (res.撞号) 撞号了(r, res.撞号, res.error);
-                    else message.error(res.error);
-                  },
-                })
+                项目模式
+                  ? set转中(r)
+                  : modal.confirm({
+                      title: `将「${r.name}」转为${b.customer}？`,
+                      content: 转化说明(r),
+                      okText: `转为${b.customer}`,
+                      cancelText: "取消",
+                      onOk: () => 转(r),
+                    })
               }
             >
               {项目模式 ? "转项目" : `转${b.customer}`}
@@ -449,6 +465,16 @@ export default function LeadsView({
         </Form>
       </Modal>
       {能自动分配 && <AssignLeadModal lead={分配中} 关={() => set分配中(null)} />}
+      {项目模式 && (
+        <ConvertProjectModal
+          lead={转中}
+          必填={转项目规则.必填}
+          要下一步={转项目规则.要下一步}
+          说明={转中 ? 转化说明(转中) : ""}
+          关={() => set转中(null)}
+          交={(跟进) => (转中 ? 转(转中, 跟进) : Promise.resolve())}
+        />
+      )}
     </>
   );
 }
