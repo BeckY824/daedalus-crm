@@ -38,6 +38,7 @@ import { resetDb } from "./reset";
 import { setSetting, invalidateSettingsCache } from "@/lib/settings";
 import { 建档向导, 改项目节点, 放回项目公海, 领取项目, 编辑项目 } from "@/app/(app)/projects/actions";
 import { saveLead, convertLead } from "@/app/(app)/leads/actions";
+import { dayjs } from "@/lib/utils";
 import { assignSalesOwner } from "@/app/(app)/customers/actions";
 import { deactivateUser } from "@/app/(app)/settings/actions";
 import { 建公司, type 公司 } from "./sim/公司";
@@ -45,6 +46,9 @@ import { 开始假时间, 拨到, 停掉假时间 } from "./sim/时钟";
 import { 当前人, type 会话人 } from "./sim/身份";
 import { 接口都在, 要, 可有 } from "./sim/适配";
 const 开关开能跑 = await 接口都在();
+
+// 企业版线索转项目要带首条跟进（照企业版 0fc70458）；这家开了超时回收，下一步时间也得填。开关关那组（团队版）照旧不带，可先不写
+const 转化首条 = () => ({ type: "PHONE", content: "转化前电话聊了需求", occurredAt: dayjs().subtract(1, "hour").format("YYYY-MM-DD HH:mm"), 下一步时间: dayjs().add(3, "day").format("YYYY-MM-DD") });
 import { 红清单 } from "./sim/红清单";
 
 // ———————————————————— 检查点（开关开那组）：id → 规则号 + 断言什么 ————————————————————
@@ -370,7 +374,7 @@ async function 剧本开() {
       await prisma.projectNodeLog.deleteMany({ where: { projectId: 项目id[n], toNode: "线索验证" } });
     }
   });
-  得(await 作为("内销1", () => convertLead(线索id["L1"])), "内销1 转化 L1");
+  得(await 作为("内销1", () => convertLead(线索id["L1"], 转化首条())), "内销1 转化 L1");
   await 查("D2-原市场人员只读看转化", async () => {
     const 列 = (await 作为("市渠1", () => 我分出去的线索())) as { name: string; status: string }[];
     expect(列.find((x) => x.name === "L1")?.status).toBe("已转化");

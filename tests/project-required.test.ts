@@ -2,7 +2,7 @@
  * 企业版节点必填（lib/project/required.ts，D-37）：没开 / 没配的节点永远不差；配了的按数据算还差哪几样。
  */
 import { describe, it, expect } from "vitest";
-import { 还差, 节点推进生效, 按必填走, 节点必填, 能配必填的节点, 建议必填, 必填项名们, type 必填数据 } from "@/lib/project/required";
+import { 还差, 节点推进生效, 按必填走, 节点必填, 能配必填的节点, 建议必填, 必填项名们, 建议还差, type 必填数据 } from "@/lib/project/required";
 import { 默认组织规则, type 组织规则 } from "@/lib/project/org-rules";
 
 const 规则 = (必填: Record<string, string[]>, 开 = true): 组织规则 => ({ ...默认组织规则, 节点推进: { 开, 必填 } });
@@ -90,5 +90,23 @@ describe("还差", () => {
     d.项目.remark = "要样品";
     d.沟通节点们.push("线索验证");
     expect(还差(r, d)).toEqual([]);
+  });
+});
+
+describe("团队版 建议还差（只提示）", () => {
+  it("外贸模板：照建议清单列出还差的", () => {
+    expect(建议还差(空数据("潜客培育"), true)).toEqual(["联系方式", "来源", "本节点沟通", "下一步时间"]);
+    expect(建议还差(空数据("线索验证"), true)).toEqual(["主联系人", "国家", "客户等级", "需求"]);
+  });
+
+  it("不是外贸模板：外贸档案里的来源、国家、客户等级不提", () => {
+    expect(建议还差(空数据("潜客培育"), false)).toEqual(["联系方式", "本节点沟通", "下一步时间"]);
+    expect(建议还差(空数据("线索验证"), false)).toEqual(["主联系人", "需求"]);
+  });
+
+  it("填齐了、或清单里没有的节点：空", () => {
+    const d = 空数据("线索推进");
+    expect(建议还差({ ...d, 项目: { ...d.项目, amount: 1 } }, false)).toEqual([]);
+    expect(建议还差(空数据("尾款结算"), true)).toEqual([]);
   });
 });
