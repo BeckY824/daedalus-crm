@@ -246,6 +246,8 @@ export default function TeamTab() {
   if (!s.在团队) {
     // 账号在云上已经是团队成员、这台还没连上（新电脑登录同一个账号）：先给「在另一台电脑上允许」，邀请码放在后面（2026-10-15 多设备同步）
     const 云上 = "连接" in s ? s.连接 : null;
+    // 云端没答上来（超时、断网、5xx）：不知道账号在不在团队里，不摆「建一个团队」，免得建出第二个（2026-10-28 D-03）
+    const 问不到 = s.能用 && (!云上 || 云上.问不到);
     return (
       <div className="set-col team" style={{ paddingTop: 8 }}>
         <p className="team-intro">
@@ -253,11 +255,17 @@ export default function TeamTab() {
           改动加密后经我们的服务器转交，<b>钥匙只在你们的电脑和邀请码里，我们看不到内容</b>。
         </p>
         {!s.能用 && <Alert type="info" showIcon message="先在「桌面端」那一栏登录云端账号" style={{ marginBottom: 16 }} />}
+        {问不到 && (
+          <Alert type="warning" showIcon style={{ marginBottom: 16 }} data-testid="team-cloud-unreachable"
+            title="暂时连不上云端"
+            description="查不到你的账号是不是已经在团队里。稍后再试；要是同事已经把邀请码发给你，也可以直接在下面粘贴加入。"
+            action={<Button size="small" onClick={() => void 刷()}>重试</Button>} />
+        )}
         {云上?.云上的团 && (
           <ConnectCard 团名={云上.云上的团.name} 我是建的人={云上.云上的团.我是建的人} 等授权={云上.等授权} 本机客户={云上.本机客户}
             onJoined={() => { void 刷(); router.refresh(); }} />
         )}
-        {!云上?.云上的团 && <section className="team-card">
+        {!云上?.云上的团 && !问不到 && <section className="team-card">
           <h3>建一个团队</h3>
           <p className="muted">建团队的人就是老板：看得到所有人的客户和跟进。建好之后把邀请码发给同事，他们进来是业务员。这台电脑上已有的客户会一起带进团队。</p>
           <Space.Compact style={{ width: "100%", maxWidth: 420 }}>
@@ -277,7 +285,7 @@ export default function TeamTab() {
             <Button loading={忙 === "入"} disabled={!s.能用 || !码.trim() || 忙 !== null} onClick={() => void 入()}>加入团队</Button>
           </div>
         </section>
-        <TeamPricing 价格={s.价格} />
+        <TeamPricing 价格={s.价格} 能用={s.能用} />
       </div>
     );
   }
@@ -352,8 +360,15 @@ export default function TeamTab() {
           description="同事的改动可能还没收到，你这边的改动也可能还没发出去。点右边「立即同步」马上试一次；一直这样，请点左下角「反馈」告诉我们。"
           action={<Button size="small" disabled={忙 !== null} onClick={() => void 同步()}>立即同步</Button>} />
       )}
-      {/* 没开通、到期时上面那条黄的已经说了，红的不再重复一遍 */}
-      {s.lastError && !(s.active === false && /没开通|已到期/.test(s.lastError)) && (
+      {/* 云端没答上来：名单、开通状态先显示不了，说清楚、给重试；本机照常能用（2026-10-28 D-03） */}
+      {s.连不上 && (
+        <Alert type="warning" showIcon style={{ marginBottom: 16 }} data-testid="team-cloud-unreachable"
+          title="暂时连不上云端"
+          description="成员名单、开通状态先显示不了。这台电脑上的客户照常能用，改动都记着，连上后自动同步。"
+          action={<Button size="small" disabled={忙 !== null} onClick={() => void 刷()}>重试</Button>} />
+      )}
+      {/* 没开通、到期时上面那条黄的已经说了，红的不再重复一遍；连不上云端上面那条已经说了 */}
+      {s.lastError && !s.连不上 && !(s.active === false && /没开通|已到期/.test(s.lastError)) && (
         <Alert type="error" showIcon style={{ marginBottom: 16 }}
           // 「登录已失效」是云端那边的原话，人不知道去哪登录、为什么失效（多半是在别的设备上把这台从「我的设备」里移除了）
           message={/登录已失效/.test(s.lastError) ? "这台电脑的云端登录失效了，暂停同步" : s.lastError}
@@ -389,7 +404,7 @@ export default function TeamTab() {
       )}
 
       <section className="team-card">
-        <h3>成员 {s.成员.length}</h3>
+        <h3>成员 {s.连不上 && s.成员.length === 0 ? "" : s.成员.length}</h3>
         <p className="muted" data-testid="team-role-intro">
           {s.我是建的人
             ? `你是老板：看得到所有人的客户和跟进，在下面可以把业务员设成业务主管。业务主管看得到全队、能分配客户和处理重复；${s.互看 ? "业务员也看得到全队的客户（同事的只能看和加跟进）。" : "业务员只看得到自己负责的客户和公海。"}`
@@ -503,7 +518,7 @@ export default function TeamTab() {
         </section>
       )}
 
-      <TeamPricing 价格={s.价格} />
+      <TeamPricing 价格={s.价格} 能用 />
 
       <section className="team-card">
         <Button danger onClick={退}>退出团队</Button>

@@ -62,20 +62,26 @@ export type 连接概况 = {
   等授权: { 配对数字: string } | null;
   /** 这台电脑上已有几位客户（连上后会带进团队） */
   本机客户: number;
+  /**
+   * 云端没答上来（超时、断网、5xx、回的不是名单）：不知道这个账号在不在团队里。
+   * 这时不能当「没有团」摆「建一个团队」——账号其实已经在团队里的话会建出第二个（2026-10-28 D-03）
+   */
+  问不到: boolean;
 };
 
 /** 这台不在团队里时：账号在云上的团队、半路的申请、本机已有客户数（设置页和首页提示用） */
 export async function 连接概况(): Promise<连接概况> {
-  const 空: 连接概况 = { 云上的团: null, 等授权: null, 本机客户: 0 };
+  const 空: 连接概况 = { 云上的团: null, 等授权: null, 本机客户: 0, 问不到: false };
   if (读团队() || !能用().ok) return 空;
   const r = await 调云("GET", "/api/sync/team");
-  const 团 = r.状态 === 200 ? ((r.json.teams as 云上的团[]) ?? [])[0] : undefined;
+  const 答了 = r.状态 === 200 && Array.isArray(r.json.teams);
+  const 团 = 答了 ? (r.json.teams as 云上的团[])[0] : undefined;
   const 半 = 读半路();
   const 我 = 能用();
   // 换了账号：上一个账号半路的申请不算
   const 等 = 半 && 我.ok && 半.accountId === 我.accountId ? { 配对数字: await 配对数字(半.devPub) } : null;
   const 本机客户 = await 看全部(() => prisma.customer.count()).catch(() => 0);
-  return { 云上的团: 团 ? { id: 团.id, name: 团.name, 我是建的人: !!团.我是建的人 } : null, 等授权: 团 ? 等 : null, 本机客户 };
+  return { 云上的团: 团 ? { id: 团.id, name: 团.name, 我是建的人: !!团.我是建的人 } : null, 等授权: 团 ? 等 : null, 本机客户, 问不到: !答了 };
 }
 
 /** 发申请：本人另一台电脑会弹出授权框。回配对数字给这台的界面显示 */

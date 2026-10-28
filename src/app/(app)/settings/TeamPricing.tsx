@@ -4,10 +4,16 @@ const 元 = (n: number) => `¥${n}`;
 
 /**
  * 设置 → 团队 · 团队版价格（2026-10-15）。价格存服务器、运营台改（lib/tenant/team-plan.ts），这里只显示；
- * 拿不到（没登录、连不上）就不摆。不做应用内付款：告诉我们团队名字、人数和时长，运营者手动开通 / 续费
+ * 没登录就不摆；登录了但连不上，说一句稍后再看。不做应用内付款：告诉我们团队名字、人数和时长，运营者手动开通 / 续费
  */
-export default function TeamPricing({ 价格 }: { 价格: 团队价格 | null | undefined }) {
-  if (!价格) return null;
+export default function TeamPricing({ 价格, 能用 = false }: { 价格: 团队价格 | null | undefined; 能用?: boolean }) {
+  // 登录了却拿不到（超时、断网、5xx）：留着这一块说一句，别让上面「价格见下方」指向空处（2026-10-28 D-03）
+  if (!价格) return 能用 ? (
+    <section className="team-card" data-testid="team-pricing">
+      <h3>团队版价格</h3>
+      <p className="muted">暂时连不上云端，价格读不出来，稍后再打开这一页看。开通、续费照样可以点左下角「反馈」告诉我们。</p>
+    </section>
+  ) : null;
   return (
     <section className="team-card" data-testid="team-pricing">
       <h3>团队版价格</h3>

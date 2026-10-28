@@ -368,6 +368,42 @@ describe("移除成员 + 换钥匙", () => {
     expect(回来.在团队 && 回来.能管理).toBe(true);
   });
 
+  it("D-03 云端没答上来（断网/超时、502、回的不是名单）：团队状态说「连不上」，不说被移出，老板还是老板", async () => {
+    const 坏法: 传输[] = [
+      async () => ({ 状态: 0, json: { error: "连不上云端，检查一下网络" } }),
+      async () => ({ 状态: 502, json: { error: "Bad Gateway" } }),
+      async () => ({ 状态: 200, json: {} }),
+    ];
+    for (const 坏 of 坏法) {
+      设传输(async (方法, 路径, body) => (路径 === "/api/sync/team" ? 坏(方法, 路径, body) : 甲的传输(方法, 路径, body)));
+      try {
+        expect(await 团队状态()).toMatchObject({ 在团队: true, 连不上: true, 被移出: false, 我是建的人: true, 成员: [] });
+      } finally {
+        设传输(甲的传输);
+      }
+    }
+    expect(await 团队状态()).toMatchObject({ 在团队: true, 连不上: false, 我是建的人: true });
+  });
+
+  it("D-03 业务员那台断网：不会因为本机有团队配置就被当成老板", async () => {
+    const 文件 = path.join(根, ".team.json");
+    const 原 = fs.readFileSync(文件, "utf8");
+    const 配置 = JSON.parse(原) as Record<string, unknown>;
+    设传输(async () => ({ 状态: 0, json: { error: "连不上云端，检查一下网络" } }));
+    try {
+      // 记过老板账号、不是我
+      fs.writeFileSync(文件, JSON.stringify({ ...配置, ownerAccountId: 账号们.乙 }));
+      expect(await 团队状态()).toMatchObject({ 连不上: true, 我是建的人: false });
+      // 没记老板账号（老版本建的）、手上也没有签名私钥
+      const { signPriv: _, ownerAccountId: __, ...业务员 } = 配置;
+      fs.writeFileSync(文件, JSON.stringify(业务员));
+      expect(await 团队状态()).toMatchObject({ 连不上: true, 我是建的人: false });
+    } finally {
+      fs.writeFileSync(文件, 原);
+      设传输(甲的传输);
+    }
+  });
+
   it("云端答得上来、但我已经不在这个团队里：团队状态说「被移出」，不说「连不上云端」", async () => {
     expect(await 团队状态()).toMatchObject({ 在团队: true, 被移出: false });
     // 老板（建团队的人）还有同事在队里：不让走（换钥匙复查低 7）

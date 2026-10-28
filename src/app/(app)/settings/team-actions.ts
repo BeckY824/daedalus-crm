@@ -349,7 +349,9 @@ export async function 拒绝手机动作(id: string) {
 export async function 待连接团队动作() {
   await requireUser();
   const x = await 连接概况().catch(() => null);
-  return x?.云上的团 ? { 团名: x.云上的团.name, 我是建的人: x.云上的团.我是建的人, 等授权: x.等授权, 本机客户: x.本机客户 } : null;
+  // 云端没答上来：说一声「问不到」，首页过一会儿再问，而不是当成没有团、这次打开就不弹了（2026-10-28 D-03）
+  if (!x || x.问不到) return { 问不到: true as const };
+  return x.云上的团 ? { 团名: x.云上的团.name, 我是建的人: x.云上的团.我是建的人, 等授权: x.等授权, 本机客户: x.本机客户 } : null;
 }
 
 export async function 发起连接动作() {

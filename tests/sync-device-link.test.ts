@@ -200,6 +200,30 @@ describe("新电脑登录同一个账号：认出团队 → 在另一台电脑�
     expect(x.本机客户).toBe(1);
   });
 
+  it("D-03 li2 问云端没答上来（断网/超时、502、回的不是名单）：说「问不到」，不当成账号没有团队；云端明说没有才是没有", async () => {
+    当("li2");
+    const 坏法: 传输[] = [
+      async () => ({ 状态: 0, json: { error: "连不上云端，检查一下网络" } }),
+      async () => ({ 状态: 502, json: { error: "Bad Gateway" } }),
+      async () => ({ 状态: 200, json: {} }),
+    ];
+    for (const 坏 of 坏法) {
+      client.设传输(async (方法, 路径, body) => (路径 === "/api/sync/team" ? 坏(方法, 路径, body) : 桌面传(方法, 路径, body)));
+      try {
+        expect(await 新机.连接概况()).toMatchObject({ 云上的团: null, 问不到: true });
+      } finally {
+        client.设传输(桌面传);
+      }
+    }
+    client.设传输(async (方法, 路径, body) => (路径 === "/api/sync/team" ? { 状态: 200, json: { teams: [] } } : 桌面传(方法, 路径, body)));
+    try {
+      expect(await 新机.连接概况()).toMatchObject({ 云上的团: null, 问不到: false });
+    } finally {
+      client.设传输(桌面传);
+    }
+    expect(await 新机.连接概况()).toMatchObject({ 云上的团: { name: "授权QA" }, 问不到: false });
+  });
+
   it("li2 发申请：li 的电脑弹出「电脑」申请、配对数字一致；老板、zhao 看不到；老板批不了", async () => {
     当("li2");
     const r = await 新机.发起连接();
