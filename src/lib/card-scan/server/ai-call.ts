@@ -3,10 +3,11 @@
  *
  * 连哪：CARD_SCAN_AI_BASE_URL / CARD_SCAN_AI_KEY 配了就用它；没配就借模型网关的上游（GATEWAY_BASE_URL / GATEWAY_API_KEY，
  * 和背调同一个中转站）。模型 CARD_SCAN_AI_MODEL，默认见 默认模型。都没有 Key、或 CARD_SCAN_AI_OFF=1 → 返回 null，手机用规则。
- * 不扣次数、不走背调计费（2026-10-20 用户定「免费不扣次数」）。
+ * 不扣次数、不走背调计费（2026-10-20 用户定「免费不扣次数」），但成本照记一笔 AiCall（feature=card-scan），运营台看得到花了多少。
  * 名片文字只在这次请求里：不落盘、不打日志（出错只记状态码）。
  */
 import { 读网关配置 } from "@/lib/gateway";
+import { 记一次, 读用量, type 归属 } from "@/lib/tenant/ai-cost";
 import { AI系统提示, AI用户消息, 验AI回答, type AI回答, type 名片行 } from "../ai";
 
 /**
@@ -30,7 +31,7 @@ export function 整理配置(env: NodeJS.ProcessEnv = process.env): { baseUrl: s
 export async function AI整理名片(
   行们: 名片行[],
   行业们: readonly string[],
-  设: { 抓?: typeof fetch; env?: NodeJS.ProcessEnv; 超时?: number } = {},
+  设: { 抓?: typeof fetch; env?: NodeJS.ProcessEnv; 超时?: number; 记在?: 归属 } = {},
 ): Promise<AI回答 | null> {
   const cfg = 整理配置(设.env);
   if (!cfg || !行们.length) return null;
@@ -50,6 +51,8 @@ export async function AI整理名片(
     });
     if (!r.ok) { console.warn(`[card-scan-ai] 模型回 ${r.status}，用规则`); return null; }
     const j = (await r.json()) as { choices?: { message?: { content?: string } }[] };
+    const usage = 读用量(j);
+    if (设.记在 && usage) await 记一次(设.记在, { model: cfg.model, usage, feature: "card-scan" });
     return 验AI回答(JSON.parse(j.choices?.[0]?.message?.content ?? "null"), 行们.length, 行业们);
   } catch (e) {
     console.warn(`[card-scan-ai] 没拿到（${e instanceof Error ? e.name : "未知"}），用规则`);
