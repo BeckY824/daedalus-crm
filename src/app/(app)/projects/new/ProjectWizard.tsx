@@ -54,11 +54,13 @@ const 查过键 = (d: 稿, 企: boolean) => (企 ? `${d.号码类型 ?? ""}|${d.
 
 function 这步还差(步: number, d: 稿, 已查: string | null, 要下一步: boolean, 企: boolean): string {
   if (步 === 0 && 企) return !d.号码类型 ? "🔀请选择号码类型" : !d.phone.trim() ? "先填号码再查" : 已查 !== 查过键(d, 企) ? "点「查重」看看这个号码有没有人录过" : "";
-  if (步 === 0) return !d.phone.trim() ? "先填电话再查" : 已查 !== d.phone.trim() ? "点「查重」看看这个号码有没有人录过" : "";
+  // 团队版（10-28 宽松）：不用先点「查重」，点「下一步」顺手查一次，没撞就往下走
+  if (步 === 0) return !d.phone.trim() ? "先填电话" : "";
   if (步 === 1) return d.联系人.name.trim() ? "" : "请填写联系人姓名";
   if (步 === 2) return d.客户.name.trim() ? "" : "请填写名称";
   if (步 === 3) return !d.项目.name.trim() ? "请填写项目名称" : d.项目.name.trim().length > 项目名上限 ? `项目名称请控制在 ${项目名上限} 字以内` : "";
-  if (!d.跟进.content.trim()) return "请填写这次沟通的内容";
+  // 团队版首条沟通可以先不写（10-28 宽松），进了项目再记；企业版、开了超时回收的照旧必填
+  if (!d.跟进.content.trim()) return 企 || 要下一步 ? "请填写这次沟通的内容" : "";
   return 要下一步 && !d.跟进.下一步时间 ? "请填下一步时间：到那天还没跟进，项目会自动回到项目公海" : "";
 }
 
@@ -146,6 +148,7 @@ function WizardBody({ users, 要下一步, 企业版, 全名, 旧 }: { users: �
       set撞(hit);
       set已查(号);
       if (!hit && !d.联系人.phone) 改("联系人", { phone: 号 });
+      return !hit;
     } catch {
       message.error("查重没查成，请稍后再试");
     } finally {
@@ -172,7 +175,8 @@ function WizardBody({ users, 要下一步, 企业版, 全名, 旧 }: { users: �
         },
         联系人: d.联系人,
         项目: { ...d.项目, amount: d.项目.amount ?? 0, ownerId: d.项目.ownerId || null },
-        跟进: d.跟进,
+        // 团队版没写沟通内容 = 跳过首条沟通（服务端同样认）
+        跟进: !企业版 && !要下一步 && !d.跟进.content.trim() ? null : d.跟进,
       });
       if (!r.ok) {
         message.error(r.error);
@@ -359,7 +363,12 @@ function WizardBody({ users, 要下一步, 企业版, 全名, 旧 }: { users: �
               onChange={(v) => v && 改("跟进", { occurredAt: v.format(时间格式) })}
             />
           ), true)}
-          {一行("沟通内容", <Input.TextArea rows={4} value={d.跟进.content} onChange={(e) => 改("跟进", { content: e.target.value })} />, true)}
+          {一行("沟通内容", (
+            <>
+              <Input.TextArea rows={4} value={d.跟进.content} onChange={(e) => 改("跟进", { content: e.target.value })} />
+              {!企业版 && !要下一步 && <div style={{ marginTop: 4, color: "var(--text-muted)", fontSize: 12 }}>还没聊过可以先空着，直接「建好项目」，进了项目再记</div>}
+            </>
+          ), 企业版 || 要下一步)}
           {要下一步 && 一行("下一步时间", (
             <>
               <DatePicker
@@ -378,7 +387,19 @@ function WizardBody({ users, 要下一步, 企业版, 全名, 旧 }: { users: �
       <Space style={{ marginTop: 8 }}>
         {步 > 0 && <Button onClick={() => 去(步 - 1)}>上一步</Button>}
         {步 < 步骤们.length - 1 ? (
-          <Button type="primary" disabled={!!差 || 拦着} title={差 || undefined} onClick={() => 去(步 + 1)}>下一步</Button>
+          <Button
+            type="primary"
+            disabled={!!差 || 拦着}
+            loading={步 === 0 && 查中}
+            title={差 || undefined}
+            onClick={async () => {
+              // 团队版第一步没点过「查重」：这里顺手查一次，撞了停在这一步看提示，没撞直接往下
+              if (步 === 0 && !企业版 && 已查 !== d.phone.trim() && !(await 查重())) return;
+              去(步 + 1);
+            }}
+          >
+            下一步
+          </Button>
         ) : (
           <Button type="primary" disabled={!!差} title={差 || undefined} loading={交中} onClick={() => void 提交()}>建好项目</Button>
         )}

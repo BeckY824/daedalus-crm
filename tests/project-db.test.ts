@@ -157,6 +157,12 @@ describe("改节点", () => {
     expect((await prisma.projectNodeLog.findFirstOrThrow({ where: { projectId: p.id } })).reason).toBeNull();
   });
 
+  it("团队版（不是企业版）写了原因也记进节点变更（10-28 宽松：可写可不写）", async () => {
+    const p = await 项目(乙.id, 客户甲, { phase: "线索", node: "线索推进" });
+    expect(await 改节点(乙, p.id, { phase: "线索", node: "线索推进", result: "线索流失" }, { 备注: " 联系不上 " })).toEqual({ ok: true, 变了: true });
+    expect((await prisma.projectNodeLog.findFirstOrThrow({ where: { projectId: p.id } })).reason).toBe("联系不上");
+  });
+
   it("项目不在了、同事来勾：说人话，不抛", async () => {
     const p = await 项目(乙.id);
     expect(await 改节点(乙, "没有这个", { phase: "线索", node: "线索验证" })).toMatchObject({ ok: false, error: expect.stringContaining("不在了") });

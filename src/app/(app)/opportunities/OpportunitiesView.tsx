@@ -322,8 +322,10 @@ export default function OpportunitiesView({
       // 名字悬停变链接色，点了却没反应（J-093）。商机没有自己的详情页，点名字就打开这一单的编辑框——
       // 和客户列表点名字进记录页一个意思：点名字 = 看这一条
       title: "商机", key: "name", dataIndex: "name", width: 200, 常驻: true,
+      // 长名单行省略（2026-10-22 排版普查）：原来一长串没空格的英文把后面几列压到看不见
+      ellipsis: true,
       render: (v, r) => (
-        <button type="button" className="link-strong link-plain" onClick={() => { setEditing(r); setOpen(true); }}>
+        <button type="button" className="link-strong link-plain clamp-1" style={{ maxWidth: "100%" }} title={v} onClick={() => { setEditing(r); setOpen(true); }}>
           {v}
         </button>
       ),
@@ -333,9 +335,10 @@ export default function OpportunitiesView({
       render: (v, r) => <CustomerLink id={r.customerId} name={v} company={r.customerCompany} />,
     },
     {
-      title: "金额", key: "amount", dataIndex: "amount", width: 110,
+      // 金额不折行：「US$98,765,432.10」原来在 110 宽里断成三行
+      title: "金额", key: "amount", dataIndex: "amount", width: 150,
       sorter: (a, b2) => a.amount - b2.amount,
-      render: (v, r) => <span style={{ fontWeight: 600 }}>{金额(v, r.currency)}</span>,
+      render: (v, r) => <span style={{ fontWeight: 600, whiteSpace: "nowrap" }}>{金额(v, r.currency)}</span>,
     },
     {
       title: "阶段", key: "stage", dataIndex: "stage", width: 140,
@@ -350,7 +353,8 @@ export default function OpportunitiesView({
             size="small"
             value={v}
             variant="borderless"
-            style={{ width: 128 }}
+            // 跟着格子宽，最宽 128：写死 128 在 1024 宽下比格子多出 2px（2026-10-22 排版普查）
+            style={{ width: "100%", maxWidth: 128 }}
             options={OPP_STAGES.map((s2) => ({ value: s2, label: stageLabel(b, s2) }))}
             // 选「赢单成交」先问要不要顺手登记签约（2026-10-04 J-090），和「更多 → 标记赢单」同一个问话；不问就改，签约会漏记
             onChange={(s2) => (s2 === "赢单成交" ? 去赢(r) : void 改阶段(r, s2))}
@@ -377,7 +381,7 @@ export default function OpportunitiesView({
       ),
     },
     {
-      title: "", key: "act", width: 110, 常驻: true, fixed: "right",
+      title: "", key: "act", width: 118, 常驻: true, fixed: "right",
       render: (_, r) => (
         // 问「标为丢单？」那一句比这一格宽：盖在左边一格上（.opp-act），不临时加宽——加宽整张表会跳一下
         <span className="opp-act">

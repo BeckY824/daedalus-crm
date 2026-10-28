@@ -81,8 +81,8 @@ async function 取JSON(url) {
 }
 
 /**
- * 问一下有没有新版。查不到就返回 null——检查更新失败不该打扰用户，
- * 网络不通、GitHub 被墙、我们自己的站挂了，都不是他该处理的事。
+ * 问一下有没有新版。没有就返回 null；两个源都不通（网络不通、GitHub 被墙、我们自己的站挂了）
+ * 抛 name=「查不到」的错——不能当成「已是最新」。自动检查时上层不打扰用户，用户点的才说一句。
  */
 async function 查最新({ platform = "darwin", arch = "arm64" } = {}) {
   // 两边一起问：任一边不通都不影响另一边，总耗时也还是一次超时
@@ -152,6 +152,15 @@ async function 查最新({ platform = "darwin", arch = "arm64" } = {}) {
       备用: null,
     });
   }
+  /*
+    两边都没给出能用的东西（超时、断网、5xx、429、回的不是 JSON）≠「已是最新」（D-03 云端失败）。
+    原来这里也返回 null，界面就说「已是最新」——网断着的人以为自己是新版。抛出去让上层说「暂时查不到」
+  */
+  if (!feed && !合法版本(gh?.tag_name)) {
+    const e = new Error("暂时查不到新版本，稍后再试");
+    e.name = "查不到";
+    throw e;
+  }
   if (!候选.length) return null;
 
   // 谁新听谁的；并列时排在前面的自家源胜出（它的说明是写给人看的）
@@ -162,7 +171,7 @@ async function 查最新({ platform = "darwin", arch = "arm64" } = {}) {
  * 检查更新。
  * @param {{当前版本: string, 跳过的版本?: string}} 选项
  * @returns {Promise<null | {版本, 地址, 说明, 当前, dmg, sha256, zip, manifest, 备用}>}
- *   null 表示不用提示（已是最新 / 查不到 / 用户跳过了这版）。dmg 为 null 时只能打开下载页；
+ *   null 表示不用提示（已是最新 / 用户跳过了这版）；两个源都不通时抛 name=「查不到」的错。dmg 为 null 时只能打开下载页；
  *   zip 和 manifest 都有才能差量，缺一个就整包
  */
 async function 检查({ 当前版本, 跳过的版本, platform, arch } = {}) {

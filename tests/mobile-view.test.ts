@@ -86,7 +86,7 @@ describe("同步状态条", () => {
     const x = 同步条({ ...平, 错误: 到期 });
     expect(x).toMatchObject({ 样子: "stop", 字: "团队已到期，暂停同步" });
     expect(x.详!.原因).toContain("2026-10-14");
-    expect(x.详!.怎么办).toContain("续费后自动恢复，这台手机上的内容照常能看");
+    expect(x.详!.怎么办).toContain("续期后自动恢复，这台手机上的内容照常能看");
     expect(x.详!.怎么办).not.toContain("电脑");
     expect(同步条({ ...平, 错误: 到期, 在同步: true }).字).toBe("团队已到期，暂停同步");
     const 有待推 = 同步条({ ...平, 错误: 到期, 待同步: 3 });
@@ -114,7 +114,7 @@ describe("同步状态条", () => {
     const x = 首次同步失败(到期);
     expect(x.标题).toBe("团队同步已到期");
     expect(x.话).toContain("2026-10-14");
-    expect(x.话).toContain("续费后点「再试一次」就行");
+    expect(x.话).toContain("续期后点「再试一次」就行");
     expect(x.话).not.toMatch(/电脑|照常/);
     expect(首次同步失败(没开通话).标题).toBe("团队同步没开通");
     expect(首次同步失败("连不上网络").标题).toBe("没连上网络");

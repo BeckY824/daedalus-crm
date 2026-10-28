@@ -88,10 +88,10 @@ describe("改组织规则（企业版持有上限）", () => {
     expect(await 改组织规则({ 公海: { 持有上限开: true } })).toMatchObject({ ok: false, error: expect.stringContaining("企业版") });
     expect((await 读组织规则()).公海.持有上限开).toBe(false);
     expect(await 预览超时回收({ 超时回收: { 开: true } })).toMatchObject({ ok: false, error: expect.stringContaining("企业版") });
-    // 在项目上记沟通也是企业版的：拦下，一条跟进不写（照原来去客户页记）
-    expect(await 记项目沟通Action(项目id, { type: "PHONE", content: "聊了", occurredAt: "2026-10-20 10:00" })).toMatchObject({ ok: false, error: expect.stringContaining("企业版") });
-    expect(await prisma.followUp.count()).toBe(0);
     expect(await 记录()).toEqual([]);
+    // 在项目上记沟通团队版也能记（10-28）：不要下一步时间
+    expect(await 记项目沟通Action(项目id, { type: "PHONE", content: "聊了", occurredAt: "2026-10-20 10:00" })).toMatchObject({ ok: true });
+    expect(await prisma.followUp.count()).toBe(1);
   });
 
   it("老板开、设默认和单独上限，存下并留记录；再关", async () => {

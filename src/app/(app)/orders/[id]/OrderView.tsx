@@ -5,18 +5,20 @@ import DatePicker from "@/components/BusinessDatePicker";
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { App, Button, Card, Col, Input, InputNumber, Row, Segmented, Select, Space } from "antd";
+import { App, Button, Card, Col, Input, InputNumber, Row, Segmented, Select, Space, Switch } from "antd";
 import { DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
 import CurrencySelect from "@/components/CurrencySelect";
 import { 毛利 } from "@/lib/supplier";
 import { PageHead } from "@/components/ui";
-import { dayjs, fmtDate } from "@/lib/utils";
+import { dayjs, fmtDate, 成员选项, type 可选成员 } from "@/lib/utils";
 import { 金额 } from "@/lib/currency";
 import { 金额格式 } from "@/lib/money-input";
 import { 节点状态们, 单据状态们, 当前节点, 节点灯, 进度, 超期数, 订单的钱 } from "@/lib/order";
 import { 小计, 报价合计 } from "@/lib/quote";
 import type { 订单详情数据 } from "@/lib/order-db";
-import { saveOrderPurchase, saveOrder, saveOrderNode, saveOrderDoc, addOrderDoc, deleteOrderDoc, addOrderNodeNote, deleteOrder } from "../actions";
+import { saveOrderPurchase, saveOrder, saveOrderNode, saveOrderDoc, addOrderDoc, deleteOrderDoc, addOrderNodeNote, deleteOrder, saveOrderNodeOwner, addOrderCheck, saveOrderCheck, deleteOrderCheck, saveOrderTrack } from "../actions";
+import { 检查结果们, 样品节点, 验货节点, 开船节点, 返工, 样品状态, 到港灯, 尾款要催, 我该做的, type 检查类 } from "@/lib/order-track";
+import AttachmentsPanel from "@/components/AttachmentsPanel";
 import OrderForm from "../OrderForm";
 import { 供应商页 } from "@/lib/features";
 import ContractForm from "../../customers/[id]/ContractForm";
@@ -30,7 +32,11 @@ import ContractForm from "../../customers/[id]/ContractForm";
  */
 type 供应商选项 = { id: string; name: string; rating: string | null }[];
 
-export default function OrderView({ o, 供应商 = [], 先看 }: { o: 订单详情数据; 供应商?: 供应商选项; 先看?: number }) {
+/**
+ * 成员：团队版（多人）才给，个人版是空的——空的就不摆负责人、不摆「我该做的」（0.46.30 D-47）。
+ * 负责人只是用来筛的，不是权限：谁都能看全单、改全单
+ */
+export default function OrderView({ o, 供应商 = [], 先看, 成员 = [], 我 = "" }: { o: 订单详情数据; 供应商?: 供应商选项; 先看?: number; 成员?: 可选成员[]; 我?: string }) {
   const router = useRouter();
   const { message, modal } = App.useApp();
   const 当前 = 当前节点(o.nodes);
@@ -40,6 +46,10 @@ export default function OrderView({ o, 供应商 = [], 先看 }: { o: 订单详�
   /** 挂在整单上、不挂某一步的记录（nodeIdx 0：跟进表单「关联商机 / 订单」选的、轻量订单页记的） */
   const 整单记录 = o.notes.filter((x) => x.nodeIdx === 0);
   const 节 = o.nodes.find((n) => n.idx === 选) ?? o.nodes[0];
+  const 多人 = 成员.length > 1;
+  /** 「我该做的」：只亮我负责、没完成的那几步，其余变淡（不藏，12 步的格子不跳） */
+  const [只看我的, set只看我的] = useState(false);
+  const 我的 = new Set(多人 ? 我该做的(o.nodes, 我).map((n) => n.idx) : []);
 
   async function 跑<T extends { ok: boolean }>(p: Promise<T>, 成?: string) {
     const r = await p;
@@ -70,6 +80,9 @@ export default function OrderView({ o, 供应商 = [], 先看 }: { o: 订单详�
 
   const 钱 = 订单的钱(o);
   const 超 = 超期数(o.nodes);
+  const 卡返工 = 返工(o.checks);
+  const 港灯 = 到港灯(o.track);
+  const 催 = 尾款要催(o.track, 钱.未收);
 
   return (
     <>
@@ -93,8 +106,20 @@ export default function OrderView({ o, 供应商 = [], 先看 }: { o: 订单详�
         <span>{当前 ? <>当前 <b>{当前.idx}. {当前.name}</b></> : <b>12 步都走完了</b>}</span>
         <span>进度 <b>{进度(o.nodes)}%</b></span>
         {超 > 0 && <span className="ord-late">超期 {超} 步</span>}
+        {卡返工 && <button type="button" className="ord-flag ord-flag-红" onClick={() => set选(验货节点)}>验货不过 · 返工中</button>}
+        {(港灯 === "红" || 港灯 === "黄") && (
+          <button type="button" className={`ord-flag ord-flag-${港灯}`} onClick={() => set选(开船节点)}>
+            {港灯 === "红" ? "过了预计到港还没到" : `${fmtDate(o.track.eta!)} 到港`}{催 && " · 尾款没收齐"}
+          </button>
+        )}
+        {多人 && (
+          <label className="ord-mine-tog">
+            <Switch size="small" checked={只看我的} onChange={(v) => { set只看我的(v); const 头 = [...我的][0]; if (v && 头) set选(头); }} />
+            我该做的 <b>{我的.size}</b>
+          </label>
+        )}
         <span title="订单金额减去定金实收和尾款实收，最低为0；按订单币种计算">未收 <b>{钱.未收 > 0 ? 金额(钱.未收, o.currency) : "收齐了"}</b></span>
-        <Link href={`/customers/${o.customer.id}`}>{o.customer.name} 的记录 ›</Link>
+        <Link href={`/customers/${o.customer.id}`} className="clamp-1" style={{ display: "inline-block", maxWidth: 240, verticalAlign: "bottom" }} title={`${o.customer.name} 的记录`}>{o.customer.name} 的记录 ›</Link>
         {o.opportunity && <Link href={`/opportunities?keyword=${encodeURIComponent(o.opportunity.name)}`}>来自商机「{o.opportunity.name}」 ›</Link>}
       </div>
 
@@ -105,7 +130,7 @@ export default function OrderView({ o, 供应商 = [], 先看 }: { o: 订单详�
             <li key={n.idx}>
               <button
                 type="button"
-                className={`ord-step ord-step-${色}${n.idx === 选 ? " on" : ""}${当前?.idx === n.idx ? " now" : ""}`}
+                className={`ord-step ord-step-${色}${n.idx === 选 ? " on" : ""}${当前?.idx === n.idx ? " now" : ""}${只看我的 && !我的.has(n.idx) ? " dim" : ""}`}
                 onClick={() => set选(n.idx)}
                 aria-pressed={n.idx === 选}
                 aria-label={`第 ${n.idx} 步 ${n.name}：${n.status}${n.dueAt ? `，截止 ${fmtDate(n.dueAt)}` : ""}`}
@@ -120,7 +145,7 @@ export default function OrderView({ o, 供应商 = [], 先看 }: { o: 订单详�
       </ol>
 
       <Card className="ord-node" title={<span className="section-title">第 {节.idx} 步 · {节.name}</span>}>
-        <NodePanel key={节.idx} o={o} 节={节} 跑={跑} />
+        <NodePanel key={节.idx} o={o} 节={节} 跑={跑} 成员={多人 ? 成员 : []} />
       </Card>
 
       {整单记录.length > 0 && (
@@ -198,7 +223,7 @@ export default function OrderView({ o, 供应商 = [], 先看 }: { o: 订单详�
 type 跑法 = <T extends { ok: boolean }>(p: Promise<T>, 成?: string) => Promise<boolean>;
 
 /** 选中的那一步：截止日、状态、在这一步记一笔、这一步的记录 */
-function NodePanel({ o, 节, 跑 }: { o: 订单详情数据; 节: 订单详情数据["nodes"][number]; 跑: 跑法 }) {
+function NodePanel({ o, 节, 跑, 成员 }: { o: 订单详情数据; 节: 订单详情数据["nodes"][number]; 跑: 跑法; 成员: 可选成员[] }) {
   const [话, set话] = useState("");
   const [忙, set忙] = useState(false);
   const 记录 = o.notes.filter((x) => x.nodeIdx === 节.idx);
@@ -218,7 +243,32 @@ function NodePanel({ o, 节, 跑 }: { o: 订单详情数据; 节: 订单详情�
           options={[...节点状态们]}
           onChange={(v) => void 跑(saveOrderNode(o.id, 节.idx, { status: String(v) }))}
         />
+        {成员.length > 1 && (
+          <>
+            <label className="ord-k">负责人</label>
+            <Select
+              style={{ width: 140 }}
+              allowClear
+              placeholder="不指定"
+              value={节.ownerId ?? undefined}
+              onChange={(v) => void 跑(saveOrderNodeOwner(o.id, 节.idx, v ?? null))}
+              options={成员选项(成员)}
+              aria-label="这一步的负责人"
+            />
+          </>
+        )}
       </div>
+      {节.idx === 样品节点 && <ChecksPanel o={o} kind="样品" 跑={跑} />}
+      {节.idx === 验货节点 && (
+        <>
+          <ChecksPanel o={o} kind="验货" 跑={跑} />
+          <div className="ord-sub">
+            <div className="ord-k">验货照片</div>
+            <AttachmentsPanel 归属={{ orderId: o.id }} />
+          </div>
+        </>
+      )}
+      {节.idx >= 开船节点 && <TrackPanel key={JSON.stringify(o.track)} o={o} 跑={跑} />}
       {节.status === "已完成" && 节.doneAt && <div className="muted ord-done">{fmtDate(节.doneAt)} 完成</div>}
       <div className="ord-note-new">
         <Input.TextArea
@@ -353,6 +403,98 @@ function PurchasePanel({ o, 供应商, 跑 }: { o: 订单详情数据; 供应商
           )}
         </span>
         <Button type="primary" disabled={!改了} onClick={() => void 跑(saveOrderPurchase(o.id, v), "已保存")}>保存</Button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 样品 / 验货的每一轮（0.46.30 D-44 / D-45）：日子、结果、问题，一轮一行，改完一格就存。
+ * 都可以不填，也不拦着推节点（团队版宽松）。样品可以标「不寄样」——不适用
+ */
+function ChecksPanel({ o, kind, 跑 }: { o: 订单详情数据; kind: 检查类; 跑: 跑法 }) {
+  const 轮们 = o.checks.filter((c) => c.kind === kind);
+  const 不适用 = kind === "样品" && o.track.sampleNa;
+  const 状态 = kind === "样品" ? 样品状态(o.checks, o.track.sampleNa) : null;
+  const 日名 = kind === "样品" ? "寄出日" : "验货日";
+  return (
+    <div className="ord-sub">
+      <div className="ord-sub-h">
+        <span className="ord-k">{kind === "样品" ? "样品" : "QC 验货"}</span>
+        {状态 && <span className={`ord-chip${状态 === "要改" || 状态 === "重打" ? " warn" : 状态 === "已过" ? " ok" : ""}`}>{状态}</span>}
+        {kind === "验货" && 返工(o.checks) && <span className="ord-chip bad">返工中</span>}
+        {kind === "样品" && (
+          <label className="ord-k ord-na">
+            <Switch size="small" checked={不适用} onChange={(v) => void 跑(saveOrderTrack(o.id, { sampleNa: v }))} /> 不寄样
+          </label>
+        )}
+      </div>
+      {!不适用 && (
+        <>
+          {轮们.map((c) => (
+            <div key={c.id} className="ord-check">
+              <span className="ord-check-r">第 {c.round} 轮</span>
+              <DatePicker
+                value={c.at ? dayjs(c.at) : null}
+                onChange={(d) => void 跑(saveOrderCheck(c.id, { at: d ? d.toISOString() : null }))}
+                placeholder={日名}
+                aria-label={`第 ${c.round} 轮${日名}`}
+              />
+              <Segmented
+                size="small"
+                value={c.result ?? ""}
+                options={[{ value: "", label: "待定" }, ...检查结果们[kind].map((x) => ({ value: x, label: x }))]}
+                onChange={(v) => void 跑(saveOrderCheck(c.id, { result: String(v) || null }))}
+              />
+              <Input
+                className="ord-check-i"
+                defaultValue={c.issue ?? ""}
+                maxLength={500}
+                placeholder={kind === "样品" ? "客户的意见" : "问题：色差、尺寸、包装……"}
+                aria-label={`第 ${c.round} 轮的问题`}
+                onBlur={(e) => {
+                  const 新 = e.target.value.trim();
+                  if (新 !== (c.issue ?? "")) void 跑(saveOrderCheck(c.id, { issue: 新 || null }));
+                }}
+              />
+              <Button type="text" size="small" icon={<DeleteOutlined />} aria-label={`删掉第 ${c.round} 轮`} onClick={() => void 跑(deleteOrderCheck(c.id))} />
+            </div>
+          ))}
+          <div>
+            <Button size="small" icon={<PlusOutlined />} onClick={() => void 跑(addOrderCheck(o.id, kind, kind === "样品" ? { at: dayjs().toISOString() } : {}))}>
+              {轮们.length ? `加第 ${轮们.length + 1} 轮` : kind === "样品" ? "记一次寄样" : "记一次验货"}
+            </Button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 海运（0.46.30 D-46）：船名、柜号、预计到港、实际到港。到港的灯和节点同一套；
+ * 到港临近（或过了还没到）、钱没收齐，尾款那一句标红——货一到就该放单
+ */
+function TrackPanel({ o, 跑 }: { o: 订单详情数据; 跑: 跑法 }) {
+  const [v, setV] = useState({ vessel: o.track.vessel ?? "", container: o.track.container ?? "", eta: o.track.eta, ata: o.track.ata });
+  const 改了 = v.vessel !== (o.track.vessel ?? "") || v.container !== (o.track.container ?? "") || v.eta !== o.track.eta || v.ata !== o.track.ata;
+  const 灯 = 到港灯(o.track);
+  const 未收 = 订单的钱(o).未收;
+  return (
+    <div className="ord-sub">
+      <div className="ord-sub-h">
+        <span className="ord-k">海运</span>
+        {灯 === "绿" && <span className="ord-chip ok">已到港</span>}
+        {灯 === "黄" && <span className="ord-chip warn">快到港</span>}
+        {灯 === "红" && <span className="ord-chip bad">过了预计到港</span>}
+        {尾款要催(o.track, 未收) && <span className="ord-late">尾款还差 {金额(未收, o.currency)}</span>}
+      </div>
+      <div className="ord-node-row">
+        <Input style={{ width: 180, maxWidth: "100%" }} value={v.vessel} maxLength={100} onChange={(e) => setV({ ...v, vessel: e.target.value })} placeholder="船名 / 航次" aria-label="船名" />
+        <Input style={{ width: 160, maxWidth: "100%" }} value={v.container} maxLength={100} onChange={(e) => setV({ ...v, container: e.target.value })} placeholder="柜号" aria-label="柜号" />
+        <DatePicker value={v.eta ? dayjs(v.eta) : null} onChange={(d) => setV({ ...v, eta: d ? d.endOf("day").toISOString() : null })} placeholder="预计到港" aria-label="预计到港" />
+        <DatePicker value={v.ata ? dayjs(v.ata) : null} onChange={(d) => setV({ ...v, ata: d ? d.toISOString() : null })} placeholder="实际到港" aria-label="实际到港" />
+        <Button type="primary" disabled={!改了} onClick={() => void 跑(saveOrderTrack(o.id, { vessel: v.vessel.trim() || null, container: v.container.trim() || null, eta: v.eta, ata: v.ata }), "已保存")}>保存</Button>
       </div>
     </div>
   );

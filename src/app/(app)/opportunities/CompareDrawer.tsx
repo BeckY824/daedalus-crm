@@ -102,11 +102,12 @@ export default function CompareDrawer({ open, opp, onClose }: { open: boolean; o
           {
             title: "供应商", key: "s", width: 140,
             render: (_, r) => (
-              <Space size={4}>
-                <span>{r.supplier.name}</span>
-                {r.supplier.rating && <Tag style={{ margin: 0 }}>{r.supplier.rating}</Tag>}
-                {r.supplier.issues && <Tooltip title={`出过的问题：${r.supplier.issues}`}><WarningOutlined className="cmp-issue" aria-label="出过问题" /></Tooltip>}
-              </Space>
+              // 长供应商名两行省略，评级和警示不被挤出格子（2026-10-22 排版普查）
+              <span style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+                <span className="clamp" title={r.supplier.name}>{r.supplier.name}</span>
+                {r.supplier.rating && <Tag style={{ margin: 0, flex: "none" }}>{r.supplier.rating}</Tag>}
+                {r.supplier.issues && <Tooltip title={`出过的问题：${r.supplier.issues}`}><WarningOutlined className="cmp-issue" style={{ flex: "none" }} aria-label="出过问题" /></Tooltip>}
+              </span>
             ),
           },
           { title: "产品", dataIndex: "product", key: "product", width: 120 },

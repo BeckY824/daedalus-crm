@@ -12,7 +12,7 @@
 export const 订单 = true;
 
 /** 订单的 12 个节点、单据清单、定金尾款、超期提醒（Dock / 盯盘 / 左栏数字） */
-export const 订单节点 = false;
+export const 订单节点 = true;
 
 /** 供应商档案页、商机里的供应商比价、AI / MCP 的 list_suppliers。订单里照样能填供应商名字（能选也能填） */
 export const 供应商页 = false;

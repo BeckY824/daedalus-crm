@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { 本机我, 团队身份id } from "@/lib/desktop/me";
 import { 云端地址 } from "@/lib/desktop/cloud";
 import { recordAudit } from "@/lib/audit";
-import { 团队状态, 建团队, 加入团队, 同步一轮, 退出团队, 移除成员, 换邀请码, 读价格表, 设互看, 设角色, 部门操作, 读团队, 这个进程同步过 } from "@/lib/sync/client";
+import { 团队状态, 建团队, 加入团队, 同步一轮, 退出团队, 移除成员, 换邀请码, 设互看, 设角色, 部门操作, 读团队, 这个进程同步过 } from "@/lib/sync/client";
 import { 疑似重复 } from "@/lib/sync/dupes";
 import { 合并一批, 撤销上一批, 读上次合并, 标不是同一个人, type 一对 } from "@/lib/customer-merge";
 import { 管全队客户 } from "@/lib/constants";
@@ -34,15 +34,14 @@ async function 换票() {
 }
 export async function 读团队状态() {
   await requireUser();
-  // 价格表（2026-10-15）：服务器上的，运营台改了这里就是新价；和团队状态一起拿，不多等一轮
-  const [s, 价格] = await Promise.all([团队状态(), 读价格表().catch(() => null)]);
+  const s = await 团队状态();
   // 这台还没连上：账号在云上是哪个团队的、是不是在等另一台电脑允许（2026-10-15 多设备同步）
-  if (!s.在团队) return { ...s, 价格, 连接: await 连接概况().catch(() => null) };
+  if (!s.在团队) return { ...s, 连接: await 连接概况().catch(() => null) };
   // 老板看每个人的客户数和跟进（2026-10-04：老板要看得到业务员的跟进过程）；疑似重复也只给老板看——业务员只看得到自己那一半。
   // 业务主管（2026-10-20）看全队，这两样也给
-  if (!s.我是建的人 && !s.我是主管) return { ...s, 价格, 重复: [] as Awaited<ReturnType<typeof 疑似重复>>, 每人: {} as Record<string, 一人>, 上次合并: null as { at: string; 对数: number } | null, 叫法: "客户" };
+  if (!s.我是建的人 && !s.我是主管) return { ...s, 重复: [] as Awaited<ReturnType<typeof 疑似重复>>, 每人: {} as Record<string, 一人>, 上次合并: null as { at: string; 对数: number } | null, 叫法: "客户" };
   const 上次 = await 读上次合并().catch(() => null);
-  return { ...s, 价格, 重复: await 疑似重复(), 每人: await 每人概况(s.成员.map((m) => m.accountId)), 上次合并: 上次 ? { at: 上次.at, 对数: 上次.料们.length } : null, 叫法: (await getBusiness()).customer };
+  return { ...s, 重复: await 疑似重复(), 每人: await 每人概况(s.成员.map((m) => m.accountId)), 上次合并: 上次 ? { at: 上次.at, 对数: 上次.料们.length } : null, 叫法: (await getBusiness()).customer };
 }
 
 /**
@@ -349,7 +348,9 @@ export async function 拒绝手机动作(id: string) {
 export async function 待连接团队动作() {
   await requireUser();
   const x = await 连接概况().catch(() => null);
-  return x?.云上的团 ? { 团名: x.云上的团.name, 我是建的人: x.云上的团.我是建的人, 等授权: x.等授权, 本机客户: x.本机客户 } : null;
+  // 云端没答上来：说一声「问不到」，首页过一会儿再问，而不是当成没有团、这次打开就不弹了（2026-10-28 D-03）
+  if (!x || x.问不到) return { 问不到: true as const };
+  return x.云上的团 ? { 团名: x.云上的团.name, 我是建的人: x.云上的团.我是建的人, 等授权: x.等授权, 本机客户: x.本机客户 } : null;
 }
 
 export async function 发起连接动作() {

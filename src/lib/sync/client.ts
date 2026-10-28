@@ -865,11 +865,21 @@ export async function 部门操作(action: string, body: Record<string, unknown>
   return { ok: true, data: r.json };
 }
 
+/** 云端问不到时，本机记得我是不是老板：记过老板账号就比账号，没记过就看手上有没有老板的签名私钥 */
+function 本机认老板(c: 团队配置): boolean {
+  const 我 = 读云端凭据()?.accountId;
+  return c.ownerAccountId ? !!我 && c.ownerAccountId === 我 : !!c.signPriv;
+}
+
 /** 设置 → 团队要的：本机的团队、上次同步、出错原因，以及云端那边的成员和开通状态 */
 export async function 团队状态() {
   const c = 读团队();
   if (!c) return { 在团队: false as const, 能用: 能用().ok };
   const r = await 云("GET", "/api/sync/team");
+  // 答了 = 云端正常回了名单。回 200 但不是名单（网关出错页、代理回的 HTML）也算没答上来，不能当成「被移出」
+  const 答了 = r.状态 === 200 && Array.isArray(r.json.teams);
+  // 401/403 是云端明说的（登录失效等），照原样走 lastError；其余没答上来的都算连不上
+  const 连不上 = !答了 && r.状态 !== 401 && r.状态 !== 403;
   const 团 = ((r.json.teams as { id: string; name: string; active: boolean; 我是建的人: boolean; paidUntil?: string; 剩几天?: number; seats?: number; expired?: boolean; 互看?: boolean; 编制?: 团队编制; 成员: { accountId: string; name: string; contact: string; role: string }[] }[]) ?? []).find((t) => t.id === c.teamId);
   if (团) await 看全部(() => 按名单对角色(团.成员, 团.id)).catch(() => undefined);
   if (团) 记互看(团.id, 团.互看);
@@ -880,7 +890,11 @@ export async function 团队状态() {
      * 云端答得上来、但我的团队列表里没有这个团队：被建团队的人移出了（或者在别的电脑上退出了）。
      * 原来界面上写「连不上云端」、还摆着已经作废的邀请码（2026-10-04 实机）
      */
-    被移出: r.状态 === 200 && !团,
+    被移出: 答了 && !团,
+    /**
+     * 云端没答上来（超时、断网、5xx）：名单、开通状态、到期都不知道。界面写「暂时连不上云端」，不当成没有同事、不当成业务员（2026-10-28 D-03）
+     */
+    连不上,
     teamName: 团?.name ?? c.teamName,
     active: 团?.active ?? null,
     /**
@@ -890,7 +904,8 @@ export async function 团队状态() {
     到期: 团?.paidUntil ? { 日: 团.paidUntil, 剩: Number(团.剩几天 ?? 0) } : null,
     席位: 团?.seats ?? null,
     已到期: 团?.expired === true,
-    我是建的人: 团?.我是建的人 ?? false,
+    // 云端没答上来时按本机记的老板认（建团队时、每次对名单时记进 .team.json），老板不会因为断网变成业务员
+    我是建的人: 团 ? 团.我是建的人 : 连不上 && 本机认老板(c),
     /** 业务主管（2026-10-20）：看全队客户、分配、处理重复；加人、移除、邀请码、开关、业务配置都不归他 */
     我是主管: !(团?.我是建的人) && !!团?.成员.some((m) => m.accountId === 读云端凭据()?.accountId && m.role === "manager"),
     /** 同事之间互相看得到客户。null = 老服务器不认这个开关，界面上不摆 */
@@ -906,22 +921,13 @@ export async function 团队状态() {
     lastSyncAt: c.lastSyncAt ?? null,
     lastOkAt: c.lastOkAt ?? null,
     跑过一轮,
-    lastError: c.lastError ?? (r.状态 === 200 ? null : String(r.json.error ?? "")),
+    lastError: c.lastError ?? (答了 ? null : String(r.json.error ?? "")),
     last: c.last ?? null,
     /** 回放时撞了合不了的唯一约束、两台因此对不上的几条（T-003）：界面上写「有 N 条没同步上」，不静默 */
     没同步上: await 没同步上(prisma).catch(() => ({ 条数: 0, 例子: [] as { 表: string; 原因: string }[] })),
     /** 范围同步：阶段、待老板核对的失权改动条数（不静默丢弃）、跳过的坏包、上一轮清理结果 */
     范围: await 范围同步概况().catch(() => null),
   };
-}
-
-export type 团队价格 = { prices: { months: number; label: string; perSeat: number; perMonth: number }[]; trialDays: number };
-/** 团队版价格表（每人，2026-10-15）：存在服务器、运营台改，这里只拿来显示。拿不到（没登录、连不上、老服务器）回 null，界面上就不摆 */
-export async function 读价格表(): Promise<团队价格 | null> {
-  const r = await 云("GET", "/api/sync/pricing").catch(() => null);
-  if (!r || r.状态 !== 200 || !Array.isArray(r.json.prices)) return null;
-  const prices = (r.json.prices as 团队价格["prices"]).filter((p) => p && typeof p.perSeat === "number" && typeof p.label === "string");
-  return prices.length ? { prices, trialDays: Number(r.json.trialDays) || 0 } : null;
 }
 
 /* ---------------- 老板 / 业务员（2026-10-04 两档权限，lib/team-scope.ts） ---------------- */

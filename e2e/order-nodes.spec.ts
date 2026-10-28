@@ -9,8 +9,8 @@ import { test, expect, type Page } from "@playwright/test";
 import { 连库 } from "./mock-data";
 import { 订单节点 } from "../src/lib/features";
 
-// 订单的 12 个节点这一版不上（lib/features.ts 订单节点）：开关打开时这份用例照常跑（2026-10-06 临时打开实跑过一遍）
-test.skip(!订单节点, "订单的 12 个节点这一版不上（轻量订单见 e2e/trade-order.spec.ts）");
+// 订单的 12 个节点 0.46.30 起打开（样品、验货、海运、节点负责人挂在节点上）；开关关着时跟着跳过
+test.skip(!订单节点, "订单节点关着（轻量订单见 e2e/trade-order.spec.ts）");
 
 const 管理员 = { 用户名: "admin", 密码: "admin123" };
 const 客户名 = "订单测试客户";
@@ -119,10 +119,32 @@ test("外贸订单：转为订单 → 走节点、记一笔、勾单据、填尾
   await page.locator(".ord-money").first().getByRole("button", { name: /保\s*存/ }).click();
   await expect(page.locator(".ord-sum")).toContainText("收齐了");
 
-  // 7. 一览：这一单在，当前节点第 6 步
+  // 7. 样品（0.46.30 D-44）：第 4 步旁记一次寄样，结果「过」→ 已过
+  await page.getByRole("button", { name: /第 4 步 / }).click();
+  await page.getByRole("button", { name: "记一次寄样" }).click();
+  const 样品轮 = page.locator(".ord-check").first();
+  await expect(样品轮).toContainText("第 1 轮");
+  await 样品轮.getByText("过", { exact: true }).click();
+  await expect(page.locator(".ord-sub-h").first()).toContainText("已过");
+
+  // 8. 验货（D-45）：第 8 步记一次验货「不过」→ 顶上挂「返工中」，不拦着推节点
+  await page.getByRole("button", { name: /第 8 步 / }).click();
+  await page.getByRole("button", { name: "记一次验货" }).click();
+  await page.locator(".ord-check").first().getByText("不过", { exact: true }).click();
+  await expect(page.locator(".ord-sum")).toContainText("验货不过 · 返工中");
+
+  // 9. 海运（D-46）：第 11 步填船名、柜号保存
+  await page.getByRole("button", { name: /第 11 步 / }).click();
+  await page.getByLabel("船名").fill("COSCO 0425E");
+  await page.getByLabel("柜号").fill("CSNU1234567");
+  await page.locator(".ord-sub").getByRole("button", { name: /保\s*存/ }).click();
+  await expect(page.getByText("已保存")).toBeVisible();
+
+  // 10. 一览：这一单在，当前节点第 6 步，后面挂「返工」
   await page.goto("/orders");
   const 行 = page.locator(".ant-table-row", { hasText: 客户名 });
   await expect(行).toContainText("6. 下单给工厂");
+  await expect(行).toContainText("返工");
   await expect(行).toContainText("US$ 7,100");
   expect(问题, 问题.join("\n")).toEqual([]);
 });

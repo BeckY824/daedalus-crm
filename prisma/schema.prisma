@@ -400,6 +400,10 @@ model TradeOrder {
   followUps FollowUpOrder[]
   /// 采购：供应商、采购额、汇率（3c）。见 TradeOrderPurchase
   purchase  TradeOrderPurchase?
+  /// 样品 / 验货的每一轮（0.46.30 D-44 / D-45）。见 TradeOrderCheck
+  checks    TradeOrderCheck[]
+  /// 海运和「样品不适用」（0.46.30 D-44 / D-46）。见 TradeOrderTrack
+  track     TradeOrderTrack?
 
   @@index([customerId])
   @@index([opportunityId])
@@ -592,8 +596,49 @@ model TradeOrderNode {
   dueAt   DateTime?
   status  String     @default("未开始")
   doneAt  DateTime?
+  /// 这一步谁负责（0.46.30 D-47）。见 TradeOrderNodeOwner
+  owner   TradeOrderNodeOwner?
 
   @@unique([orderId, idx])
+}
+
+/// 节点负责人（0.46.30 D-47，迁移 056）：一个节点一行，没有这一行 = 没指定。只在团队版（多人）有入口。
+/// userId 不建外键（和 TradeOrder.ownerId 一样），改身份靠 sync/tables.ts 的 指向人的列
+model TradeOrderNodeOwner {
+  nodeId String         @id
+  node   TradeOrderNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  userId String
+
+  @@index([userId])
+}
+
+/// 样品确认 / 验货的一轮（0.46.30 D-44 / D-45，迁移 055）：每轮一行，round 从 1 起。
+/// kind = 样品：at = 寄出日，result = 过 / 要改 / 重打；kind = 验货：at = 验货日，result = 过 / 不过，issue = 问题。
+/// 验货照片挂在订单的附件上（Attachment.orderId），不另建表
+model TradeOrderCheck {
+  id        String     @id @default(cuid())
+  orderId   String
+  order     TradeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  kind      String
+  round     Int        @default(1)
+  at        DateTime?
+  result    String?
+  issue     String?
+  createdAt DateTime   @default(now())
+
+  @@index([orderId])
+}
+
+/// 订单的海运和样品开关（0.46.30 D-44 / D-46，迁移 055）：一单一行。
+/// sampleNa = 这单不寄样；vessel / container = 船名 / 柜号；eta / ata = 预计 / 实际到港
+model TradeOrderTrack {
+  orderId   String     @id
+  order     TradeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sampleNa  Boolean    @default(false)
+  vessel    String?
+  container String?
+  eta       DateTime?
+  ata       DateTime?
 }
 
 /// 订单要收 / 要出的单据，三态：未收 / 已收 / 已发客户，外加「不需要」。新建时按贸易条款给默认的一组
@@ -900,6 +945,8 @@ model Project {
   updatedAt            DateTime                  @updatedAt
   /// 有结局的那一刻；回到进行中就清掉
   closedAt             DateTime?
+  /// 来源线索：线索转化时建的项目记一笔是哪条线索（只记 id、不建关联）；建档向导建的为空
+  sourceLeadId         String?
 
   members   ProjectMember[]
   logs      ProjectNodeLog[]
@@ -908,6 +955,7 @@ model Project {
   @@index([customerId])
   @@index([ownerId])
   @@index([pooledAt])
+  @@index([sourceLeadId])
 }
 
 /// 项目组成员，多对多。1a 负责人直接加人写 JOINED；1b 的进组邀请用 INVITED / DECLINED 和 invitedById

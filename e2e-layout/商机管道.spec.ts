@@ -9,6 +9,7 @@
  *   - 列比现在多（以后阶段能加）：把列复制到 8 列再量一遍，照样折行不横滚
  *   - 折到第二行的列也能拖进去：拖过去整列亮、松手写库
  *   - 卡片底行（团队里显示负责人时）：两个负责人 + 大额 + 一长串英文名，金额一行写完、负责人不冲出卡片
+ *   - 超大金额（上亿美元、带负号的 8 位数）：一行放不下就在符号和数字之间折一次，数字不断开、不冲出卡片
  *
  *   E2E_PORT=3560 E2E_SHOT_DIR=… npx playwright test -c playwright.layout.config.ts e2e-layout/商机管道.spec.ts
  */
@@ -53,6 +54,9 @@ test.beforeAll(async ({ browser }) => {
     await db.user.upsert({ where: { id: 另一个人.id }, create: { id: 另一个人.id, email: "pipe-owner@e2e.local", name: 另一个人.名, password: "x", role: "SALES", title: "业务员" }, update: { active: true, name: 另一个人.名 } });
     await db.opportunity.create({ data: { id: "gate-pipe-owner-big", name: "Big order · long owner", amount: 1234567.89, stage: "需求确认", customerId: 客户, ownerId: 另一个人.id, probability: 40, money: { create: { currency: "USD" } } } });
     await db.opportunity.create({ data: { id: "gate-pipe-owner-eur", name: "EUR order · my own", amount: 45000, stage: "需求确认", customerId: 客户, ownerId: 我, probability: 40, money: { create: { currency: "EUR" } } } });
+    // 质量审 #87 时量到：1280 一排五列，这两种金额原来多出 4–6px
+    await db.opportunity.create({ data: { id: "gate-pipe-huge", name: "Huge order · nine digits", amount: 123456789.12, stage: "需求确认", customerId: 客户, ownerId: 另一个人.id, probability: 40, money: { create: { currency: "USD" } } } });
+    await db.opportunity.create({ data: { id: "gate-pipe-negative", name: "Credit note · negative", amount: -12345678.9, stage: "需求确认", customerId: 客户, ownerId: 我, probability: 40, money: { create: { currency: "USD" } } } });
   } finally {
     await db.$disconnect();
   }
@@ -259,6 +263,32 @@ test("1280：卡片底行两个负责人 + 大额 + 长英文名，金额一行�
   expect(b.金额一行, "欧元金额一行").toBe(true);
   expect(b.负责人一行, "中文名不折行").toBe(true);
   expect(b.负责人出界).toBe(false);
+  const 问题 = await 查排版(page, { 忽略 });
+  expect(问题, 说问题(问题)).toEqual([]);
+});
+
+for (const 宽 of [1024, 1280]) test(`${宽}：上亿、带负号的金额一行放不下就在符号后折一次，数字不断开、不冲出卡片`, async ({ page }) => {
+  await 开管道(page, 宽, 680);
+  const 大 = page.locator(".pipe-card", { hasText: "Huge order · nine digits" });
+  await 大.scrollIntoViewIfNeeded();
+  await 截(page, `${宽}-超大金额`);
+  for (const 名 of ["Huge order · nine digits", "Credit note · negative", "Big order · long owner"]) {
+    const r = await page.locator(".pipe-card", { hasText: 名 }).evaluate((c) => {
+      const 框 = c.getBoundingClientRect();
+      const 额 = c.querySelector<HTMLElement>(".pipe-card-a")!;
+      const 段 = [...额.querySelectorAll<HTMLElement>(".pipe-card-a-n")];
+      const 行高 = parseFloat(getComputedStyle(额).lineHeight);
+      return {
+        金额: 额.textContent,
+        段数: 段.length,
+        每段一行: 段.every((e) => e.getClientRects().length === 1 && e.getBoundingClientRect().height < 行高 * 1.5),
+        出界: [额, ...段].some((e) => e.getBoundingClientRect().right > 框.right - 1),
+      };
+    });
+    expect(r.段数, `${名}：符号和数字两段`).toBe(2);
+    expect(r.每段一行, `${名}：${r.金额} 符号、数字各自不断开`).toBe(true);
+    expect(r.出界, `${名}：${r.金额} 冲出卡片`).toBe(false);
+  }
   const 问题 = await 查排版(page, { 忽略 });
   expect(问题, 说问题(问题)).toEqual([]);
 });

@@ -208,7 +208,8 @@ afterAll(async () => {
   for (const w of ["boss", "li", "zhao", "li2", "boss2", "boss3", "wang"] as const) await db(w).$disconnect();
   await control?.$disconnect();
   for (const n of ["MULTI_TENANT", "DESKTOP_LOCAL", "SYNC_DIR", "CONTROL_DATABASE_URL", "CRM_DATA_DIR", "CRM_SCOPED_SYNC"]) delete process.env[n];
-  fs.rmSync(临时.root, { recursive: true, force: true });
+  // Windows 上库连接刚关、文件锁还没放，删会报 EBUSY：多试几次（照 r2-shell-backup）
+  fs.rmSync(临时.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 });
 
 describe("业务员 li 的第二台电脑 B（本来就有客户）经配对连上", () => {

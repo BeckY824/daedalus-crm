@@ -88,8 +88,31 @@ describe("检查更新取哪个源", () => {
     expect((await 检查({ 当前版本: "0.14.0" }))?.版本).toBe("v0.20.1");
   });
 
-  it("两边都不通就当没有新版，不打扰用户", async () => {
+  // D-03：查不到 ≠ 已是最新。两边都不通要抛「查不到」，主进程据此说「暂时查不到新版本」而不是「已是最新」
+  it("两边都断网：抛「查不到」，不当成已是最新", async () => {
     假网络(null, null);
+    await expect(检查({ 当前版本: "0.14.0" })).rejects.toMatchObject({ name: "查不到" });
+  });
+
+  it("两边都超时：同样抛「查不到」", async () => {
+    vi.stubGlobal("fetch", async () => { throw Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" }); });
+    await expect(检查({ 当前版本: "0.14.0" })).rejects.toMatchObject({ name: "查不到" });
+  });
+
+  it("两边都回 5xx / 429 / 不是 JSON：同样抛「查不到」", async () => {
+    for (const 坏 of [
+      { ok: false, status: 502, json: async () => ({}) },
+      { ok: false, status: 429, json: async () => ({}) },
+      { ok: true, status: 200, json: async () => { throw new SyntaxError("Unexpected token <"); } },
+    ]) {
+      vi.stubGlobal("fetch", async () => 坏);
+      await expect(检查({ 当前版本: "0.14.0" })).rejects.toMatchObject({ name: "查不到" });
+    }
+  });
+
+  it("一边 5xx、另一边正常回了「没有更新的」：照常是没有新版，不报查不到", async () => {
+    vi.stubGlobal("fetch", async (url: string) =>
+      String(url).includes("api.github.com") ? { ok: false, status: 503, json: async () => ({}) } : { ok: true, json: async () => 自家("0.14.0") });
     expect(await 检查({ 当前版本: "0.14.0" })).toBeNull();
   });
 

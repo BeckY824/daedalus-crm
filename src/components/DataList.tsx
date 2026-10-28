@@ -3,7 +3,7 @@
 import { 登记页面行 } from "@/lib/page-rows";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Table, Button, Dropdown, Checkbox } from "antd";
+import { Table, Button, Dropdown, Checkbox, Grid } from "antd";
 import { SettingOutlined } from "@ant-design/icons";
 import type { ColumnType } from "antd/es/table";
 import type { SortOrder } from "antd/es/table/interface";
@@ -243,8 +243,12 @@ export default function DataList<T extends { id: string }>({
    * 表格自己的最小宽度。不给就按显示中的列宽加起来算。
    * 必须有一个值：没有它，列一多就把**整页**撑出横向滚动条；
    * 有了它，超出的部分在表格自己的框里横滚，页面不动。
+   * 带 responsive 的列在窄窗口下 antd 不画，这里也不算它的宽（10-27），不然收了列照样要左右拖
    */
-  const x = 横向 ?? 显示的列.reduce((s2, c) => s2 + (typeof c.width === "number" ? c.width : 120), 0);
+  const 屏 = Grid.useBreakpoint();
+  const x = 横向 ?? 显示的列
+    .filter((c) => !c.responsive || c.responsive.some((bp) => 屏[bp]))
+    .reduce((s2, c) => s2 + (typeof c.width === "number" ? c.width : 120), 0);
 
   return (
     <div className="list" ref={表框}>

@@ -9,6 +9,8 @@ import { 不在了 } from "@/lib/not-there";
 import { 是币种, 规整币种, 金额 as 显示金额 } from "@/lib/currency";
 import { 商机币种, 带币种 } from "@/lib/money-db";
 import { 节点名们, 节点状态们, 单据状态们, 默认单据, 默认订单号, 成交前节点数, 团队订单前缀 } from "@/lib/order";
+import { 检查类们, 检查结果们, 下一轮次, type 检查类 } from "@/lib/order-track";
+import { 负责人候选 } from "@/lib/owners";
 import { 读团队 } from "@/lib/sync/client";
 import { getBusiness } from "@/lib/business";
 import { 订单, 订单节点, 供应商页 } from "@/lib/features";
@@ -264,6 +266,148 @@ export async function saveOrderNode(orderId: string, idx: number, patch: { name?
       });
     }
     刷新(orderId, n.order.customerId);
+    return { ok: true as const };
+  } catch (e) {
+    return 不在了(e);
+  }
+}
+
+/**
+ * 节点负责人（0.46.30 D-47）：给某一步指定谁负责，传空 = 不指定。
+ * 只在团队版（多人）有入口；候选和订单页「业务员」那一栏同一份（负责人候选）。
+ * 负责人只用来筛「我该做的」，不是权限：老板、业务员都能指定、都能看全单改全单（团队版要宽松，10-28 定）
+ */
+export async function saveOrderNodeOwner(orderId: string, idx: number, userId: string | null) {
+  try {
+    const me = await requireUser();
+    if (!订单 || !订单节点) return { ok: false as const, error: "此版本未开放订单节点与单据功能" };
+    const n = await prisma.tradeOrderNode.findUnique({
+      where: { orderId_idx: { orderId: String(orderId ?? ""), idx: Number(idx) } },
+      select: { id: true, idx: true, name: true, owner: { select: { userId: true } }, order: { select: { no: true, customerId: true } } },
+    });
+    if (!n) return { ok: false as const, error: "这个节点已经不在了" };
+    const 新 = userId ? String(userId) : null;
+    if ((n.owner?.userId ?? null) === 新) return { ok: true as const };
+    let 名字 = "不指定";
+    if (新) {
+      const 人 = (await 负责人候选()).find((u) => u.id === 新);
+      if (!人) return { ok: false as const, error: "这个人不能当负责人，或者已经不在了" };
+      名字 = 人.name;
+      await prisma.tradeOrderNodeOwner.upsert({ where: { nodeId: n.id }, create: { nodeId: n.id, userId: 新 }, update: { userId: 新 } });
+    } else {
+      await prisma.tradeOrderNodeOwner.deleteMany({ where: { nodeId: n.id } });
+    }
+    await recordAudit({ user: me, action: "update", entity: "TradeOrder", entityId: orderId, summary: `订单 ${n.order.no} 第 ${n.idx} 步「${n.name}」的负责人：${名字}`, detail: { 节点: n.idx, 负责人: 新 } });
+    刷新(orderId, n.order.customerId);
+    return { ok: true as const };
+  } catch (e) {
+    return 不在了(e);
+  }
+}
+
+type 检查输入 = { at?: string | null; result?: string | null; issue?: string | null };
+
+/** 整理一轮样品 / 验货的三格：给了才改；结果只认这一类的那几个 */
+function 整理检查(kind: 检查类, input: 检查输入): { ok: true; data: { at?: Date | null; result?: string | null; issue?: string | null } } | { ok: false; error: string } {
+  const data: { at?: Date | null; result?: string | null; issue?: string | null } = {};
+  if (input.at !== undefined) {
+    const d = 日期(input.at);
+    if (d === "坏") return { ok: false, error: kind === "样品" ? "寄出日不是一个日期" : "验货日不是一个日期" };
+    data.at = d;
+  }
+  if (input.result !== undefined) {
+    const r = input.result ? String(input.result) : null;
+    if (r && !检查结果们[kind].includes(r)) return { ok: false, error: `${kind}结果只能是：${检查结果们[kind].join(" / ")}` };
+    data.result = r;
+  }
+  if (input.issue !== undefined) data.issue = 文本(input.issue, 2000) || null;
+  return { ok: true, data };
+}
+
+/** 样品 / 验货加一轮（0.46.30 D-44 / D-45）：轮次 = 同类最大 + 1 */
+export async function addOrderCheck(orderId: string, kind: string, input: 检查输入 = {}) {
+  try {
+    const me = await requireUser();
+    if (!订单 || !订单节点) return { ok: false as const, error: "此版本未开放订单节点与单据功能" };
+    if (!(检查类们 as readonly string[]).includes(kind)) return { ok: false as const, error: "只能记样品或验货" };
+    const 类 = kind as 检查类;
+    const r = 整理检查(类, input);
+    if (!r.ok) return r;
+    const o = await prisma.tradeOrder.findUnique({ where: { id: String(orderId ?? "") }, select: { id: true, no: true, customerId: true, checks: { select: { kind: true, round: true } } } });
+    if (!o) return { ok: false as const, error: "这张订单已经不在了" };
+    const round = 下一轮次(o.checks, 类);
+    const c = await prisma.tradeOrderCheck.create({ data: { orderId: o.id, kind: 类, round, ...r.data } });
+    await recordAudit({ user: me, action: "update", entity: "TradeOrder", entityId: o.id, summary: `订单 ${o.no} 记了第 ${round} 轮${类}${r.data.result ? `：${r.data.result}` : ""}`, detail: { 类, round, ...r.data } });
+    刷新(o.id, o.customerId);
+    return { ok: true as const, id: c.id };
+  } catch (e) {
+    return 不在了(e);
+  }
+}
+
+/** 改一轮样品 / 验货：日子、结果、问题。只改给了的那几格 */
+export async function saveOrderCheck(checkId: string, input: 检查输入) {
+  try {
+    const me = await requireUser();
+    if (!订单 || !订单节点) return { ok: false as const, error: "此版本未开放订单节点与单据功能" };
+    const c = await prisma.tradeOrderCheck.findUnique({ where: { id: String(checkId ?? "") }, include: { order: { select: { id: true, no: true, customerId: true } } } });
+    if (!c) return { ok: false as const, error: "这一轮已经不在了" };
+    const r = 整理检查(c.kind as 检查类, input);
+    if (!r.ok) return r;
+    if (!Object.keys(r.data).length) return { ok: true as const };
+    await prisma.tradeOrderCheck.update({ where: { id: c.id }, data: r.data });
+    const 说 = [
+      r.data.result !== undefined && r.data.result !== c.result ? `结果 ${c.result ?? "空"} → ${r.data.result ?? "空"}` : "",
+      r.data.at !== undefined ? `日期 ${r.data.at ? r.data.at.toISOString().slice(0, 10) : "清空"}` : "",
+      r.data.issue !== undefined && r.data.issue !== c.issue ? "改了问题" : "",
+    ].filter(Boolean);
+    if (说.length) await recordAudit({ user: me, action: "update", entity: "TradeOrder", entityId: c.order.id, summary: `订单 ${c.order.no} 第 ${c.round} 轮${c.kind}：${说.join("，")}`, detail: r.data });
+    刷新(c.order.id, c.order.customerId);
+    return { ok: true as const };
+  } catch (e) {
+    return 不在了(e);
+  }
+}
+
+export async function deleteOrderCheck(checkId: string) {
+  try {
+    const me = await requireUser();
+    if (!订单 || !订单节点) return { ok: false as const, error: "此版本未开放订单节点与单据功能" };
+    const c = await prisma.tradeOrderCheck.findUnique({ where: { id: String(checkId ?? "") }, include: { order: { select: { id: true, no: true, customerId: true } } } });
+    if (!c) return { ok: true as const };
+    await prisma.tradeOrderCheck.delete({ where: { id: c.id } });
+    await recordAudit({ user: me, action: "update", entity: "TradeOrder", entityId: c.order.id, summary: `订单 ${c.order.no} 删了第 ${c.round} 轮${c.kind}` });
+    刷新(c.order.id, c.order.customerId);
+    return { ok: true as const };
+  } catch (e) {
+    return 不在了(e);
+  }
+}
+
+export type 海运输入 = { sampleNa?: boolean; vessel?: string | null; container?: string | null; eta?: string | null; ata?: string | null };
+
+/** 海运和「样品不适用」（0.46.30 D-44 / D-46）：一单一行，没有就建。只改给了的那几格 */
+export async function saveOrderTrack(orderId: string, input: 海运输入) {
+  try {
+    const me = await requireUser();
+    if (!订单 || !订单节点) return { ok: false as const, error: "此版本未开放订单节点与单据功能" };
+    const o = await prisma.tradeOrder.findUnique({ where: { id: String(orderId ?? "") }, select: { id: true, no: true, customerId: true } });
+    if (!o) return { ok: false as const, error: "这张订单已经不在了" };
+    const data: { sampleNa?: boolean; vessel?: string | null; container?: string | null; eta?: Date | null; ata?: Date | null } = {};
+    if (input.sampleNa !== undefined) data.sampleNa = !!input.sampleNa;
+    if (input.vessel !== undefined) data.vessel = 文本(input.vessel, 80) || null;
+    if (input.container !== undefined) data.container = 文本(input.container, 80) || null;
+    for (const [k, 名] of [["eta", "预计到港"], ["ata", "实际到港"]] as const) {
+      if (input[k] === undefined) continue;
+      const d = 日期(input[k]);
+      if (d === "坏") return { ok: false as const, error: `${名}不是一个日期` };
+      data[k] = d;
+    }
+    if (!Object.keys(data).length) return { ok: true as const };
+    await prisma.tradeOrderTrack.upsert({ where: { orderId: o.id }, create: { orderId: o.id, ...data }, update: data });
+    const 名: Record<string, string> = { sampleNa: "样品不适用", vessel: "船名", container: "柜号", eta: "预计到港", ata: "实际到港" };
+    await recordAudit({ user: me, action: "update", entity: "TradeOrder", entityId: o.id, summary: `订单 ${o.no} 的海运 / 样品：${Object.keys(data).map((k) => 名[k]).join("、")}`, detail: data });
+    刷新(o.id, o.customerId);
     return { ok: true as const };
   } catch (e) {
     return 不在了(e);

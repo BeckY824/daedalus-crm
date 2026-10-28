@@ -242,7 +242,7 @@ const 带推进 = (到: string[]) => (到.length ? { 自动推到: 到 } : {});
  * 改节点：往前只能一步一步走，往后随便退（nodes.ts 改节点问题），点结局也走这里。每改一次记一行 ProjectNodeLog。
  * 有结局记下 closedAt，回到进行中（= 从异常状态恢复、从丢单捡回来）清掉。
  * 进异常状态要选一个在用的异常类别，备注可空；类别和备注只在异常状态时留在项目上，节点变更里永远留着。
- * 企业版点线索流失、丢单要写原因（第四个参数的 备注），只记在节点变更里
+ * 点线索流失、丢单的原因（第四个参数的 备注）只记在节点变更里：企业版必填；团队版宽松，写了就记、留空也能点（10-28）
  */
 export async function 改节点(
   me: 谁, projectId: string, 到: 位置, 异常?: { categoryId?: string | null; 备注?: string | null },
@@ -283,7 +283,7 @@ export async function 改节点(
       备注 = (异常?.备注 ?? "").trim().slice(0, 原因上限) || null;
     }
     // 线索流失、丢单的原因只记在节点变更里，项目上的 exceptionReason 是异常状态专用
-    const 原因 = 企业版() && 要写原因(result) ? (异常?.备注 ?? "").trim().slice(0, 原因上限) || null : 备注;
+    const 原因 = 要写原因(result) ? (异常?.备注 ?? "").trim().slice(0, 原因上限) || null : 备注;
     if (p.phase === 到.phase && p.node === 到.node && p.result === result && p.exceptionCategoryId === 类别 && (p.exceptionReason ?? null) === 备注) {
       return { ok: true as const, 变了: false };
     }

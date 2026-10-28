@@ -38,10 +38,10 @@ function 刷新项目(projectId?: string, customerId?: string) {
   if (customerId) revalidatePath(`/customers/${customerId}`);
 }
 
-export type 建档向导输入 = { 客户: CustomerInput; 联系人: 向导联系人; 项目: 向导项目; 跟进: 向导跟进 };
+export type 建档向导输入 = { 客户: CustomerInput; 联系人: 向导联系人; 项目: 向导项目; 跟进: 向导跟进 | null };
 
 /**
- * 建档向导的最后一步：客户、主要联系人、项目、首条跟进一笔建好。
+ * 建档向导的最后一步：客户、主要联系人、项目、首条跟进一笔建好（团队版首条跟进可以先不写，10-28）。
  * 客户查重撞了、哪一步写失败了，整笔都不留；中途关掉向导时根本没走到这里
  */
 export async function 建档向导(input: 建档向导输入) {
@@ -53,7 +53,8 @@ export async function 建档向导(input: 建档向导输入) {
     const 规则 = await 生效组织规则();
     // 下一步时间只在开了超时回收时有这格（不是企业版一律没开）：没开时老草稿里留着的也不认、不写，和原来一样
     const 要下一步 = 规则.超时回收.开;
-    const 好 = 规整向导(me, 要下一步 || !input.跟进 ? input : { ...input, 跟进: { ...input.跟进, 下一步时间: null } }, new Date(), 要下一步, await getFollowTypes());
+    const 企 = 企业版();
+    const 好 = 规整向导(me, 要下一步 || !input.跟进 ? input : { ...input, 跟进: { ...input.跟进, 下一步时间: null } }, new Date(), 要下一步, await getFollowTypes(), !企);
     if ("error" in 好) return { ok: false as const, error: 好.error };
     const 负责人 = await prisma.user.findUnique({ where: { id: 好.项目.ownerId }, select: { name: true, active: true } });
     if (!负责人?.active) return { ok: false as const, error: "项目负责人不存在或已停用，请选一位在职成员" };
@@ -68,7 +69,6 @@ export async function 建档向导(input: 建档向导输入) {
       和第一步选了号码类型的那个号同一套；事务里再比一次（查完再写），建好后记进联系方式子表、挂在这位联系人上。
       开关关着不走：联系人的号和原来一样不查
     */
-    const 企 = 企业版();
     const 第一步 = 企 && input.客户.企业号码 ? 验号码(input.客户.企业号码.类型, input.客户.企业号码.值) : null;
     const 联号 = 企 ? 验联系人号码(好.联系人, 第一步?.ok ? 第一步 : null) : [];
     if ("error" in 联号) return { ok: false as const, error: 联号.error };
@@ -98,7 +98,7 @@ export async function 建档向导(input: 建档向导输入) {
     if (!r.ok) return r;
     await recordAudit({
       user: me, action: "create", entity: "Project", entityId: 建了.projectId,
-      summary: `建档：新建项目「${好.项目.name}」（负责人 ${负责人.name}），连同主要联系人「${好.联系人.name}」和首条跟进`,
+      summary: `建档：新建项目「${好.项目.name}」（负责人 ${负责人.name}），连同主要联系人「${好.联系人.name}」${好.跟进 ? "和首条跟进" : ""}`,
       detail: { 项目: 好.项目.name, 负责人: 负责人.name, 金额: 好.项目.amount, 币种: 好.项目.currency, 联系人: 好.联系人.name },
     });
     // 首条跟进记在潜客培育上：配的必填建档时就齐了的，接着往前推
@@ -109,7 +109,7 @@ export async function 建档向导(input: 建档向导输入) {
   } catch (e) { return 不在了(e); }
 }
 
-/** 改节点。进异常状态时带上异常类别（必选）和备注（可空）；企业版点线索流失、丢单时 备注 = 原因（必填） */
+/** 改节点。进异常状态时带上异常类别（必选）和备注（可空）；点线索流失、丢单时 备注 = 原因（企业版必填，团队版可空） */
 export async function 改项目节点(projectId: string, 到: 位置, 异常?: { categoryId?: string | null; 备注?: string | null } | null) {
   try {
     const me = await requireUser();
@@ -123,7 +123,7 @@ export async function 改项目节点(projectId: string, 到: 位置, 异常?: {
       await recordAudit({
         user: me, action: "update", entity: "Project", entityId: projectId,
         summary: `项目「${p?.name ?? ""}」改到 ${到.phase}·${到.node}${到.result ? `（${到.result}${类别 ? `：${类别}` : ""}）` : ""}`,
-        detail: { 阶段: 到.phase, 节点: 到.node, 结局: 到.result ?? null, 异常类别: 类别, 备注: 类别 || (企业版() && 要写原因(到.result)) ? 异?.备注?.trim() || null : null },
+        detail: { 阶段: 到.phase, 节点: 到.node, 结局: 到.result ?? null, 异常类别: 类别, 备注: 类别 || 要写原因(到.result) ? 异?.备注?.trim() || null : null },
       });
       await 记这个项目的自动推进(me, projectId, r.自动推到);
       刷新项目(projectId, p?.customerId);
@@ -403,7 +403,6 @@ export async function 记项目沟通Action(projectId: string, input: 向导跟�
   try {
     const me = await requireUser();
     if (!(await 开着())) return 没开;
-    if (!企业版()) return { ok: false as const, error: "在项目上记沟通是企业版的功能，请去客户页记" };
     const r = await 记项目沟通(me, projectId, input);
     if (r.ok) {
       const p = await prisma.project.findUnique({ where: { id: projectId }, select: { name: true, customerId: true } });

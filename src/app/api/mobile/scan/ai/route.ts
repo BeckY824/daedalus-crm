@@ -13,7 +13,7 @@ export const runtime = "nodejs";
  *   POST body = {行们: 名片行[], 行业们: string[]}（OCR 认出的文字，不是照片；行业选项是这个团队桌面端的）
  *        → {答: AI回答} 或 {答: null}（模型没回 / 超时 / 回的不像样：手机用规则拆的）
  *
- * 不扣次数；按账号 10 分钟 60 张。名片文字只在这次请求里，不落盘、不打日志
+ * 不扣次数（成本照记 AiCall）；按账号 10 分钟 60 张。名片文字只在这次请求里，不落盘、不打日志
  */
 
 const 记一次 = 建限次(60);
@@ -64,6 +64,6 @@ export async function POST(req: Request) {
     ? body.行业们.filter((x): x is string => typeof x === "string" && x.trim().length > 0 && x.length <= 30).map((x) => x.trim()).slice(0, 60)
     : [];
   if (!记一次(人.accountId)) return NextResponse.json({ error: "扫得太快了" }, { status: 429 });
-  const 答 = await AI整理名片(行们, 行业们);
+  const 答 = await AI整理名片(行们, 行业们, { 记在: { kind: "account", id: 人.accountId } });
   return NextResponse.json({ 答 }, { headers: { "Cache-Control": "no-store" } });
 }

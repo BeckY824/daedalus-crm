@@ -103,11 +103,12 @@ describe("feed 字段缺失 / 损坏", () => {
     expect(r?.版本).toBe("v0.46.14");
   });
 
-  it("feed 是数组 / null / 空对象：都当没有，不抛", async () => {
+  it("feed 是数组 / null / 空对象、GitHub 也不通：抛「查不到」", async () => {
     for (const 坏 of [[], {}, { platforms: null }, { version: "" }]) {
       假网络(坏, null);
-      expect(await 检查({ 当前版本: "0.46.13", ...Mac })).toBeNull();
-      expect(await 检查({ 当前版本: "0.46.13", ...Win })).toBeNull();
+      // D-03：feed 是坏的、GitHub 也不通 = 什么都没查到，抛「查不到」而不是当成没有新版
+      await expect(检查({ 当前版本: "0.46.13", ...Mac })).rejects.toMatchObject({ name: "查不到" });
+      await expect(检查({ 当前版本: "0.46.13", ...Win })).rejects.toMatchObject({ name: "查不到" });
     }
   });
 

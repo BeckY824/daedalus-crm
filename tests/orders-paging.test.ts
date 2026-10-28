@@ -17,6 +17,7 @@ import { 按币种合计 } from "@/lib/currency";
 import { 节点名们 } from "@/lib/order";
 import type { 订单行 } from "@/lib/order-db";
 import { 切订单页, 算汇总, 分页起 } from "@/lib/orders-paging";
+import { 订单节点 } from "@/lib/features";
 
 /** 固定种子的伪随机数：失败时能原样复现 */
 function 随机(种子: number) {
@@ -58,6 +59,7 @@ function 造(种子: number, 个数: number): 订单行[] {
       超期: 当前 ? 挑([0, 0, 0, 1, 2, 3]) : 0,
       进度: 0,
       未收: r() < 0.3 ? 0 : amount * r(),
+      返工: false, 样品: "未寄" as const, eta: null, ata: null, 到港灯: "无" as const, 催尾款: false,
     };
   });
 }
@@ -203,9 +205,11 @@ describe("订单页：企业版超过 分页起 单才分页，别的一样都�
   it("企业版超过 分页起 单：只发这一页，带全部的合计；网址里的页码、每页、排序都认", async () => {
     process.env.CRM_ENTERPRISE = "1";
     全部.rows = 造(9, 分页起 + 1);
-    const p = await 开({ page: "2", pageSize: "50", sort: "confirmed-asc", ownerId: "u1" });
-    expect(p.filters).toEqual({ ownerId: "u1" });
-    expect(p.分页).toMatchObject({ 页: 2, 每页: 50, 总数: 分页起 + 1, sort: "confirmed-asc", 汇总: 原来合计(全部.rows) });
-    expect(p.rows.map((r) => r.id)).toEqual(原来浏览器里(全部.rows, false, "confirmed-asc").slice(50, 100).map((r) => r.id));
+    // 节点开着（0.46.30 起）排序按超期，关着按确认日期
+    const sort = 订单节点 ? "late-asc" : "confirmed-asc";
+    const p = await 开({ page: "2", pageSize: "50", sort, ownerId: "u1" });
+    expect(p.filters).toEqual({ ownerId: "u1", 我: "" });
+    expect(p.分页).toMatchObject({ 页: 2, 每页: 50, 总数: 分页起 + 1, sort, 汇总: 原来合计(全部.rows) });
+    expect(p.rows.map((r) => r.id)).toEqual(原来浏览器里(全部.rows, 订单节点, sort).slice(50, 100).map((r) => r.id));
   });
 });

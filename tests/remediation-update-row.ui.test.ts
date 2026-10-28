@@ -24,3 +24,11 @@ it("首读IPC失败显示可重试状态，重试可恢复且卸载移除监听"
  expect(await p.evaluate(()=>Reflect.get(window,"__calls"))).toEqual(["check"]);await p.evaluate(()=>Reflect.get(window,"__render")(false));await expect.poll(()=>p.evaluate(()=>Reflect.get(window,"__listeners").size)).toBe(0);
  }finally{await p.close()}
 });
+// D-03：两个源都不通时主进程给「暂时查不到」，左栏不能说「已是最新」，点了再查
+it("查不到新版：显示「暂时查不到新版本，点击重试」，不显示已是最新，点了重新检查",async()=>{
+ const p=await open();try{
+ await p.evaluate(()=>{Reflect.get(window,"__resolve")({阶段:"idle"});Reflect.get(window,"__send")({阶段:"checking"});Reflect.get(window,"__send")({阶段:"error",错误:"暂时查不到新版本，稍后再试",文字:"暂时查不到新版本，点击重试"})});
+ await p.getByRole("button",{name:/暂时查不到新版本，点击重试/}).waitFor();expect(await p.getByText("已是最新").count()).toBe(0);
+ await p.evaluate(()=>Reflect.get(window,"desktopUpdate")!.download=Reflect.get(window,"desktopUpdate")!.check);await p.getByRole("button",{name:/暂时查不到新版本/}).click();await p.getByRole("button",{name:/更新到 0.47.0/}).waitFor();
+ }finally{await p.close()}
+});

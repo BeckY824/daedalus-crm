@@ -830,10 +830,15 @@ body.rail-resizing-collapse .pane-chat { opacity: .45; }
 /* ---------- 页头 ---------- */
 .page-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   gap: 16px;
   margin-bottom: 18px;
 }
+
+/* 标题那一块至少留 240 宽：再窄（1024 宽 + AI 栏常驻）右上角那组按钮整组折到下一行、靠右，
+   不把标题和「我的客户 / 公海」页签挤成一小条、页签冲出去（2026-10-22 排版普查） */
+.page-head-m { flex: 1 1 240px; min-width: 0; }
 
 .page-head h1 {
   margin: 0;
@@ -848,13 +853,16 @@ body.rail-resizing-collapse .pane-chat { opacity: .45; }
   margin: 3px 0 0;
   color: var(--text-muted);
   font-size: var(--fs-note);
+  overflow-wrap: anywhere;
 }
 
 /* 标题和紧跟着它的那一小块（客户页的「客户 / 公海」页签）摆一行 */
 .page-head-t { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; }
 
-/* 页头右上角那组动作。⌘N 也认这个选择器找主按钮，别改名 */
-.page-head-a { flex: none; display: flex; align-items: center; gap: var(--s2); }
+/* 页头右上角那组动作。⌘N 也认这个选择器找主按钮，别改名。
+   能缩（2026-10-22 排版普查）：原来 flex: none，订单页「<长客户名> 的记录 ›」把标题挤到 0 宽、整页横滚；
+   里面带名字的链接自己加 .clamp-1 和 max-width */
+.page-head-a { flex: 0 1 auto; min-width: 0; margin-left: auto; display: flex; align-items: center; gap: var(--s2); }
 
 /* ---------- 跟进时间线 ---------- */
 .follow-item {
@@ -907,6 +915,11 @@ body.rail-resizing-collapse .pane-chat { opacity: .45; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* 不截、全显示，只是一长串没空格的字（邮箱、网址、英文公司名）在哪儿都能断，不把格子撑宽 */
+.break-any {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* 自动列宽的表（不设 ellipsis 的 antd Table）：单元格里的长串可以从任意处断开。
@@ -1079,7 +1092,7 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 }
 .rec-field:hover { background: var(--row-hover); }
 .rec-field-editing { background: var(--row-hover); cursor: default; }
-.rec-field-k { font-size: var(--fs-note); color: var(--text-muted); line-height: 22px; white-space: nowrap; }
+.rec-field-k { font-size: var(--fs-note); color: var(--text-muted); line-height: 22px; overflow-wrap: anywhere; }
 .rec-field-v { font-size: var(--fs-body); color: var(--ink); line-height: 22px; word-break: break-word; }
 .rec-field-empty { color: var(--text-faint); }
 .rec-field-saving { opacity: 0.5; }
@@ -1087,6 +1100,8 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .rec-mini { position: relative; display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r-card); font-size: var(--fs-body); }
 .rec-mini:hover { background: var(--row-hover); }
 .rec-mini-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.rec-mini-who { display: flex; align-items: center; } /* 联系人：名字自己省略，「关键」标签不跟着被截掉 */
+.rec-mini-who > .ant-tag { flex: none; margin-inline: 6px 0; }
 .rec-mini-m { font-size: var(--fs-note); color: var(--text-muted); white-space: nowrap; }
 /* 签约那行金额是要看的东西，不许被日期和两颗图标挤成「¥…」；挤不下时让日期先省略 */
 .rec-mini-amt { flex: 1 0 auto; font-weight: 600; }
@@ -1140,7 +1155,8 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
   display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; font-size: var(--fs-body);
 }
 .rec-plan-k { color: var(--brand); font-weight: 600; white-space: nowrap; }
-.rec-plan-v { flex: 1 1 100%; min-width: 0; color: var(--ink); order: 3; }
+/* 计划标题里常带客户全名：外贸那种不带空格的长英文名不折就把整页撑出横滚（1280/1366 左栏最宽，闸门 10-28） */
+.rec-plan-v { flex: 1 1 100%; min-width: 0; color: var(--ink); order: 3; overflow-wrap: anywhere; }
 .rec-plan-m { color: var(--text-muted); font-size: var(--fs-note); white-space: nowrap; margin-left: auto; }
 .rec-plan-m.is-over { color: var(--danger-text); }
 .rec-tl { padding: 4px 16px 10px; }
@@ -1672,7 +1688,8 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 /* 渠道表里停用的那几行整行压淡，名字旁边写「已停用」（审查 D12）。操作列不压：恢复键要看得清 */
 .row-off > td:not(.ant-table-cell-fix-end) { color: var(--text-muted); }
 .row-off .link-strong { color: var(--text-muted); }
-.chan-name { display: inline-flex; align-items: center; gap: var(--s2); }
+.chan-name { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.chan-name > .ant-tag { flex: none; margin-inline-end: 0; }
 /* 「重置」一直占着位置，没筛时只是看不见（审查 M17）：原来它一出现就把「列」挤到第二行，
    整张表往下跳一截。出现消失只淡入淡出，不位移。visibility 晚一拍再收，淡出才看得见 */
 .list-reset { transition: opacity var(--t-fast) var(--ease), visibility 0s var(--ease) 0s; }
@@ -1721,12 +1738,7 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 /* 老板那台每人一行概况：客户数 · 近 7 天跟进，靠右，点进去是这个人的客户 / 跟进 */
 .team-member-stat { margin-left: auto; display: inline-flex; gap: var(--s3); font-size: 13px; }
 .team-dupes { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-note); }
-/* 团队版价格（2026-10-15）和有效期那一行 */
-.team-prices { margin: 0 0 var(--s3); padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--s2); max-width: 680px; }
-.team-prices li { display: flex; flex-direction: column; gap: 2px; padding: var(--s3); border: 1px solid var(--line); border-radius: var(--r-card); background: var(--panel); font-size: var(--fs-min); }
-.team-price-k { color: var(--ink-soft); font-size: var(--fs-note); }
-.team-price-v { font-family: var(--font-num); font-size: 20px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
-.team-price-v small { font-family: inherit; font-size: var(--fs-min); font-weight: 400; color: var(--text-muted); }
+/* 团队版免费那一块（2026-10-28 起不标价）和有效期那一行 */
 .team-card p.team-price-how { margin: 0; }
 .team-plan { margin: calc(-1 * var(--s2)) 0 var(--s3); font-size: var(--fs-note); font-variant-numeric: tabular-nums; }
 /* 人员头像 + 姓名（components/ui.tsx UserCell）：头像不缩，名字那一项可以缩到省略号 */
@@ -1848,7 +1860,7 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
   transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease); }
 /* 落点要看得出来：拖过去时整列亮一下，不然人不知道松手会掉进哪一列 */
 .pipe-col-on { background: var(--brand-bg); border-color: var(--brand-line); }
-.pipe-h { display: flex; align-items: baseline; gap: 6px; }
+.pipe-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; } /* 金额放不下就折到第二行，不截成「¥ 1,23…」（10-27，照企业版 c29782a2） */
 .pipe-h b { font-size: var(--fs-body); font-weight: 600; color: var(--ink); white-space: nowrap; flex: none; } /* 阶段名能自己改（6 字内），一行放下；挤的时候让右边的金额省略。列最窄 184，6 个字加张数放得下，金额挤了就省略 */
 .pipe-dot { width: 8px; height: 8px; border-radius: 50%; align-self: center; flex: none; }
 .pipe-n { font-size: var(--fs-min); color: var(--text-muted); font-variant-numeric: tabular-nums; }
@@ -1863,8 +1875,10 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .pipe-card-drag { opacity: 0.45; }
 .pipe-card-t { font-weight: 500; color: var(--ink); } /* 再加 .clamp：最多两行，卡片的 title 里有全名 */
 .pipe-card-m { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; column-gap: var(--s2); margin-top: var(--s1); }
-/* 列宽固定以后底行放不下金额 + 负责人：金额一行写完，负责人挤不下就折到下一行、再长就省略（title 里有全名） */
-.pipe-card-a { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* 列宽固定以后底行放不下金额 + 负责人：金额一行写完，负责人挤不下就折到下一行、再长就省略（title 里有全名）。
+   金额里符号、数字各自不断行；上亿这种一行实在放不下，只在两段之间折一次 */
+.pipe-card-a { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; min-width: 0; }
+.pipe-card-a-n { white-space: nowrap; }
 .pipe-card-o { font-size: var(--fs-note); color: var(--text-muted); min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 每列先摆 50 张（2026-10-24），底下接着翻；列最窄 184，放不下就折行，不撑宽列 */
 .pipe-more.ant-btn { height: auto; min-height: 28px; white-space: normal; color: var(--brand); gap: 6px; }
@@ -2581,3 +2595,29 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .lead-auto-assign-name { flex: 0 0 auto; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .lead-auto-assign-list li > span:last-child { min-width: 0; overflow-wrap: anywhere; }
 .team-dept-role { min-width: 72px; }
+
+/* 订单的样品 / 验货 / 海运 / 负责人（0.46.30 D-44～D-47）：都挂在节点面板里，窄宽度下换行不横滚 */
+.ord-flag { padding: 0 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); font: inherit; font-size: var(--fs-min); line-height: 20px; cursor: pointer; transition: transform var(--t-press) var(--ease); }
+.ord-flag:active { transform: scale(0.97); }
+.ord-flag:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.ord-flag-红 { background: var(--danger-bg); border-color: var(--danger-line); color: var(--danger-text); }
+.ord-flag-黄 { background: var(--warning-bg); border-color: var(--warning-line); color: var(--warning-text); }
+.ord-mine-tog { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.ord-step.dim { opacity: 0.35; }
+.ord-sub { display: flex; flex-direction: column; gap: var(--s2); padding-top: var(--s3); border-top: 1px solid var(--line-soft); min-width: 0; }
+.ord-sub-h { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); }
+.ord-na { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.ord-chip { padding: 0 6px; border-radius: 4px; font-size: var(--fs-min); line-height: 18px; background: var(--hover); color: var(--ink-soft); white-space: nowrap; }
+.ord-chip.ok { background: var(--success-bg); color: var(--success-text); }
+.ord-chip.warn { background: var(--warning-bg); color: var(--warning-text); }
+.ord-chip.bad { background: var(--danger-bg); color: var(--danger-text); }
+.ord-check { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); min-width: 0; }
+.ord-check-r { width: 4em; font-size: var(--fs-note); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.ord-check-i { flex: 1 1 200px; min-width: 0; }
+.ord-rework { margin-left: 6px; vertical-align: 1px; }
+.ord-eta { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ord-eta-红 { color: var(--danger-text); font-weight: 600; }
+.ord-eta-黄 { color: var(--warning-text); font-weight: 600; }
+.ord-eta-绿 { color: var(--text-muted); }
+.ord-mine { display: block; font-size: var(--fs-note); }
+@media (prefers-reduced-motion: reduce) { .ord-flag:active { transform: none; } }

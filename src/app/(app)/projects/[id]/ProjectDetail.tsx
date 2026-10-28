@@ -12,7 +12,7 @@ import { dayjs, fmtDateTime } from "@/lib/utils";
 import { 跟进类型表 } from "@/lib/follow-types";
 import { 外贸精简 } from "@/lib/business-config";
 import { 金额 } from "@/lib/currency";
-import { 阶段们, 节点们, 出口们, 交付还差, 下一步, 节点序号, 节点总数, 原因上限, 要写原因, type 位置 } from "@/lib/project/nodes";
+import { 阶段们, 节点们, 出口们, 交付还差, 下一步, 节点序号, 节点总数, 原因上限, 要写原因, 常用原因, type 位置 } from "@/lib/project/nodes";
 import { 超时理由 } from "@/lib/project/timeout";
 import { 改项目节点, 勾项目交付, 删除项目, 放回项目公海, 领取项目, 记项目沟通Action } from "../actions";
 import type { 可选成员 } from "@/lib/utils";
@@ -23,6 +23,8 @@ export type 项目详情 = {
   /** null = 公海里同事客户的项目，领取后再给（page.tsx 露客户）；联系人、沟通这时也是空的 */
   customer: { id: string; name: string; school: string | null } | null;
   contact: { id: string; name: string; position: string | null } | null;
+  /** 线索转化时建的：来源线索名（删了是「已删除的线索」）；不是从线索来的、或公海里还没领取时为 null */
+  来源线索: string | null;
   ownerId: string; ownerName: string; creatorName: string; createdAt: string;
   /** 历史负责人（只企业版有，别的版本是空的）：把这个项目放回过公海的人，最近放回的在前，同一个人只列一次 */
   historyOwners: string[];
@@ -39,7 +41,7 @@ export type 项目详情 = {
   企业版: boolean;
   /**
    * 企业版超时回收：nextStepAt 是最近一次沟通填的下一步时间（服务端排好的 YYYY-MM-DD）；回收日 = 哪天没人跟进就自动回公海（null = 不会）；
-   * 要下一步 = 记沟通必须填下一步时间；能记沟通 = 企业版里的负责人、老板、主管、项目组成员，且不在公海（不是企业版照原来去客户页记）
+   * 要下一步 = 记沟通必须填下一步时间；能记沟通 = 负责人、老板、主管、项目组成员，且不在公海（10-28 起团队版也在项目上记）
    */
   nextStepAt: string | null; 回收日: string | null; 要下一步: boolean; 能记沟通: boolean;
   /**
@@ -47,6 +49,8 @@ export type 项目详情 = {
    * 只能靠填齐 = 不是老板、主管，手动往前推不给（往后退、点结局照旧）
    */
   必填: { 配了: string[]; 还差: string[]; 只能靠填齐: boolean } | null;
+  /** 团队版：这个节点照建议清单还差哪几样，只提示、不拦（企业版、有结局、在公海、没权限 = 空） */
+  建议补: string[];
   /** 企业版 D-37：负责人有直属上级、我又不是这位上级（也不是老板）时，往前推不给的那句话；null = 能推 */
   不给推: string | null;
   /** 能改节点：能改的人 + 企业版负责人的直属上级（账号可能是 SALES）；只管节点这一块 */
@@ -67,7 +71,8 @@ export type 项目详情 = {
 };
 
 const 行样: React.CSSProperties = { display: "flex", gap: 12, alignItems: "center", marginBottom: 8, minWidth: 0 };
-const 键样: React.CSSProperties = { color: "var(--text-muted)", flex: "0 0 48px" };
+// 四个字的键（来源线索）在 14px 下要 ~56px，48px 会折成两行（照企业版 10-27）
+const 键样: React.CSSProperties = { color: "var(--text-muted)", flex: "0 0 60px", whiteSpace: "nowrap" };
 
 /** 删项目的确认框：列出一起删掉的几样，说清沟通记录本身不删 */
 function 删除说明(n: 项目详情["删前清点"], 客户叫法: string) {
@@ -200,7 +205,7 @@ export default function ProjectDetail({
       set异常框(到);
       return;
     }
-    if (p.企业版 && 要写原因(到.result)) {
+    if (要写原因(到.result)) {
       set原因("");
       set没成框(到);
       return;
@@ -305,11 +310,17 @@ export default function ProjectDetail({
               : "这个节点的必填都齐了"}
           </div>
         )}
+        {p.建议补.length > 0 && (
+          <div data-testid="project-suggest-fill" style={{ marginTop: 12, color: "var(--text-muted)", overflowWrap: "anywhere" }}>
+            这个节点建议补上：{p.建议补.map(必填叫法).join("、")}（不补也能往前推）
+          </div>
+        )}
       </Card>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, marginBottom: 16 }}>
         <Card title="项目" extra={可改 && <Button type="link" size="small" disabled={忙} onClick={() => set编辑开着(true)}>编辑</Button>}>
           <div style={行样}><span style={键样}>{b.customer}</span>{p.customer ? <CustomerLink id={p.customer.id} name={p.customer.name} company={p.customer.school} /> : <span style={{ color: "var(--text-muted)" }}>领取后显示</span>}</div>
+          {p.来源线索 && <div style={行样}><span style={键样}>来源线索</span><span className="clamp-1" style={{ minWidth: 0 }} title={p.来源线索}>{p.来源线索}</span></div>}
           {p.contact && <div style={行样}><span style={键样}>联系人</span>{p.contact.name}{p.contact.position ? ` · ${p.contact.position}` : ""}</div>}
           <div style={行样}><span style={键样}>金额</span>{金额(p.amount, p.currency)}</div>
           {/* 在公海里时 ownerName 是原负责人：不写成「负责人 X」，也不把系统收回说成 X 放回的（QA #14） */}
@@ -378,7 +389,7 @@ export default function ProjectDetail({
         </Card>
         <Card
           title="沟通"
-          extra={p.能记沟通 ? <Button type="link" size="small" disabled={忙} onClick={() => set记一条开着(true)}>记一条</Button> : p.customer && <Link href={`/customers/${p.customer.id}`}>去{b.customer}页{p.企业版 ? "看看" : "记一条"}</Link>}
+          extra={p.能记沟通 ? <Button type="link" size="small" disabled={忙} onClick={() => set记一条开着(true)}>记一条</Button> : p.customer && <Link href={`/customers/${p.customer.id}`}>去{b.customer}页看看</Link>}
         >
           {p.followUps.length === 0 && <div style={{ color: "var(--text-muted)" }}>{p.customer ? "还没有挂在这个项目上的沟通" : "领取后显示"}</div>}
           {p.followUps.map((f) => (
@@ -435,16 +446,24 @@ export default function ProjectDetail({
         open={!!没成框}
         title={没成框 ? `定结果：${没成框.result}` : ""}
         okText="确定"
-        okButtonProps={{ danger: true, disabled: !原因.trim(), loading: 忙 }}
+        okButtonProps={{ danger: true, disabled: p.企业版 && !原因.trim(), loading: 忙 }}
         onCancel={() => set没成框(null)}
         onOk={async () => {
-          if (!没成框 || !原因.trim()) return;
+          // 企业版原因必填；团队版宽松，留空也能定（服务端同一个判断，lib/project/nodes.ts 改节点问题）
+          if (!没成框 || (p.企业版 && !原因.trim())) return;
           const ok = await 跑(() => 改项目节点(p.id, 没成框, { 备注: 原因 }), `已改到 ${位置文字(没成框)}`);
           if (ok) set没成框(null);
         }}
       >
-        <div style={{ marginBottom: 8, color: "var(--text-muted)" }}>写一句为什么没成，会记在节点变更里；以后捡回来把节点改回去就行。</div>
-        <Input.TextArea rows={4} maxLength={原因上限} showCount value={原因} onChange={(e) => set原因(e.target.value)} placeholder="原因（必填）" aria-label="原因" />
+        <div style={{ marginBottom: 8, color: "var(--text-muted)" }}>{p.企业版 ? "写一句为什么没成" : "选一个常用原因，或者自己写一句（也可以不写）"}，会记在节点变更里；以后捡回来把节点改回去就行。</div>
+        {没成框?.result && 要写原因(没成框.result) && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+            {常用原因[没成框.result].map((x) => (
+              <Tag.CheckableTag key={x} checked={原因.trim() === x} onChange={(勾) => set原因(勾 ? x : "")}>{x}</Tag.CheckableTag>
+            ))}
+          </div>
+        )}
+        <Input.TextArea rows={4} maxLength={原因上限} showCount value={原因} onChange={(e) => set原因(e.target.value)} placeholder={p.企业版 ? "原因（必填）" : "其他原因（可不写）"} aria-label="原因" />
       </Modal>
     </div>
   );

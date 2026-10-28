@@ -64,6 +64,10 @@ const 可写: Record<string, string[]> = {
   Supplier: ["name", "category", "region", "contact", "phone", "wechat", "invoice", "payment", "rating", "issues", "remark"],
   SupplierQuote: ["supplierId", "product", "unitPrice", "currency", "withInvoice", "moq", "leadDays", "sampleFee", "validUntil", "verdict", "reason"],
   TradeOrderPurchase: ["supplierId", "cost", "currency", "fxRate"],
+  // 样品 / 验货 / 海运 / 节点负责人（0.46.30）：saveOrderCheck / saveOrderTrack / saveOrderNodeOwner
+  TradeOrderCheck: ["at", "result", "issue"],
+  TradeOrderTrack: ["sampleNa", "vessel", "container", "eta", "ata"],
+  TradeOrderNodeOwner: ["userId"],
   // 团队版项目模式 1a（2026-10-23）：建档向导、项目详情（编辑项目 / 改节点 / 勾交付 / 项目组）、设置里的「项目模式」一栏
   Project: ["name", "contactId", "ownerId", "phase", "node", "result", "exceptionCategoryId", "exceptionReason", "balanceSettled", "acceptancePassed", "amount", "currency", "remark"],
   ProjectMember: ["roleId"],
@@ -129,6 +133,9 @@ const 派生: Record<string, Record<string, string>> = {
   TradeOrderDoc: { orderId: "属于哪张订单", sort: "清单里的顺序，加一样时排在最后" },
   SupplierQuote: { opportunityId: "哪个商机（询盘）的比价，建行时定", quotedAt: "记下这一行的那一刻，系统打上" },
   TradeOrderPurchase: { orderId: "哪张订单，一张一行" },
+  TradeOrderCheck: { orderId: "属于哪张订单", kind: "样品还是验货，加一轮时定，不改", round: "第几轮，加一轮时按同类最大轮次 + 1 排好", createdAt: "加这一轮的那一刻，系统打上" },
+  TradeOrderTrack: { orderId: "哪张订单，一张一行" },
+  TradeOrderNodeOwner: { nodeId: "哪个节点，一个节点一行" },
   // 公海（第 6 块）：整行是「放进 / 领取」两个动作的结果，没有单改某一格的入口
   CustomerPool: {
     customerId: "哪位客户，有这一行 = 在公海；放进公海时建、领取时删",
@@ -333,6 +340,7 @@ const 派生: Record<string, Record<string, string>> = {
     closedAt: "有结局的那一刻，系统打上；回到进行中清掉",
     pooledAt: "放回公海的那一刻，系统打上；有人领取或老板重新指派时清掉",
     nextStepAt: "记沟通时填的下一步时间，跟着最近一条沟通写；企业版超时回收用",
+    sourceLeadId: "线索转化时建的项目记下是哪条线索，系统写，不改",
   },
   ProjectMember: { projectId: "哪个项目的组员，加人时定", userId: "哪位成员，加人时定；换人 = 删了再加", invitedById: "谁拉进来的，加人时打上" },
   ProjectRole: { sort: "加角色时排到最后，系统写；不做拖动排序" },

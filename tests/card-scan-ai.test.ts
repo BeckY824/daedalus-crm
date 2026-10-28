@@ -1,7 +1,7 @@
 /**
  * 扫名片的 AI 整理（2026-10-20 用户定「用 AI，免费不扣次数」，只给团队版）：
  *   - lib/card-scan/ai.ts：模型只回行号，验回答（行号越界、乱回、行业不在选项里）；合进规则的字段时值一律从 OCR 原文拿，号码照旧听规则
- *   - lib/card-scan/server/ai-call.ts：超时、非 200、不是 JSON 都返回 null（手机用规则），不抛；不打名片内容
+ *   - lib/card-scan/server/ai-call.ts：超时、非 200、不是 JSON 都返回 null（手机用规则），不抛；不打名片内容；回了用量就记一笔 AiCall（card-scan）
  *   - app/api/mobile/scan/ai：只给团队版令牌、没配模型 404、太长 413、看不懂 400、按账号限次 429
  *   - lib/card-scan/cloud.ts 服务器整理：不给用记下不再问；出错一律 null
  * 用的是 tests/fixtures/card-scan 里编的演示名片，不含真名片
@@ -113,6 +113,15 @@ describe("AI整理名片（服务器调模型）", () => {
     expect(Date.now() - 起).toBeLessThan(1000);
     expect(JSON.stringify(警告.mock.calls)).not.toMatch(/Oliver|Harbourline|@/);
   });
+  it("回了用量：记一笔 AiCall 到这个账号（feature=card-scan）；没回用量、没给归属都不记", async () => {
+    假.记账 = [];
+    const 带用量 = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ 公司: [[1]], 联系人: [], 行业: "其他" }) } }], usage: { prompt_tokens: 900, completion_tokens: 60 } })));
+    await AI整理名片(行们, TRADE, { 抓: 带用量, env, 记在: { kind: "account", id: "acct_1" } });
+    expect(假.记账).toEqual([[{ kind: "account", id: "acct_1" }, { model: 默认模型, usage: { input: 900, output: 60 }, feature: "card-scan" }]]);
+    await AI整理名片(行们, TRADE, { 抓: 带用量, env });
+    await AI整理名片(行们, TRADE, { 抓: 回({ 公司: [[1]], 联系人: [], 行业: "其他" }), env, 记在: { kind: "account", id: "acct_1" } });
+    expect(假.记账).toHaveLength(1);
+  });
   it("没配 Key：不发请求，null", async () => {
     const 抓 = 回({});
     expect(await AI整理名片(行们, TRADE, { 抓, env: {} as NodeJS.ProcessEnv })).toBeNull();
@@ -121,7 +130,8 @@ describe("AI整理名片（服务器调模型）", () => {
 });
 
 // ---------- 接口 ----------
-const 假 = vi.hoisted(() => ({ 多租户: true, 令牌: new Map<string, string>(), 资格: new Map<string, string>(), 答: null as unknown }));
+const 假 = vi.hoisted(() => ({ 多租户: true, 令牌: new Map<string, string>(), 资格: new Map<string, string>(), 答: null as unknown, 记账: [] as unknown[] }));
+vi.mock("@/lib/tenant/ai-cost", async (原) => ({ ...(await 原<typeof import("@/lib/tenant/ai-cost")>()), 记一次: async (...a: unknown[]) => { 假.记账.push(a); } }));
 vi.mock("@/lib/tenant/context", () => ({ multiTenant: () => 假.多租户 }));
 vi.mock("@/lib/tenant/device-token", () => ({
   取Bearer: (req: Request) => /^Bearer (.+)$/.exec(req.headers.get("authorization") ?? "")?.[1] ?? null,

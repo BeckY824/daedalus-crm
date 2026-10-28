@@ -51,6 +51,21 @@ type Row = {
  * 每列先摆 50 张，底下「再看 50 条」（2026-10-24 企业版压测：1 万张卡整页 8.6 MB）。
  * 列头的条数和合计仍是这一列的全部，服务端算好给过来（列）；不到 50 张的列照原样在卡片上算（lib/pipeline-columns.ts）。
  */
+
+/**
+ * 卡片上的金额拆成「币种符号」「数字」两段，各自不断行：平常一行写完；
+ * 上亿、带负号这种一行放不下时，数字整段折到第二行，不冲出卡片（1280 一排五列时多出 4–6px）。
+ */
+function 金额两段(文字: string) {
+  const i = 文字.indexOf(" ");
+  if (i < 0) return <span className="pipe-card-a-n">{文字}</span>;
+  return (
+    <>
+      <span className="pipe-card-a-n">{文字.slice(0, i)}</span> <span className="pipe-card-a-n">{文字.slice(i + 1)}</span>
+    </>
+  );
+}
+
 export default function PipelineView({
   rows,
   赢单天数,
@@ -305,7 +320,7 @@ export default function PipelineView({
                   >
                     <div className="pipe-card-t clamp">{r.name}</div>
                     <div className="pipe-card-m">
-                      <span className="pipe-card-a">{金额(r.amount, r.currency)}</span>
+                      <span className="pipe-card-a">{金额两段(金额(r.amount, r.currency))}</span>
                       {显示负责人 && <span className="pipe-card-o" title={r.ownerName}>{r.ownerName}</span>}
                     </div>
                   </div>

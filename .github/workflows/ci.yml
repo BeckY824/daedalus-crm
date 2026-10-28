@@ -17,7 +17,7 @@ concurrency:
 jobs:
   lint:
     name: 类型 / 代码检查（tsc + eslint）
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -37,7 +37,7 @@ jobs:
 
   unit:
     name: 单元测试 ${{ matrix.shard }}/4
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -82,7 +82,7 @@ jobs:
     name: 类型 / 代码检查 / 单元测试
     needs: [lint, unit]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: 各片都绿才算过
         run: |
@@ -91,7 +91,7 @@ jobs:
 
   e2e-web:
     name: E2E 网页 ${{ matrix.shard }}/5
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
       image: mcr.microsoft.com/playwright:v1.56.1-noble
     strategy:
@@ -137,7 +137,7 @@ jobs:
 
   e2e-layout:
     name: 排版闸门 ${{ matrix.shard }}/3
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
       image: mcr.microsoft.com/playwright:v1.56.1-noble
     strategy:
@@ -179,7 +179,7 @@ jobs:
 
   e2e-hosted:
     name: E2E 托管版
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container:
       image: mcr.microsoft.com/playwright:v1.56.1-noble
     steps:
@@ -209,7 +209,7 @@ jobs:
 
   off-diff:
     name: 企业版开关关着：和 main 逐字段一致
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -249,7 +249,7 @@ jobs:
     name: E2E
     needs: [e2e-web, e2e-layout, e2e-hosted]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: 各片都绿才算过
         run: |
@@ -261,7 +261,7 @@ jobs:
     name: 耗时
     needs: [check, e2e, gitleaks]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       actions: read
     steps:
@@ -287,7 +287,7 @@ jobs:
 
   gitleaks:
     name: 密钥扫描
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:

@@ -88,7 +88,7 @@ export default function SupplierView({ s }: { s: 供应商详情数据 }) {
                 { title: "日期", dataIndex: "quotedAt", key: "d", width: 112, render: (v: string) => fmtDate(v) },
                 { title: "产品", dataIndex: "product", key: "p" },
                 { title: "出厂价", key: "price", width: 150, render: (_, r) => <span className="cmp-price">{金额(r.unitPrice, r.currency)} <span className="muted">{r.withInvoice ? "含票" : "不含票"}</span></span> },
-                { title: "询盘", key: "o", render: (_, r) => <RowLink href={`/opportunities?keyword=${encodeURIComponent(r.商机)}`}>{r.客户} · {r.商机}</RowLink> },
+                { title: "询盘", key: "o", render: (_, r) => <RowLink href={`/opportunities?keyword=${encodeURIComponent(r.商机)}`} className="clamp" title={`${r.客户} · ${r.商机}`}>{r.客户} · {r.商机}</RowLink> },
                 { title: "结论", key: "v", render: (_, r) => <span><Tag color={结论色[r.verdict]} style={{ margin: 0 }}>{r.verdict}</Tag>{r.reason && <span className="cmp-reason"> {r.reason}</span>}</span> },
               ]}
             />
@@ -104,7 +104,7 @@ export default function SupplierView({ s }: { s: 供应商详情数据 }) {
                 dataSource={s.purchases}
                 columns={[
                   { title: "订单", key: "no", render: (_, r) => <RowLink href={`/orders/${r.orderId}`} className="link-strong">{r.no}</RowLink> },
-                  { title: "客户", dataIndex: "客户", key: "c" },
+                  { title: "客户", dataIndex: "客户", key: "c", render: (v: string) => <span className="clamp" title={v}>{v}</span> },
                   { title: "销售额", key: "a", render: (_, r) => 金额(r.amount, r.currency) },
                   { title: "采购额", key: "cost", render: (_, r) => (r.cost ? 金额(r.cost, r.costCurrency) : <span className="muted">没填</span>) },
                   { title: "下单", dataIndex: "createdAt", key: "d", render: (v: string) => fmtDate(v) },

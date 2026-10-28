@@ -1139,7 +1139,8 @@ async function 主线() {
     await 两台("第一台删跟进：第二台也没了", B.id, { 有: true, 跟进: 0 });
     const d = await 调(w2, 动作.删客户, [[B.id]]);
     判(d?.ok && d.deleted === 1, { 步骤: "第二台删客户", 哪台: "wang2", 期望: "ok、deleted = 1", 实际: d });
-    for (const t of [w, 老, l]) await 等没了(t, B, "第二台删客户：别的台也没了");
+    // 每一台都等到（不只 wang / 老板 / li）：sun、zhao 晚到一拍的删除会算进下一步的客户数（10-28 机器忙时 sun 42 → 41）
+    for (const t of [w, 老, l, 台.sun, 台.zhao]) await 等没了(t, B, "第二台删客户：别的台也没了");
     if (范围) 说.push(`越权检查 ${await 核越权("同一账号第二台", ["wang", "wang2", "li"])} 行`);
     // 收尾：第二台关掉，免得后面几步（中转断开、移除成员）多一台干扰计数
     w2.壳.停 = true;
