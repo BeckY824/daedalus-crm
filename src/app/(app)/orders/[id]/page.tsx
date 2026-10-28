@@ -21,8 +21,9 @@ export default async function OrderPage({ params, searchParams }: { params: Prom
     订单节点 ? 负责人候选() : Promise.resolve([]),
   ]);
   if (!o) notFound();
-  // 节点关着（lib/features.ts）：轻量的订单页——信息 + 挂在它上面的跟进
-  if (!订单节点) return <OrderLite o={o} />;
+  // 节点关着（lib/features.ts）：轻量的订单页——信息 + 挂在它上面的跟进。
+  // 一个节点都没有的单（同步来的、导入的、节点打开前的老数据）也走轻量页，别在详情页上崩（0.46.30 排版闸门抓到）
+  if (!订单节点 || o.nodes.length === 0) return <OrderLite o={o} />;
   const 点名 = Number(sp.node);
   return <OrderView o={o} 供应商={供应商} 成员={候选.length > 1 ? 候选 : []} 我={me.id} 先看={Number.isInteger(点名) && 点名 >= 1 && 点名 <= o.nodes.length ? 点名 : undefined} />;
 }

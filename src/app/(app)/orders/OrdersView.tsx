@@ -86,7 +86,7 @@ export default function OrdersView({ rows, users, filters, 分页 }: { rows: 订
       ),
     },
     {
-      title: "超期", key: "超期", dataIndex: "超期", width: 70,
+      title: "超期", key: "超期", dataIndex: "超期", width: 88,
       ...排("late"),
       render: (v: number) => (v > 0 ? <span className="ord-late">{v}</span> : <span className="muted">—</span>),
     },
