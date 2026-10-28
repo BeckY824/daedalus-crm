@@ -73,7 +73,7 @@ export default function UpdateRow() {
     const off = api.onState(x => { events++; if (live) 收(x); });
     // 订阅之后的实时状态比首读快照新；IPC旧快照晚到不能覆盖它。
     api.state().then(x => { if (live && events === 0) 收(x); }).catch(() => {
-      if (live && events === 0) 收({ 阶段: "error", 文字: "未能读取更新状态，请重试" });
+      if (live && events === 0) 收({ 阶段: "error", 错误: "未能读取更新状态，请重试" });
     });
     window.desktopShell?.version().then(set版本).catch(() => {});
     return () => { live = false; off(); };
@@ -140,7 +140,8 @@ export default function UpdateRow() {
       break;
     case "error":
       图标 = <WarningOutlined />;
-      话 = "更新失败，点击重试";
+      // 主进程给了话就用它（如「暂时查不到新版本，点击重试」），不然是下载/安装出错
+      话 = s.文字 || "更新失败，点击重试";
       点 = 下载;
       样式 = " warn";
       break;
