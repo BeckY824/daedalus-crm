@@ -19,6 +19,7 @@ export const 范围字段: Record<string, readonly string[]> = {
   Task: ["customerId"], FollowPlan: ["customerId"], AuditLog: ["userId", "entity", "entityId"],
   Quote: ["opportunityId"], QuoteLine: ["quoteId"], SupplierQuote: ["opportunityId"],
   TradeOrder: ["customerId", "opportunityId", "contractId"], TradeOrderNode: ["orderId"], TradeOrderDoc: ["orderId"], TradeOrderPurchase: ["orderId"],
+  TradeOrderCheck: ["orderId"], TradeOrderTrack: ["orderId"], TradeOrderNodeOwner: ["nodeId"],
   FollowUpOrder: ["followUpId", "orderId"],
   // 产品图片挂在商机或订单上（二选一），跟着它走
   Attachment: ["opportunityId", "orderId"],
@@ -35,6 +36,7 @@ export const 范围父表: Record<string, Record<string, string>> = {
   Quote: { opportunityId: "Opportunity" }, QuoteLine: { quoteId: "Quote" }, SupplierQuote: { opportunityId: "Opportunity" },
   TradeOrder: { customerId: "Customer", opportunityId: "Opportunity", contractId: "Contract" },
   TradeOrderNode: { orderId: "TradeOrder" }, TradeOrderDoc: { orderId: "TradeOrder" }, TradeOrderPurchase: { orderId: "TradeOrder" },
+  TradeOrderCheck: { orderId: "TradeOrder" }, TradeOrderTrack: { orderId: "TradeOrder" }, TradeOrderNodeOwner: { nodeId: "TradeOrderNode" },
   FollowUpOrder: { followUpId: "FollowUp", orderId: "TradeOrder" },
   Attachment: { opportunityId: "Opportunity", orderId: "TradeOrder" },
 };

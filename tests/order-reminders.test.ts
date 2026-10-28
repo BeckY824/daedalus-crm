@@ -23,7 +23,9 @@ import { 算提醒, type 订单提醒项 } from "@/lib/reminders";
 import { 取订单提醒项 } from "@/lib/reminders-db";
 import { buildWatchlist } from "@/lib/sentinel";
 import { loadWatchlist } from "@/lib/sentinel-data";
-import { createOrder, saveOrderNode } from "@/app/(app)/orders/actions";
+import { createOrder, saveOrderNode, saveOrderTrack, addOrderCheck, saveOrderCheck, saveOrderNodeOwner } from "@/app/(app)/orders/actions";
+import { 订单列表, 订单详情 } from "@/lib/order-db";
+import { 我该做的 } from "@/lib/order-track";
 import { dayjs } from "@/lib/utils";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const 壳 = require("../desktop/reminders.js");
@@ -122,5 +124,58 @@ describe("从库里取", () => {
     // 订单节点这一版不上（lib/features.ts）：盯盘里不出订单
     if (订单节点) expect(盯[0]).toMatchObject({ kind: "order_late", customerName: "Acme" });
     else expect(盯.some((x) => x.kind === "order_late")).toBe(false);
+  });
+  it("到港（0.46.30 D-46）：预计到港过了还没到进提醒和盯盘，落在第 11 步；填了实际到港就没了", async () => {
+    const c = await 造客户(我, { name: "Bolt" });
+    const r = await createOrder({ customerId: c.id, amount: 100, currency: "USD", no: "B-1" });
+    if (!r.ok) throw new Error(r.error);
+    expect(await saveOrderTrack(r.id, { eta: dayjs().subtract(2, "day").endOf("day").toISOString(), vessel: "  EVER GIVEN  " })).toEqual({ ok: true });
+    const 项 = await 取订单提醒项(我);
+    expect(项.filter((x) => x.节点 === "到港")).toHaveLength(1);
+    expect(算提醒([], new Date(), 项.filter((x) => x.节点 === "到港")).订单.超期).toBe(1);
+    const 盯 = await loadWatchlist();
+    expect(盯.find((x) => x.kind === "order_late" && x.customerName === "Bolt")).toMatchObject({ href: expect.stringContaining("node=11") });
+    const 行 = (await 订单列表())[0];
+    expect(行).toMatchObject({ 到港灯: "红", 催尾款: true });
+    expect((await 订单详情(r.id))!.track.vessel).toBe("EVER GIVEN");
+    await saveOrderTrack(r.id, { ata: new Date().toISOString() });
+    expect((await 取订单提醒项(我)).some((x) => x.节点 === "到港")).toBe(false);
+    expect((await 订单列表())[0]).toMatchObject({ 到港灯: "绿", 催尾款: false });
+  });
+
+  it("验货（D-45）：轮次自己往上数，最近一轮不过 = 返工；样品可以标不适用；都不拦着推节点", async () => {
+    const c = await 造客户(我, { name: "Cog" });
+    const r = await createOrder({ customerId: c.id, amount: 100, currency: "USD", no: "C-1" });
+    if (!r.ok) throw new Error(r.error);
+    const a = await addOrderCheck(r.id, "验货", { result: "不过", issue: "色差" });
+    if (!a.ok) throw new Error(a.error);
+    expect((await addOrderCheck(r.id, "验货", { result: "要改" })).ok).toBe(false);
+    expect((await addOrderCheck(r.id, "别的")).ok).toBe(false);
+    expect((await 订单列表())[0].返工).toBe(true);
+    const b = await addOrderCheck(r.id, "验货");
+    if (!b.ok) throw new Error(b.error);
+    await saveOrderCheck(b.id, { result: "过" });
+    const 详 = (await 订单详情(r.id))!;
+    expect(详.checks.map((x) => [x.round, x.result])).toEqual([[1, "不过"], [2, "过"]]);
+    expect((await 订单列表())[0].返工).toBe(false);
+    await saveOrderTrack(r.id, { sampleNa: true });
+    expect((await 订单列表())[0].样品).toBe("不适用");
+    // 什么都没填也能把后面的节点推完成
+    expect((await saveOrderNode(r.id, 12, { status: "已完成" })).ok).toBe(true);
+  });
+
+  it("负责人（D-47）：指定后「我该做的」看得到，清掉就没了；不在候选里的人不收", async () => {
+    const c = await 造客户(我, { name: "Dot" });
+    const r = await createOrder({ customerId: c.id, amount: 100, currency: "USD", no: "D-1" });
+    if (!r.ok) throw new Error(r.error);
+    expect((await saveOrderNodeOwner(r.id, 5, 我)).ok).toBe(true);
+    expect((await saveOrderNodeOwner(r.id, 6, "没有这个人")).ok).toBe(false);
+    let 节点 = (await 订单详情(r.id))!.nodes;
+    expect(我该做的(节点, 我).map((n) => n.idx)).toEqual([5]);
+    await saveOrderNode(r.id, 5, { status: "已完成" });
+    节点 = (await 订单详情(r.id))!.nodes;
+    expect(我该做的(节点, 我)).toEqual([]);
+    await saveOrderNodeOwner(r.id, 5, null);
+    expect((await 订单详情(r.id))!.nodes.find((n) => n.idx === 5)!.ownerId).toBeNull();
   });
 });

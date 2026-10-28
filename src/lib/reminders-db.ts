@@ -56,5 +56,13 @@ export async function 取订单提醒项(ownerId: string): Promise<订单提醒�
     },
     select: { name: true, dueAt: true, status: true, order: { select: { id: true, no: true } } },
   });
-  return nodes.map((n) => ({ orderId: n.order.id, no: n.order.no, 节点: n.name, 时间: n.dueAt, 卡住: n.status === "卡住" }));
+  // 到港（0.46.30 D-46）：填了预计到港、还没到的，和节点同一个口径——过期算超期、当天算今天
+  const 到港 = await prisma.tradeOrderTrack.findMany({
+    where: { eta: { not: null }, ata: null, order: { customer: { salesOwnerId: ownerId } } },
+    select: { eta: true, order: { select: { id: true, no: true } } },
+  });
+  return [
+    ...nodes.map((n) => ({ orderId: n.order.id, no: n.order.no, 节点: n.name, 时间: n.dueAt, 卡住: n.status === "卡住" })),
+    ...到港.map((t) => ({ orderId: t.order.id, no: t.order.no, 节点: "到港", 时间: t.eta, 卡住: false })),
+  ];
 }

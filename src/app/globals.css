@@ -2595,3 +2595,29 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .lead-auto-assign-name { flex: 0 0 auto; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .lead-auto-assign-list li > span:last-child { min-width: 0; overflow-wrap: anywhere; }
 .team-dept-role { min-width: 72px; }
+
+/* 订单的样品 / 验货 / 海运 / 负责人（0.46.30 D-44～D-47）：都挂在节点面板里，窄宽度下换行不横滚 */
+.ord-flag { padding: 0 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); font: inherit; font-size: var(--fs-min); line-height: 20px; cursor: pointer; transition: transform var(--t-press) var(--ease); }
+.ord-flag:active { transform: scale(0.97); }
+.ord-flag:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.ord-flag-红 { background: var(--danger-bg); border-color: var(--danger-line); color: var(--danger-text); }
+.ord-flag-黄 { background: var(--warning-bg); border-color: var(--warning-line); color: var(--warning-text); }
+.ord-mine-tog { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.ord-step.dim { opacity: 0.35; }
+.ord-sub { display: flex; flex-direction: column; gap: var(--s2); padding-top: var(--s3); border-top: 1px solid var(--line-soft); min-width: 0; }
+.ord-sub-h { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); }
+.ord-na { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.ord-chip { padding: 0 6px; border-radius: 4px; font-size: var(--fs-min); line-height: 18px; background: var(--hover); color: var(--ink-soft); white-space: nowrap; }
+.ord-chip.ok { background: var(--success-bg); color: var(--success-text); }
+.ord-chip.warn { background: var(--warning-bg); color: var(--warning-text); }
+.ord-chip.bad { background: var(--danger-bg); color: var(--danger-text); }
+.ord-check { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); min-width: 0; }
+.ord-check-r { width: 4em; font-size: var(--fs-note); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.ord-check-i { flex: 1 1 200px; min-width: 0; }
+.ord-rework { margin-left: 6px; vertical-align: 1px; }
+.ord-eta { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ord-eta-红 { color: var(--danger-text); font-weight: 600; }
+.ord-eta-黄 { color: var(--warning-text); font-weight: 600; }
+.ord-eta-绿 { color: var(--text-muted); }
+.ord-mine { display: block; font-size: var(--fs-note); }
+@media (prefers-reduced-motion: reduce) { .ord-flag:active { transform: none; } }

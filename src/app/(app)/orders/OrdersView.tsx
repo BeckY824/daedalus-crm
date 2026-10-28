@@ -1,6 +1,6 @@
 "use client";
 
-import { Select, Space, Tooltip } from "antd";
+import { Select, Space, Switch, Tooltip } from "antd";
 import { RowLink, PageHead, CustomerLink } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import { useUrlFilters } from "@/lib/url-filters";
@@ -22,7 +22,7 @@ type Row = 订单行;
  * 给了 分页（企业版单子多时，lib/orders-paging.ts）：rows 只是服务端排好的这一页，合计用服务端在全部上算的那份，
  * 翻页、排序走网址。没给：rows 是全部，照原来在浏览器里排、分页、算合计。
  */
-export default function OrdersView({ rows, users, filters, 分页 }: { rows: 订单行[]; users: 可选成员[]; filters: { ownerId: string }; 分页?: 订单分页 }) {
+export default function OrdersView({ rows, users, filters, 分页 }: { rows: 订单行[]; users: 可选成员[]; filters: { ownerId: string; 我: string }; 分页?: 订单分页 }) {
   const { f, apply, 翻页, pending } = useUrlFilters("/orders", { ...filters, sort: 分页?.sort ?? "" }, 分页?.每页);
   const 行: Row[] = rows;
 
@@ -62,7 +62,13 @@ export default function OrdersView({ rows, users, filters, 分页 }: { rows: 订
     { title: "金额", key: "amount", dataIndex: "amount", width: 120, render: (v: number, r) => <span style={{ fontWeight: 600 }}>{金额(v, r.currency)}</span> },
     {
       title: "当前节点", key: "当前", width: 150,
-      render: (_: unknown, r) => (r.当前 ? `${r.当前.idx}. ${r.当前.name}` : <span className="muted">已走完</span>),
+      // 最近一轮验货不过：卡在返工（0.46.30 D-45），当前节点后面挂一个红签
+      render: (_: unknown, r) => (
+        <span className="clamp-1">
+          {r.当前 ? `${r.当前.idx}. ${r.当前.name}` : <span className="muted">已走完</span>}
+          {r.返工 && <span className="ord-chip bad ord-rework">返工</span>}
+        </span>
+      ),
     },
     {
       title: "节点", 列名: "12 个节点", key: "nodes", width: 12 * 22 + 16,
@@ -84,6 +90,19 @@ export default function OrdersView({ rows, users, filters, 分页 }: { rows: 订
       ...排("late"),
       render: (v: number) => (v > 0 ? <span className="ord-late">{v}</span> : <span className="muted">—</span>),
     },
+    {
+      // 到港（0.46.30 D-46）：和节点同一套灯；到港临近或过了、钱没收齐挂「催尾款」
+      title: "到港", key: "eta", width: 120,
+      render: (_: unknown, r) =>
+        r.ata ? <span className="ord-eta ord-eta-绿">已到</span>
+        : r.eta ? (
+          <span className="ord-eta">
+            <span className={`ord-eta-${r.到港灯}`}>{fmtDate(r.eta)}</span>
+            {r.催尾款 && <span className="ord-chip bad ord-rework">催尾款</span>}
+          </span>
+        ) : <span className="muted">—</span>,
+    },
+    { title: "样品", key: "样品", dataIndex: "样品", width: 80, 默认: false, render: (v: string) => (v === "未寄" ? <span className="muted">—</span> : v) },
     { title: <Tooltip title="订单金额减去定金实收和尾款实收，最低为0；按订单币种计算">未收</Tooltip>, 列名: "未收", key: "未收", dataIndex: "未收", width: 120, render: (v: number, r) => (v > 0 ? 金额(v, r.currency) : <span className="muted">收齐了</span>) },
     // 外贸客户要的那三列（二审：节点版一览原来没有），收在「列」里
     { title: "付款方式", key: "payment", dataIndex: "payment", width: 120, 默认: false, render: (v: string | null) => v ?? <span className="muted">—</span> },
@@ -101,7 +120,7 @@ export default function OrdersView({ rows, users, filters, 分页 }: { rows: 订
         行={分页 ? 行 : 一览顺序(行, 订单节点)}
         行链接={(r) => `/orders/${r.id}`}
         横向={订单节点 ? 1100 : undefined}
-        空库={汇总.单 === 0 && !f.ownerId}
+        空库={汇总.单 === 0 && !f.ownerId && !f.我}
         空态={{
           title: "还没有订单",
           hint: 订单节点
@@ -120,6 +139,12 @@ export default function OrdersView({ rows, users, filters, 分页 }: { rows: 订
                 onChange={(v) => apply({ ownerId: v ?? "" })}
                 options={成员选项(users)}
               />
+              {订单节点 && (
+                <label className="ord-mine-tog">
+                  <Switch size="small" checked={!!f.我} onChange={(v) => apply({ 我: v ? "1" : "" })} aria-label="只看我该做的" />
+                  我该做的
+                </label>
+              )}
             </Space>
           ) : undefined
         }
