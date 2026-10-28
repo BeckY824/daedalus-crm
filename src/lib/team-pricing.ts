@@ -70,7 +70,7 @@ export function 剩几天(paidUntil: Date, now = new Date()): number {
 /* ---------------- 闸 ---------------- */
 
 export const 没开通话 = "团队同步还没开通";
-export const 到期话 = (paidUntil: Date) => `团队同步已到期（${北京日期(paidUntil)}），暂停同步：续费后自动恢复，这台电脑上的数据照常能用`;
+export const 到期话 = (paidUntil: Date) => `团队同步已到期（${北京日期(paidUntil)}），暂停同步：续期后自动恢复，这台电脑上的数据照常能用`;
 export const 已到期 = (plan: { paidUntil: Date | null } | null | undefined, now = new Date()) => !!plan?.paidUntil && plan.paidUntil.getTime() <= now.getTime();
 
 /** 这个团队现在能不能同步：能回 null，不能回给成员看的那句话（402）。没开通 / 停用 / 到期都在这里 */

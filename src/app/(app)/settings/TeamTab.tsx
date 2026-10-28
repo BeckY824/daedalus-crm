@@ -27,8 +27,8 @@ type 状态 = Awaited<ReturnType<typeof 读团队状态>>;
  *
  * 几个人各用各的桌面端，数据在每个人电脑上；改动加密后经我们的服务器转给同事。
  * 两句话必须说在明处：**我们看不到你们的数据**（钥匙只在邀请码里）；**邀请码只发给同事**（谁拿到谁就能进来、能解开）。
- * 新团队要开通才开始同步（收费）：建好、把人拉齐可以先做，开通了一起开始。
- * 2026-10-15 起按时长开通：有到期日（显示还剩几天），到期暂停同步、续费自动恢复；价格表从服务器读（TeamPricing）。
+ * 新团队要开通才开始同步（2026-10-28 起团队版免费，开通照旧由运营者开）：建好、把人拉齐可以先做，开通了一起开始。
+ * 2026-10-15 起按时长开通：有到期日（显示还剩几天），到期暂停同步、续期自动恢复；10-28 起不标价（TeamPricing 只说免费）。
  */
 export default function TeamTab() {
   const router = useRouter();
@@ -91,7 +91,7 @@ export default function TeamTab() {
         <div>
           <p>把下面这段邀请码发给同事，他们在自己的桌面端「设置 → 团队 → 加入团队」里粘贴进来。</p>
           <Typography.Paragraph copyable code style={{ wordBreak: "break-all" }}>{r.邀请码}</Typography.Paragraph>
-          <p className="muted">团队还要开通才开始同步（收费）。可以先把人拉齐，开通了一起开始。</p>
+          <p className="muted">团队还要开通才开始同步（团队版免费）。可以先把人拉齐，开通了一起开始。</p>
         </div>
       ),
       okText: "知道了",
@@ -285,7 +285,7 @@ export default function TeamTab() {
             <Button loading={忙 === "入"} disabled={!s.能用 || !码.trim() || 忙 !== null} onClick={() => void 入()}>加入团队</Button>
           </div>
         </section>
-        <TeamPricing 价格={s.价格} 能用={s.能用} />
+        <TeamPricing />
       </div>
     );
   }
@@ -331,19 +331,19 @@ export default function TeamTab() {
       {s.active === true && s.到期 && s.到期.剩 <= 7 && (
         <Alert type="warning" showIcon style={{ marginBottom: 16 }} title={s.到期.剩 > 0 ? `团队同步还有 ${s.到期.剩} 天到期` : "团队同步今天到期"}
           description={s.我是建的人
-            ? "到期后暂停同步（这台电脑上的数据照常能用）。续费请点左下角「反馈」告诉我们团队名字、人数和时长，续上之后接着同步。"
-            : "到期后暂停同步（这台电脑上的数据照常能用）。续费由老板办，提醒老板一声就行。"} />
+            ? "到期后暂停同步（这台电脑上的数据照常能用）。续期请点左下角「反馈」告诉我们团队名字和人数，续上之后接着同步。"
+            : "到期后暂停同步（这台电脑上的数据照常能用）。续期由老板办，提醒老板一声就行。"} />
       )}
       {s.active === false && s.已到期 && (
         <Alert type="warning" showIcon style={{ marginBottom: 16 }} title={`团队同步已到期${s.到期 ? `（${s.到期.日}）` : ""}，暂停同步`}
           description={s.我是建的人
-            ? "这台电脑上的数据照常能用，改动都记着，不会丢。续费请点左下角「反馈」告诉我们团队名字、人数和时长；续上之后自动恢复，把这段时间的改动补上。"
-            : "这台电脑上的数据照常能用，改动都记着，不会丢。请老板续费；续上之后自动恢复，把这段时间的改动补上。"} />
+            ? "这台电脑上的数据照常能用，改动都记着，不会丢。续期请点左下角「反馈」告诉我们团队名字和人数；续上之后自动恢复，把这段时间的改动补上。"
+            : "这台电脑上的数据照常能用，改动都记着，不会丢。请老板续期；续上之后自动恢复，把这段时间的改动补上。"} />
       )}
       {s.active === false && !s.已到期 && (
         <Alert type="warning" showIcon style={{ marginBottom: 16 }} title="团队还没开通，暂不同步"
           description={s.我是建的人
-            ? "开通后自动开始，改动都记着，不会丢。价格见下方「团队版价格」；开通请点左下角的「反馈」告诉我们团队名字、人数和时长。"
+            ? "开通后自动开始，改动都记着，不会丢。团队版免费；开通请点左下角的「反馈」告诉我们团队名字和人数。"
             : "开通后自动开始，改动都记着，不会丢。开通由老板办，等老板开通就行。"} />
       )}
       <div className="team-sync">
@@ -518,7 +518,7 @@ export default function TeamTab() {
         </section>
       )}
 
-      <TeamPricing 价格={s.价格} 能用 />
+      <TeamPricing />
 
       <section className="team-card">
         <Button danger onClick={退}>退出团队</Button>

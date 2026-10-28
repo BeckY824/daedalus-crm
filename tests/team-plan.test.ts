@@ -103,7 +103,7 @@ describe("到期日的算法（不碰库）", () => {
     expect(同步闸({ active: true }, null, now)).toBeNull();
     expect(同步闸({ active: true }, { paidUntil: null }, now)).toBeNull();
     expect(同步闸({ active: true }, { paidUntil: new Date(now.getTime() + 1000) }, now)).toBeNull();
-    expect(同步闸({ active: true }, { paidUntil: new Date("2026-10-14T15:59:59.999Z") }, now)).toMatch(/^团队同步已到期（2026-10-14）.*续费后自动恢复/);
+    expect(同步闸({ active: true }, { paidUntil: new Date("2026-10-14T15:59:59.999Z") }, now)).toMatch(/^团队同步已到期（2026-10-14）.*续期后自动恢复/);
   });
 });
 

@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
 import { 认同步 } from "@/lib/tenant/sync-auth";
-import { 公开价格 } from "@/lib/tenant/team-plan";
 
 export const dynamic = "force-dynamic";
 
 /**
- * 团队版价格表（每人，2026-10-15）：桌面端「设置 → 团队」显示用。价格存服务器、运营台改，改了不用发版。
- * 开通 / 续费不在这里：私信我们，运营者在运营台手动开
+ * 团队版价格表：2026-10-28 起不标价（团队版免费），回空表。
+ * 0.46.29 及以前的桌面端还会来读、拿到空表就不摆价格块（lib/sync/client.ts 当时的 读价格表 空表回 null），
+ * 这样不用等大家升级，旧版上的价格也一起下掉。运营台的价格表和「开通 / 续费」照旧，只是不再发给桌面端
  */
 export async function GET(req: Request) {
   const a = await 认同步(req);
   if (!a.ok) return a.res;
-  return NextResponse.json({ ok: true, ...(await 公开价格()) });
+  return NextResponse.json({ ok: true, prices: [], trialDays: 0 });
 }

@@ -692,7 +692,7 @@ describe("6. 快到期提醒 → 到期暂停 → 续费恢复（改动不丢）
     expect((await 开通.改到期({ teamId, paidUntil: 开通.当天结束(北京今天加(-1)), by: "测试" })).ok).toBe(true);
     const r = await 轮("li");
     expect(r.ok).toBe(false);
-    expect(!r.ok && r.error).toMatch(/^团队同步已到期（\d{4}-\d{2}-\d{2}），暂停同步：续费后自动恢复，这台电脑上的数据照常能用$/);
+    expect(!r.ok && r.error).toMatch(/^团队同步已到期（\d{4}-\d{2}-\d{2}），暂停同步：续期后自动恢复，这台电脑上的数据照常能用$/);
     const s = await 在团队的状态("li");
     expect(s).toMatchObject({ active: false, 已到期: true });
     const m = await 手机轮("zhao-m");

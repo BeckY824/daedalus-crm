@@ -107,7 +107,7 @@ export async function 停用团队(input: { token: string; teamId: string; note?
   return { ok: true };
 }
 
-/** 团队版价格表（每人）。改了桌面端「设置 → 团队」马上看到 */
+/** 团队版价格表（每人，运营台内部记账用）。2026-10-28 起不标价，桌面端不再显示 */
 export async function 改团队价格(input: { token: string; prices: { months: number; perSeat: number }[]; trialDays: number }): Promise<AdminResult> {
   const g = await guard(input.token);
   if (!g.ok) return g;

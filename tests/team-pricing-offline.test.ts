@@ -1,30 +1,28 @@
 /**
- * 设置 → 团队 · 价格块（D-03，2026-10-28）：登录了但云端没答上来（超时、断网、5xx），价格块留着说一句「暂时连不上」，
- * 不整块消失让上面「价格见下方」指向空处；没登录照旧不摆。
+ * 设置 → 团队 · 团队版免费（2026-10-28 不标价）：不摆价格、不读价格表，不管连没连上云端都一样；
+ * 价格接口回空表，0.46.29 及以前的桌面端拿到空表也就不摆价格。
  *
  * 不引 jsdom：renderToStaticMarkup + createElement（同 ai-meter-bar.test.ts）。
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import TeamPricing from "@/app/(app)/settings/TeamPricing";
 
-describe("团队版价格块：云端失败时", () => {
-  it("登录了、价格拿不到：块还在，说暂时连不上、照样能找我们开通", () => {
-    const html = renderToStaticMarkup(createElement(TeamPricing, { 价格: null, 能用: true }));
+vi.mock("@/lib/tenant/sync-auth", () => ({ 认同步: async () => ({ ok: true }) }));
+
+describe("团队版不标价", () => {
+  it("设置页只说免费、怎么开通，不出现价格", () => {
+    const html = renderToStaticMarkup(createElement(TeamPricing));
     expect(html).toContain('data-testid="team-pricing"');
-    expect(html).toContain("暂时连不上云端");
+    expect(html).toContain("团队版免费");
     expect(html).toContain("反馈");
+    expect(html).not.toMatch(/¥|￥|\/ 人|试用|续费/);
   });
 
-  it("没登录：不摆", () => {
-    expect(renderToStaticMarkup(createElement(TeamPricing, { 价格: null, 能用: false }))).toBe("");
-    expect(renderToStaticMarkup(createElement(TeamPricing, { 价格: undefined }))).toBe("");
-  });
-
-  it("拿到了：照常列价格，不出现「连不上」", () => {
-    const html = renderToStaticMarkup(createElement(TeamPricing, { 价格: { trialDays: 7, prices: [{ months: 1, label: "1 个月", perSeat: 99, perMonth: 99 }] }, 能用: true }));
-    expect(html).toContain("¥99");
-    expect(html).not.toContain("连不上");
+  it("价格接口回空表：旧版桌面端拿到就不摆价格块", async () => {
+    const { GET } = await import("@/app/api/sync/pricing/route");
+    const j = await (await GET(new Request("http://x/api/sync/pricing"))).json();
+    expect(j).toEqual({ ok: true, prices: [], trialDays: 0 });
   });
 });

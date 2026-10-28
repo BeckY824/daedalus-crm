@@ -930,15 +930,6 @@ export async function 团队状态() {
   };
 }
 
-export type 团队价格 = { prices: { months: number; label: string; perSeat: number; perMonth: number }[]; trialDays: number };
-/** 团队版价格表（每人，2026-10-15）：存在服务器、运营台改，这里只拿来显示。拿不到（没登录、连不上、老服务器）回 null，界面上就不摆 */
-export async function 读价格表(): Promise<团队价格 | null> {
-  const r = await 云("GET", "/api/sync/pricing").catch(() => null);
-  if (!r || r.状态 !== 200 || !Array.isArray(r.json.prices)) return null;
-  const prices = (r.json.prices as 团队价格["prices"]).filter((p) => p && typeof p.perSeat === "number" && typeof p.label === "string");
-  return prices.length ? { prices, trialDays: Number(r.json.trialDays) || 0 } : null;
-}
-
 /* ---------------- 老板 / 业务员（2026-10-04 两档权限，lib/team-scope.ts） ---------------- */
 
 let 上次对角色 = 0;
