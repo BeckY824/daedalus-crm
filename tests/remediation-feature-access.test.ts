@@ -36,22 +36,24 @@ async function snapshot() {
 }
 
 describe("L-110/W-050 关闭功能的服务端同样拒绝", () => {
-  it.each([
-    ["旧高级新建订单", () => createOrder({ customerId: ids.customer, no: "QA-NEW" })],
-    ["改定金", () => saveOrder(ids.order, { depositPaid: 100 })],
-    ["改采购", () => saveOrderPurchase(ids.order, { cost: 200 })],
-    ["改节点", () => saveOrderNode(ids.order, 1, { status: "已完成" })],
-    ["改单据", () => saveOrderDoc(ids.doc, "已收齐")],
-    ["加单据", () => addOrderDoc(ids.order, "QA-新单据")],
-    ["删单据", () => deleteOrderDoc(ids.doc)],
-    ["节点记跟进", () => addOrderNodeNote(ids.order, 1, "QA-节点跟进")],
-    ["改供应商", () => saveSupplier({ id: ids.supplier, name: "QA-已修改" })],
-    ["删供应商", () => deleteSupplier(ids.supplier)],
-    ["存比价", () => saveSupplierQuote({ opportunityId: ids.opportunity, supplierId: ids.supplier, product: "QA-新产品", unitPrice: 20 })],
-    ["删比价", () => deleteSupplierQuote(ids.quote)],
-    ["保存关闭的报价明细", () => saveOpportunity({ id: ids.opportunity, name: "QA-商机修改", customerId: ids.customer, ownerId: state.user.id, amount: 1, stage: "初步沟通", status: "OPEN", probability: 20, 报价: [{ product: "QA", qty: 1, unitPrice: 1 }] })],
-  ] as const)("%s：拒绝且业务库完全不变", async (_label, operation) => {
-    expect([订单节点, 供应商页, 报价明细]).toEqual([false, false, false]);
+  // 每条带上挡它的开关：开关打开了（0.46.30 起订单节点打开）那条就不该再拒，跳过
+  const 情形 = [
+    ["旧高级新建订单", () => createOrder({ customerId: ids.customer, no: "QA-NEW" }), 订单节点],
+    ["改定金", () => saveOrder(ids.order, { depositPaid: 100 }), 订单节点],
+    ["改采购", () => saveOrderPurchase(ids.order, { cost: 200 }), 供应商页],
+    ["改节点", () => saveOrderNode(ids.order, 1, { status: "已完成" }), 订单节点],
+    ["改单据", () => saveOrderDoc(ids.doc, "已收齐"), 订单节点],
+    ["加单据", () => addOrderDoc(ids.order, "QA-新单据"), 订单节点],
+    ["删单据", () => deleteOrderDoc(ids.doc), 订单节点],
+    ["节点记跟进", () => addOrderNodeNote(ids.order, 1, "QA-节点跟进"), 订单节点],
+    ["改供应商", () => saveSupplier({ id: ids.supplier, name: "QA-已修改" }), 供应商页],
+    ["删供应商", () => deleteSupplier(ids.supplier), 供应商页],
+    ["存比价", () => saveSupplierQuote({ opportunityId: ids.opportunity, supplierId: ids.supplier, product: "QA-新产品", unitPrice: 20 }), 供应商页],
+    ["删比价", () => deleteSupplierQuote(ids.quote), 供应商页],
+    ["保存关闭的报价明细", () => saveOpportunity({ id: ids.opportunity, name: "QA-商机修改", customerId: ids.customer, ownerId: state.user.id, amount: 1, stage: "初步沟通", status: "OPEN", probability: 20, 报价: [{ product: "QA", qty: 1, unitPrice: 1 }] }), 报价明细],
+  ] as const;
+  const 关着的 = 情形.filter(([, , 开]) => !开).map(([名, 做]) => [名, 做] as const);
+  it.each(关着的)("%s：拒绝且业务库完全不变", async (_label, operation) => {
     const before = await snapshot();
     expect(await operation()).toMatchObject({ ok: false, error: expect.stringContaining("未开放") });
     expect(await snapshot()).toBe(before);
