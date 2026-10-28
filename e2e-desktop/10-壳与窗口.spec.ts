@@ -81,7 +81,8 @@ test("D-113 数据页、首页、商机看板、计划页：卡片都从顶部�
     await page.waitForLoadState("networkidle").catch(() => {});
     const 结果 = await page.evaluate(() => {
       const 条 = document.querySelector(".drag-strip");
-      if (!条) return { 有条: false, 高: 0, 落进去的: [] as string[], 看过: [] as string[] };
+      const win = document.documentElement.classList.contains("os-win");
+      if (!条) return { 有条: false, win, 高: 0, 落进去的: [] as string[], 看过: [] as string[] };
       const 高 = 条.getBoundingClientRect().height;
       // 「卡」：类名里带 card / tile / stat / kpi 的、看得见的块。页头那一行本来就在拖动区里（.pane-h 高度就是 --drag-h），不算
       const 落进去的: string[] = [];
@@ -94,10 +95,11 @@ test("D-113 数据页、首页、商机看板、计划页：卡片都从顶部�
         看过.push(`${el.className.toString().slice(0, 40)}@${Math.round(r.top)}`);
         if (r.top < 高 - 0.5) 落进去的.push(`${el.className.toString().slice(0, 60)} top=${Math.round(r.top)}`);
       }
-      return { 有条: true, 高, 落进去的, 看过 };
+      return { 有条: true, win, 高, 落进去的, 看过 };
     });
     expect(结果.有条, `${去处} 没有 .drag-strip（桌面端外壳没认出来？）`).toBe(true);
-    expect(结果.高).toBeGreaterThanOrEqual(40);
+    // 默认上下文的 UA 是 Desktop Chrome 的 Windows UA，会挂 os-win：拖动区让成系统标题栏那条 --caption-h（36px）；Mac 是 --drag-h（52px）
+    expect(结果.高).toBeGreaterThanOrEqual(结果.win ? 36 : 40);
     // 扫得到卡片：选择器或页面结构改了以后整条变成「什么都没查」就是假绿
     // 数据页是出过事的那一页，一定有卡；别的页没数据时可能一张卡都没有
     if (去处 === "/overview") expect(结果.看过.length, `${去处} 一张卡都没扫到`).toBeGreaterThan(0);
