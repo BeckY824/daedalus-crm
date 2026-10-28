@@ -1155,7 +1155,8 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
   display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; font-size: var(--fs-body);
 }
 .rec-plan-k { color: var(--brand); font-weight: 600; white-space: nowrap; }
-.rec-plan-v { flex: 1 1 100%; min-width: 0; color: var(--ink); order: 3; }
+/* 计划标题里常带客户全名：外贸那种不带空格的长英文名不折就把整页撑出横滚（1280/1366 左栏最宽，闸门 10-28） */
+.rec-plan-v { flex: 1 1 100%; min-width: 0; color: var(--ink); order: 3; overflow-wrap: anywhere; }
 .rec-plan-m { color: var(--text-muted); font-size: var(--fs-note); white-space: nowrap; margin-left: auto; }
 .rec-plan-m.is-over { color: var(--danger-text); }
 .rec-tl { padding: 4px 16px 10px; }

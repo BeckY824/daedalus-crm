@@ -381,7 +381,7 @@ export default function OpportunitiesView({
       ),
     },
     {
-      title: "", key: "act", width: 110, 常驻: true, fixed: "right",
+      title: "", key: "act", width: 118, 常驻: true, fixed: "right",
       render: (_, r) => (
         // 问「标为丢单？」那一句比这一格宽：盖在左边一格上（.opp-act），不临时加宽——加宽整张表会跳一下
         <span className="opp-act">
