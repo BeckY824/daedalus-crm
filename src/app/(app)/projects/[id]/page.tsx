@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { getBusiness } from "@/lib/business";
 import { 能管项目, 能改节点, 代管节点, 往前推不给, 直属才推, 角色字典, 异常类别字典, 能进公海的阶段, 看得到的客户, 露客户, 读必填数据 } from "@/lib/project/db";
-import { 按必填走, 节点必填, 还差 } from "@/lib/project/required";
+import { 按必填走, 节点必填, 还差, 建议还差 } from "@/lib/project/required";
+import { 外贸精简 } from "@/lib/business-config";
 import { 负责人候选 } from "@/lib/owners";
 import { 企业版 } from "@/lib/enterprise/switch";
 import { 读组织 } from "@/lib/enterprise/org";
@@ -79,6 +80,9 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const 必填 = !公海 && !p.result && 按必填走(规则, p.node)
     ? { 配了: 节点必填(规则, p.node), 还差: 还差(规则, await 读必填数据(prisma, p)), 只能靠填齐: me.role !== "ADMIN" && me.role !== "MANAGER" && !代管节点(me, p.ownerId, org) }
     : null;
+  // 团队版不配必填：照建议清单只提示还差什么，不拦、不自动推（企业版走上面的 必填）
+  const 建议补 = !企业 && !必填 && !公海 && !p.result && 能改
+    ? 建议还差(await 读必填数据(prisma, p), 外贸精简(await getBusiness())) : [];
   const 不给推 = 企业 && !公海 && !p.result ? 往前推不给(me, p.ownerId, await 直属才推(org)) : null;
 
   const 详情: 项目详情 = {
@@ -89,7 +93,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     phase: p.phase, node: p.node, result: p.result, exceptionReason: p.exceptionReason, exceptionCategory: p.exceptionCategory?.name ?? null,
     pooled: 公海, 企业版: 企业,
     // 下一步时间只有日子：在服务端按业务日排成 YYYY-MM-DD，和回收日同一个钟，浏览器在别的时区也不差一天
-    nextStepAt: p.nextStepAt ? dayjs(p.nextStepAt).format("YYYY-MM-DD") : null, 回收日, 要下一步, 能记沟通, 必填, 不给推, 能改节点: 节点能改,
+    nextStepAt: p.nextStepAt ? dayjs(p.nextStepAt).format("YYYY-MM-DD") : null, 回收日, 要下一步, 能记沟通, 必填, 建议补, 不给推, 能改节点: 节点能改,
     能放公海: !公海 && me.id === p.ownerId && (能进公海的阶段 as readonly string[]).includes(p.phase),
     // 原负责人领不回（企业版按 pool-rules.ts，别的版本本来就不能自己领回）；企业版按钮灰着摆、别的版本照旧不摆
     能领取: 公海 && (企业 ? !原负责人领不回 : me.id !== p.ownerId),

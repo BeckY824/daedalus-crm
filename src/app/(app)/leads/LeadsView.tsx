@@ -230,19 +230,20 @@ export default function LeadsView({
   const 不问归属 = !f.ownerId && 列表不问归属ID(users, rows.map((r) => r.ownerId));
 
   const 列表: 列<Row>[] = [
-    { title: "线索", key: "name", dataIndex: "name", width: 220, 常驻: true, ellipsis: true, render: (v) => <span className="link-strong clamp-1" style={{ display: "block", maxWidth: "100%" }} title={v}>{v}</span> },
-    { title: "联系人", key: "contact", dataIndex: "contact", width: 120, render: (v) => v ?? <span className="muted">—</span> },
+    // 窄窗口收窄几列（10-27，照企业版 c29782a2）：1024 宽整表少左右拖；长名字仍一行省略、悬停看全
+    { title: "线索", key: "name", dataIndex: "name", width: 200, 常驻: true, ellipsis: true, render: (v) => <span className="link-strong clamp-1" style={{ display: "block", maxWidth: "100%" }} title={v}>{v}</span> },
+    { title: "联系人", key: "contact", dataIndex: "contact", width: 104, render: (v) => v ?? <span className="muted">—</span> },
     // 长来源省略在标签里（2026-10-22 排版普查）：原来标签伸出格子、盖住「状态」
-    { title: "来源", key: "source", dataIndex: "source", width: 120, ellipsis: true, render: (v) => <Tag className="clamp-1" style={{ margin: 0, borderRadius: 6, maxWidth: "100%" }} title={v}>{v}</Tag> },
+    { title: "来源", key: "source", dataIndex: "source", width: 100, ellipsis: true, render: (v) => <Tag className="clamp-1" style={{ margin: 0, borderRadius: 6, maxWidth: "100%" }} title={v}>{v}</Tag> },
     {
-      title: "状态", key: "status", dataIndex: "status", width: 110,
+      title: "状态", key: "status", dataIndex: "status", width: 96,
       render: (v) => (
         <Tag color={LEAD_STATUS_COLOR[v] ?? "default"} style={{ margin: 0, borderRadius: 6 }}>
           {v}
         </Tag>
       ),
     },
-    ...(不问归属 ? [] : [{ title: "负责人", key: "ownerName", dataIndex: "ownerName", width: 140, render: (v: string) => <UserCell name={v} size={24} /> }]),
+    ...(不问归属 ? [] : [{ title: "负责人", key: "ownerName", dataIndex: "ownerName", width: 120, render: (v: string) => <UserCell name={v} size={24} /> }]),
     { title: "创建时间", key: "createdAt", dataIndex: "createdAt", width: 116, render: (v) => <span className="muted nowrap">{smartTime(v)}</span> },
 
     { title: "联系电话", key: "phone", dataIndex: "phone", width: 140, 默认: false, render: (v) => v ?? <span className="muted">—</span> },

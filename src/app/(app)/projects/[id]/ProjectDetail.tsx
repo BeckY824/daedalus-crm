@@ -49,6 +49,8 @@ export type 项目详情 = {
    * 只能靠填齐 = 不是老板、主管，手动往前推不给（往后退、点结局照旧）
    */
   必填: { 配了: string[]; 还差: string[]; 只能靠填齐: boolean } | null;
+  /** 团队版：这个节点照建议清单还差哪几样，只提示、不拦（企业版、有结局、在公海、没权限 = 空） */
+  建议补: string[];
   /** 企业版 D-37：负责人有直属上级、我又不是这位上级（也不是老板）时，往前推不给的那句话；null = 能推 */
   不给推: string | null;
   /** 能改节点：能改的人 + 企业版负责人的直属上级（账号可能是 SALES）；只管节点这一块 */
@@ -306,6 +308,11 @@ export default function ProjectDetail({
             {p.必填.还差.length
               ? `这个节点填齐必填后自动往前推，还差：${p.必填.还差.map(必填叫法).join("、")}`
               : "这个节点的必填都齐了"}
+          </div>
+        )}
+        {p.建议补.length > 0 && (
+          <div data-testid="project-suggest-fill" style={{ marginTop: 12, color: "var(--text-muted)", overflowWrap: "anywhere" }}>
+            这个节点建议补上：{p.建议补.map(必填叫法).join("、")}（不补也能往前推）
           </div>
         )}
       </Card>

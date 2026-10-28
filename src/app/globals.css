@@ -1860,7 +1860,7 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
   transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease); }
 /* 落点要看得出来：拖过去时整列亮一下，不然人不知道松手会掉进哪一列 */
 .pipe-col-on { background: var(--brand-bg); border-color: var(--brand-line); }
-.pipe-h { display: flex; align-items: baseline; gap: 6px; }
+.pipe-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; } /* 金额放不下就折到第二行，不截成「¥ 1,23…」（10-27，照企业版 c29782a2） */
 .pipe-h b { font-size: var(--fs-body); font-weight: 600; color: var(--ink); white-space: nowrap; flex: none; } /* 阶段名能自己改（6 字内），一行放下；挤的时候让右边的金额省略。列最窄 184，6 个字加张数放得下，金额挤了就省略 */
 .pipe-dot { width: 8px; height: 8px; border-radius: 50%; align-self: center; flex: none; }
 .pipe-n { font-size: var(--fs-min); color: var(--text-muted); font-variant-numeric: tabular-nums; }
