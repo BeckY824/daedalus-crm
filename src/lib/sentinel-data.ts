@@ -9,6 +9,7 @@ import { prisma, defaultClient } from "./prisma";
 import { 限定的我 } from "./team-scope";
 import { 毫秒, 第几天 } from "./dashboard-sql";
 import { 缓存着 } from "./home-cache";
+import { 开船节点 } from "./order-track";
 import { dayjs } from "./utils";
 import type { Dayjs } from "dayjs";
 import { buildWatchlist, 盯盘排序, STALE_DAYS, STATUS_WEIGHT, type SentinelInput, type WatchItem } from "./sentinel";
@@ -69,7 +70,7 @@ async function allWatchlist(now = dayjs(), 范围: { ownerId?: string } = {}, �
 /** 逾期计划、停滞商机、订单节点三样原料 */
 async function 取别的(a: { 谁的?: string; now: Dayjs; 肯定没睡: Date; businessP: Promise<BusinessConfig> }): Promise<Omit<SentinelInput, "customers">> {
   const { 谁的, now, 肯定没睡 } = a;
-  const [overduePlans, opps, lateNodes, business] = await Promise.all([
+  const [overduePlans, opps, 超期节点, business] = await Promise.all([
     prisma.followPlan.findMany({
       // 逾期按今天零点算，和首页、左栏角标、计划页一个口径（lib/overdue.ts）：今天上午没做的还算今天的
       where: 逾期条件({ ownerId: 谁的 }, now.toDate()).plan,
@@ -97,6 +98,12 @@ async function 取别的(a: { 谁的?: string; now: Dayjs; 肯定没睡: Date; b
     }),
     a.businessP,
   ]);
+  // 预计到港过了还没到（0.46.30 D-46）：当成「报关 / 开船」那一步后面的一项超期，点进去落在第 11 步
+  const 到港过期 = !订单节点 ? [] : await prisma.tradeOrderTrack.findMany({
+    where: { ata: null, eta: { lt: 今天零点(now.toDate()) }, ...(谁的 ? { order: { customer: { salesOwnerId: 谁的 } } } : {}) },
+    select: { eta: true, order: { select: { id: true, no: true, ownerId: true, customer: { select: { id: true, name: true } } } } },
+  });
+  const lateNodes = [...超期节点, ...到港过期.map((t) => ({ idx: 开船节点, name: "到港", dueAt: t.eta, status: "进行中", order: t.order }))];
   const 业务员 = new Map(
     (await prisma.user.findMany({ where: { id: { in: [...new Set(lateNodes.map((x) => x.order.ownerId))] } }, select: { id: true, name: true } })).map((u) => [u.id, u.name]),
   );

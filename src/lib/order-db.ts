@@ -4,13 +4,15 @@
 import type { Prisma } from "@/generated/prisma";
 import { prisma } from "./prisma";
 import { 当前节点, 超期数, 进度, 订单的钱 } from "./order";
+import { 返工, 样品状态, 到港灯, 尾款要催 } from "./order-track";
 import { 规整币种 } from "./currency";
 import { 签约币种, 签约金额 } from "./money-db";
 
-const 节点查询 = { orderBy: { idx: "asc" as const }, select: { idx: true, name: true, dueAt: true, status: true, doneAt: true } };
+const 节点查询 = { orderBy: { idx: "asc" as const }, select: { idx: true, name: true, dueAt: true, status: true, doneAt: true, owner: { select: { userId: true } } } };
 
-type 节点行 = { idx: number; name: string; dueAt: Date | null; status: string; doneAt: Date | null };
-const 节点出 = (n: 节点行) => ({ idx: n.idx, name: n.name, dueAt: n.dueAt?.toISOString() ?? null, status: n.status, doneAt: n.doneAt?.toISOString() ?? null });
+type 节点行 = { idx: number; name: string; dueAt: Date | null; status: string; doneAt: Date | null; owner: { userId: string } | null };
+/** ownerId = 这一步的负责人（0.46.30 D-47），没指定是 null */
+const 节点出 = (n: 节点行) => ({ idx: n.idx, name: n.name, dueAt: n.dueAt?.toISOString() ?? null, status: n.status, doneAt: n.doneAt?.toISOString() ?? null, ownerId: n.owner?.userId ?? null });
 
 export type 订单行 = {
   id: string;
@@ -34,6 +36,15 @@ export type 订单行 = {
   超期: number;
   进度: number;
   未收: number;
+  /** 最近一轮验货不过：卡在返工（0.46.30 D-45） */
+  返工: boolean;
+  /** 样品走到哪了（0.46.30 D-44），见 lib/order-track.ts 样品状态 */
+  样品: ReturnType<typeof 样品状态>;
+  /** 预计 / 实际到港（0.46.30 D-46）；到港灯、要不要催尾款依赖 现在，订单列表 每次现算 */
+  eta: string | null;
+  ata: string | null;
+  到港灯: ReturnType<typeof 到港灯>;
+  催尾款: boolean;
 };
 
 /** 订单一览要的原始行：订单（带客户、节点、签约、供应商）+ 负责人名字。不看日子 */
@@ -47,6 +58,8 @@ async function 取订单原始(where: Prisma.TradeOrderWhereInput) {
       nodes: 节点查询,
       contract: { select: { signedAt: true, amount: true, money: true } },
       purchase: { select: { supplier: { select: { name: true } } } },
+      checks: { select: { kind: true, round: true, result: true } },
+      track: { select: { sampleNa: true, eta: true, ata: true } },
     },
   });
   const rows: Awaited<ReturnType<typeof readBatch>> = [];
@@ -88,6 +101,12 @@ function 拼行({ rows, 人 }: Awaited<ReturnType<typeof 取订单原始>>): 订
       进度: 进度(nodes),
       // 未收也按签约金额算（二审：和这一行展示的金额同一个口径）
       未收: 订单的钱({ ...o, amount: o.contract ? 签约金额(o.contract) : o.amount }).未收,
+      返工: 返工(o.checks),
+      样品: 样品状态(o.checks, !!o.track?.sampleNa),
+      eta: o.track?.eta?.toISOString() ?? null,
+      ata: o.track?.ata?.toISOString() ?? null,
+      到港灯: "无",
+      催尾款: false,
     };
   });
 }
@@ -110,7 +129,8 @@ export async function 订单列表(
   return 行
     .map((r) => {
       const nodes = r.nodes.map((n) => ({ ...n }));
-      return { ...r, nodes, 当前: r.当前 && { ...r.当前 }, 超期: 超期数(nodes, 现在) };
+      const 海运 = { eta: r.eta, ata: r.ata };
+      return { ...r, nodes, 当前: r.当前 && { ...r.当前 }, 超期: 超期数(nodes, 现在), 到港灯: 到港灯(海运, 现在), 催尾款: 尾款要催(海运, r.未收, 现在) };
     })
     .sort((a, b) => b.超期 - a.超期 || b.createdAt.localeCompare(a.createdAt) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
 }
@@ -132,6 +152,8 @@ export async function 订单详情(id: string) {
       followUps: { include: { followUp: { select: { id: true, content: true, occurredAt: true, owner: { select: { name: true } } } } } },
       purchase: { include: { supplier: { select: { id: true, name: true } } } },
       contract: { select: { id: true, amount: true, signedAt: true, remark: true, money: true } },
+      checks: { orderBy: [{ kind: "asc" }, { round: "asc" }], select: { id: true, kind: true, round: true, at: true, result: true, issue: true } },
+      track: true,
     },
   });
   if (!o) return null;
@@ -165,6 +187,16 @@ export async function 订单详情(id: string) {
       : null,
     nodes: o.nodes.map(节点出),
     docs: o.docs,
+    /** 样品 / 验货每一轮（0.46.30 D-44 / D-45），按类、轮次排 */
+    checks: o.checks.map((c) => ({ id: c.id, kind: c.kind, round: c.round, at: c.at?.toISOString() ?? null, result: c.result, issue: c.issue })),
+    /** 海运 + 样品不适用（0.46.30 D-44 / D-46）；没有这一行就是都没填 */
+    track: {
+      sampleNa: o.track?.sampleNa ?? false,
+      vessel: o.track?.vessel ?? null,
+      container: o.track?.container ?? null,
+      eta: o.track?.eta?.toISOString() ?? null,
+      ata: o.track?.ata?.toISOString() ?? null,
+    },
     notes: o.followUps
       .map((x) => ({ nodeIdx: x.nodeIdx, id: x.followUp.id, content: x.followUp.content, occurredAt: x.followUp.occurredAt.toISOString(), who: x.followUp.owner.name }))
       .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt)),

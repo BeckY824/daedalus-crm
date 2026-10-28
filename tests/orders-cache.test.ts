@@ -30,6 +30,7 @@ import { 关读通道 } from "@/lib/read-pool";
 import { 缓存着, 清首页缓存, 首页缓存条数 } from "@/lib/home-cache";
 import { 订单列表 } from "@/lib/order-db";
 import { 当前节点, 超期数, 进度, 订单的钱 } from "@/lib/order";
+import { 返工, 样品状态, 到港灯, 尾款要催 } from "@/lib/order-track";
 import { 规整币种 } from "@/lib/currency";
 import { 签约币种, 签约金额 } from "@/lib/money-db";
 
@@ -93,15 +94,18 @@ async function 老办法(where: { ownerId?: string } = {}, 现在 = new Date()) 
     orderBy: { id: "asc" },
     include: {
       customer: { select: { name: true, school: true } },
-      nodes: { orderBy: { idx: "asc" }, select: { idx: true, name: true, dueAt: true, status: true, doneAt: true } },
+      nodes: { orderBy: { idx: "asc" }, select: { idx: true, name: true, dueAt: true, status: true, doneAt: true, owner: { select: { userId: true } } } },
       contract: { select: { signedAt: true, amount: true, money: true } },
       purchase: { select: { supplier: { select: { name: true } } } },
+      // 0.46.30 D-44～D-47：样品 / 验货 / 海运 / 节点负责人，只往后加键
+      checks: { select: { kind: true, round: true, result: true } },
+      track: { select: { sampleNa: true, eta: true, ata: true } },
     },
   });
   const 人 = new Map((await raw.user.findMany({ select: { id: true, name: true } })).map((u) => [u.id, u.name]));
   return rows
     .map((o) => {
-      const nodes = o.nodes.map((n) => ({ idx: n.idx, name: n.name, dueAt: n.dueAt?.toISOString() ?? null, status: n.status, doneAt: n.doneAt?.toISOString() ?? null }));
+      const nodes = o.nodes.map((n) => ({ idx: n.idx, name: n.name, dueAt: n.dueAt?.toISOString() ?? null, status: n.status, doneAt: n.doneAt?.toISOString() ?? null, ownerId: n.owner?.userId ?? null }));
       const 当 = 当前节点(nodes);
       return {
         id: o.id,
@@ -123,6 +127,12 @@ async function 老办法(where: { ownerId?: string } = {}, 现在 = new Date()) 
         超期: 超期数(nodes, 现在),
         进度: 进度(nodes),
         未收: 订单的钱({ ...o, amount: o.contract ? 签约金额(o.contract) : o.amount }).未收,
+        返工: 返工(o.checks),
+        样品: 样品状态(o.checks, !!o.track?.sampleNa),
+        eta: o.track?.eta?.toISOString() ?? null,
+        ata: o.track?.ata?.toISOString() ?? null,
+        到港灯: 到港灯(o.track, 现在),
+        催尾款: 尾款要催(o.track, 订单的钱({ ...o, amount: o.contract ? 签约金额(o.contract) : o.amount }).未收, 现在),
       };
     })
     .sort((a, b) => b.超期 - a.超期 || b.createdAt.localeCompare(a.createdAt) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
