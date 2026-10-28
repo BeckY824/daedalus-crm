@@ -84,6 +84,18 @@ describe("建档向导", () => {
     expect(await prisma.auditLog.count({ where: { entity: "Project", entityId: p.id } })).toBe(1);
   });
 
+  it("团队版首条沟通可以先不写（10-28）：内容空 / 不交，项目照建，跟进一条不建；企业版照旧拦", async () => {
+    const r = await 建档向导(输入({ 跟进: { type: "PHONE", content: "  ", occurredAt: "2026-10-20 10:00" } }));
+    expect(r).toMatchObject({ ok: true });
+    const r2 = await 建档向导(输入({ 客户: { ...输入().客户, name: "第二位", phone: "13900000009" }, 联系人: { name: "李" }, 跟进: null }));
+    expect(r2).toMatchObject({ ok: true });
+    expect(await 各表行数()).toMatchObject({ customer: 2, project: 2, log: 2, followUp: 0, link: 0 });
+    if (r.ok) expect((await prisma.customer.findUniqueOrThrow({ where: { id: r.customerId } })).lastFollowAt).toBeNull();
+    vi.stubEnv("CRM_ENTERPRISE", "1");
+    const r3 = await 建档向导(输入({ 客户: { ...输入().客户, name: "第三位", phone: "13900000010" }, 联系人: { name: "赵" }, 跟进: { type: "PHONE", content: "", occurredAt: "2026-10-20 10:00" } }));
+    expect(r3).toMatchObject({ ok: false });
+  });
+
   it("负责人没选 = 自己", async () => {
     const r = await 建档向导(输入());
     expect(r).toMatchObject({ ok: true });
@@ -261,6 +273,13 @@ describe("规整向导", () => {
     ["时间在未来", { 跟进: { type: "PHONE", content: "x", occurredAt: "2026-10-24 09:00" } }, "未来"],
   ])("%s → 拦", (_, 改, 说) => {
     expect(规整向导(me, { ...好的(), ...改 } as never, now)).toEqual({ error: expect.stringContaining(说) });
+  });
+
+  it("跟进可空（团队版）：内容空、不交 → 跟进 null；写了照样验；要下一步时不放", () => {
+    expect(规整向导(me, { ...好的(), 跟进: { type: "PHONE", content: " ", occurredAt: "2026-10-22 09:00" } }, now, false, null, true)).toMatchObject({ 跟进: null });
+    expect(规整向导(me, { 联系人: { name: "王" }, 项目: { name: "项目" } }, now, false, null, true)).toMatchObject({ 跟进: null });
+    expect(规整向导(me, { ...好的(), 跟进: { type: "PHONE", content: "x", occurredAt: "昨天" } }, now, false, null, true)).toEqual({ error: expect.stringContaining("格式") });
+    expect(规整向导(me, { ...好的(), 跟进: { type: "PHONE", content: " ", occurredAt: "2026-10-22 09:00" } }, now, true, null, true)).toEqual({ error: expect.stringContaining("沟通内容") });
   });
 
   it("少一整块 → 让从头再走", () => {

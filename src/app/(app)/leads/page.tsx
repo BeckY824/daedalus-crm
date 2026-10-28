@@ -71,7 +71,7 @@ export default async function LeadsPage({
       filters={{ keyword: sp.keyword ?? "", status: sp.status ?? "", ownerId: sp.ownerId ?? "", source: sp.source ?? "" }}
       来源们={来源们}
       能自动分配={能自动分配}
-      企业版项目={企业版() && b.projectMode === true}
+      项目模式={b.projectMode === true}
       线索分配开着={线索分配开着}
       满额提醒={满额提醒们}
       rows={rows.map((l) => ({

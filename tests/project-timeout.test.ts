@@ -233,6 +233,6 @@ describe("建档向导：开了超时回收首条跟进要下一步时间", () =
     expect("error" in 规整向导({ id: "me" }, 输入() as never)).toBe(false);
     expect(规整向导({ id: "me" }, 输入() as never, new Date(), true)).toEqual({ error: 要下一步时间 });
     const r = 规整向导({ id: "me" }, 输入(dayjs().add(1, "day").format("YYYY-MM-DD")) as never, new Date(), true);
-    expect("error" in r ? r.error : r.跟进.nextStepAt).toBeInstanceOf(Date);
+    expect("error" in r ? r.error : r.跟进?.nextStepAt).toBeInstanceOf(Date);
   });
 });

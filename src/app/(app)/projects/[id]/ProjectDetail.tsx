@@ -12,7 +12,7 @@ import { dayjs, fmtDateTime } from "@/lib/utils";
 import { 跟进类型表 } from "@/lib/follow-types";
 import { 外贸精简 } from "@/lib/business-config";
 import { 金额 } from "@/lib/currency";
-import { 阶段们, 节点们, 出口们, 交付还差, 下一步, 节点序号, 节点总数, 原因上限, 要写原因, type 位置 } from "@/lib/project/nodes";
+import { 阶段们, 节点们, 出口们, 交付还差, 下一步, 节点序号, 节点总数, 原因上限, 要写原因, 常用原因, type 位置 } from "@/lib/project/nodes";
 import { 超时理由 } from "@/lib/project/timeout";
 import { 改项目节点, 勾项目交付, 删除项目, 放回项目公海, 领取项目, 记项目沟通Action } from "../actions";
 import type { 可选成员 } from "@/lib/utils";
@@ -39,7 +39,7 @@ export type 项目详情 = {
   企业版: boolean;
   /**
    * 企业版超时回收：nextStepAt 是最近一次沟通填的下一步时间（服务端排好的 YYYY-MM-DD）；回收日 = 哪天没人跟进就自动回公海（null = 不会）；
-   * 要下一步 = 记沟通必须填下一步时间；能记沟通 = 企业版里的负责人、老板、主管、项目组成员，且不在公海（不是企业版照原来去客户页记）
+   * 要下一步 = 记沟通必须填下一步时间；能记沟通 = 负责人、老板、主管、项目组成员，且不在公海（10-28 起团队版也在项目上记）
    */
   nextStepAt: string | null; 回收日: string | null; 要下一步: boolean; 能记沟通: boolean;
   /**
@@ -200,7 +200,7 @@ export default function ProjectDetail({
       set异常框(到);
       return;
     }
-    if (p.企业版 && 要写原因(到.result)) {
+    if (要写原因(到.result)) {
       set原因("");
       set没成框(到);
       return;
@@ -378,7 +378,7 @@ export default function ProjectDetail({
         </Card>
         <Card
           title="沟通"
-          extra={p.能记沟通 ? <Button type="link" size="small" disabled={忙} onClick={() => set记一条开着(true)}>记一条</Button> : p.customer && <Link href={`/customers/${p.customer.id}`}>去{b.customer}页{p.企业版 ? "看看" : "记一条"}</Link>}
+          extra={p.能记沟通 ? <Button type="link" size="small" disabled={忙} onClick={() => set记一条开着(true)}>记一条</Button> : p.customer && <Link href={`/customers/${p.customer.id}`}>去{b.customer}页看看</Link>}
         >
           {p.followUps.length === 0 && <div style={{ color: "var(--text-muted)" }}>{p.customer ? "还没有挂在这个项目上的沟通" : "领取后显示"}</div>}
           {p.followUps.map((f) => (
@@ -435,16 +435,24 @@ export default function ProjectDetail({
         open={!!没成框}
         title={没成框 ? `定结果：${没成框.result}` : ""}
         okText="确定"
-        okButtonProps={{ danger: true, disabled: !原因.trim(), loading: 忙 }}
+        okButtonProps={{ danger: true, disabled: p.企业版 && !原因.trim(), loading: 忙 }}
         onCancel={() => set没成框(null)}
         onOk={async () => {
-          if (!没成框 || !原因.trim()) return;
+          // 企业版原因必填；团队版宽松，留空也能定（服务端同一个判断，lib/project/nodes.ts 改节点问题）
+          if (!没成框 || (p.企业版 && !原因.trim())) return;
           const ok = await 跑(() => 改项目节点(p.id, 没成框, { 备注: 原因 }), `已改到 ${位置文字(没成框)}`);
           if (ok) set没成框(null);
         }}
       >
-        <div style={{ marginBottom: 8, color: "var(--text-muted)" }}>写一句为什么没成，会记在节点变更里；以后捡回来把节点改回去就行。</div>
-        <Input.TextArea rows={4} maxLength={原因上限} showCount value={原因} onChange={(e) => set原因(e.target.value)} placeholder="原因（必填）" aria-label="原因" />
+        <div style={{ marginBottom: 8, color: "var(--text-muted)" }}>{p.企业版 ? "写一句为什么没成" : "选一个常用原因，或者自己写一句（也可以不写）"}，会记在节点变更里；以后捡回来把节点改回去就行。</div>
+        {没成框?.result && 要写原因(没成框.result) && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+            {常用原因[没成框.result].map((x) => (
+              <Tag.CheckableTag key={x} checked={原因.trim() === x} onChange={(勾) => set原因(勾 ? x : "")}>{x}</Tag.CheckableTag>
+            ))}
+          </div>
+        )}
+        <Input.TextArea rows={4} maxLength={原因上限} showCount value={原因} onChange={(e) => set原因(e.target.value)} placeholder={p.企业版 ? "原因（必填）" : "其他原因（可不写）"} aria-label="原因" />
       </Modal>
     </div>
   );

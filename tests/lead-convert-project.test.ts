@@ -1,7 +1,7 @@
 /**
  * 企业版项目模式下线索转化顺手建项目（10-25 F6，lib/project/from-lead.ts）。
  * 钉的是：企业版 + 项目模式 → 转客户 / 并到已有客户都建一个项目（线索名、线索负责人、主要联系人、第一个节点、一行节点变更、一条操作记录）；
- * 撞号、超持有上限时什么都不建；不是企业版或没开项目模式 → 和原来一样只转客户。
+ * 撞号、超持有上限时什么都不建；团队版开了项目模式一样建（10-28）；没开项目模式 → 和原来一样只转客户。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
@@ -89,14 +89,18 @@ describe("企业版 + 项目模式", () => {
   });
 });
 
-describe("开关关着：和原来一样只转客户", () => {
-  it("不是企业版（项目模式开着）不建项目", async () => {
+describe("团队版（不是企业版）+ 项目模式：一样建项目（10-28）", () => {
+  it("转客户顺手建项目，落在第一个节点，记一行节点变更", async () => {
     vi.stubEnv("CRM_ENTERPRISE", "");
     const r = await convertLead((await 线索()).id);
-    expect(r).toEqual({ ok: true, customerId: expect.any(String) });
-    expect(await prisma.project.count()).toBe(0);
-    expect(await prisma.auditLog.count({ where: { entity: "Project" } })).toBe(0);
+    if (!r.ok) throw Error(r.error);
+    const p = await prisma.project.findUniqueOrThrow({ where: { id: r.projectId! } });
+    expect(p).toMatchObject({ customerId: r.customerId, ownerId: 乙, node: 第一个节点.node });
+    expect(await prisma.projectNodeLog.count({ where: { projectId: p.id } })).toBe(1);
   });
+});
+
+describe("开关关着：和原来一样只转客户", () => {
 
   it("企业版但没开项目模式不建项目；并到已有客户也不建", async () => {
     mocks.开 = false;
@@ -109,13 +113,14 @@ describe("开关关着：和原来一样只转客户", () => {
   });
 });
 
-describe("线索页交给界面的「企业版项目」（F1：只有它为真，新建线索才不跳建档向导）", () => {
-  const 交出 = async () => ((await LeadsPage({ searchParams: Promise.resolve({}) })) as unknown as { props: { 企业版项目: boolean } }).props.企业版项目;
-  it("企业版 + 项目模式 → 真", async () => { expect(await 交出()).toBe(true); });
-  it("不是企业版 → 假；没开项目模式 → 假", async () => {
+describe("线索页交给界面的「项目模式」（只看开关，企业版、团队版一样）", () => {
+  const 交出 = async () => ((await LeadsPage({ searchParams: Promise.resolve({}) })) as unknown as { props: { 项目模式: boolean } }).props.项目模式;
+  it("开着 → 真；团队版也真", async () => {
+    expect(await 交出()).toBe(true);
     vi.stubEnv("CRM_ENTERPRISE", "");
-    expect(await 交出()).toBe(false);
-    vi.stubEnv("CRM_ENTERPRISE", "1");
+    expect(await 交出()).toBe(true);
+  });
+  it("没开项目模式 → 假", async () => {
     mocks.开 = false;
     expect(await 交出()).toBe(false);
   });

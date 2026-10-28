@@ -144,11 +144,11 @@ export async function deleteLeads(ids: string[]) {
 }
 
 /**
- * 企业版开了项目模式：转化时顺手建项目（10-25 F6，lib/project/from-lead.ts）。负责人是别人时先按持有上限查一遍，
+ * 开了项目模式（企业版、团队版一样）：转化时顺手建项目（10-25 F6，lib/project/from-lead.ts）。负责人是别人时先按持有上限查一遍，
  * 规则要在事务外读（事务里读设置会卡住）。返回 null = 不建；{ error } = 超上限，转化整个不做
  */
 async function 转项目前查(b: { projectMode?: boolean }, me: { id: string }, ownerId: string): Promise<null | { 建: true } | { error: string }> {
-  if (!企业版() || b.projectMode !== true) return null;
+  if (b.projectMode !== true) return null;
   if (ownerId !== me.id) {
     const 超 = await 超上限(prisma, await 生效组织规则(), ownerId, { phase: "线索", result: null });
     if (超) return { error: 超 };

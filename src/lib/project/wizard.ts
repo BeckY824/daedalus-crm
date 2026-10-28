@@ -24,7 +24,8 @@ export type 向导跟进 = { type: string; content: string; occurredAt: string; 
 export type 规整好的 = {
   联系人: { name: string; position: string | null; phone: string | null; email: string | null; wechat: string | null };
   项目: { name: string; ownerId: string; amount: number; currency: string; remark: string | null };
-  跟进: 规整好的沟通;
+  /** 团队版首条沟通可以先不写（10-28 宽松）：没写就是 null，项目照建，不建跟进 */
+  跟进: 规整好的沟通 | null;
 };
 
 export type 规整好的沟通 = { type: string; content: string; occurredAt: Date; nextStepAt: Date | null };
@@ -76,16 +77,21 @@ export function 规整沟通(
   return { type: f.type, content: 文字(f.content), occurredAt, nextStepAt };
 }
 
-/** 后四步交上来的规整一遍。负责人没选 = 自己；在不在职由调用方查库。要下一步 = 开了超时回收（项目建在线索阶段） */
+/**
+ * 后四步交上来的规整一遍。负责人没选 = 自己；在不在职由调用方查库。要下一步 = 开了超时回收（项目建在线索阶段）。
+ * 跟进可空 = 团队版（10-28 宽松）：首条沟通内容没写就当跳过，跟进为 null；写了照样验。企业版必填，开了超时回收也必填
+ */
 export function 规整向导(
   me: { id: string },
-  input: { 联系人?: 向导联系人; 项目?: 向导项目; 跟进?: 向导跟进 },
+  input: { 联系人?: 向导联系人; 项目?: 向导项目; 跟进?: 向导跟进 | null },
   now = new Date(),
   要下一步 = false,
   渠道?: FollowTypeConfig | null,
+  跟进可空 = false,
 ): 规整好的 | { error: string } {
   const c = input.联系人, p = input.项目, f = input.跟进;
-  if (!c || !p || !f) return { error: "建档信息不完整，请从头再走一遍" };
+  const 跳过跟进 = 跟进可空 && !要下一步 && (!f || !hasVisibleText(f.content));
+  if (!c || !p || (!f && !跳过跟进)) return { error: "建档信息不完整，请从头再走一遍" };
   if (!hasVisibleText(c.name)) return { error: "请填写联系人姓名" };
   const 电话 = 可空(c.phone);
   if (电话?.includes("*")) return { error: "联系人电话里不能有 *" };
@@ -93,8 +99,8 @@ export function 规整向导(
   const 项目 = 规整项目(p, me.id);
   if ("error" in 项目) return 项目;
 
-  const 跟进 = 规整沟通(f, { 要下一步, now, 叫法: "首条", 渠道 });
-  if ("error" in 跟进) return 跟进;
+  const 跟进 = 跳过跟进 || !f ? null : 规整沟通(f, { 要下一步, now, 叫法: "首条", 渠道 });
+  if (跟进 && "error" in 跟进) return 跟进;
 
   return {
     联系人: { name: 文字(c.name), position: 可空(c.position), phone: 电话, email: 可空(c.email), wechat: 可空(c.wechat) },
@@ -103,10 +109,10 @@ export function 规整向导(
   };
 }
 
-export type 建好的 = { contactId: string; projectId: string; followUpId: string };
+export type 建好的 = { contactId: string; projectId: string; followUpId: string | null };
 
 /**
- * 给 saveCustomer 的「接着建」：主要联系人、建档人、项目（落在潜客培育，记第一行节点变更）、首条跟进挂上项目。
+ * 给 saveCustomer 的「接着建」：主要联系人、建档人、项目（落在潜客培育，记第一行节点变更）、首条跟进挂上项目（跳过了就不建）。
  * 只用 tx；建好的 id 写进 出参，事务提交了才算数
  */
 export function 向导接着建(me: { id: string }, 好: 规整好的, 出参: Partial<建好的>): 接着建 {
@@ -116,15 +122,17 @@ export function 向导接着建(me: { id: string }, 好: 规整好的, 出参: P
     const 项目 = await tx.project.create({
       data: {
         ...好.项目, customerId, contactId: 联系人.id, creatorId: me.id,
-        phase: 第一个节点.phase, node: 第一个节点.node, nextStepAt: 好.跟进.nextStepAt,
+        phase: 第一个节点.phase, node: 第一个节点.node, nextStepAt: 好.跟进?.nextStepAt ?? null,
       },
     });
     await tx.projectNodeLog.create({ data: { projectId: 项目.id, userId: me.id, toPhase: 第一个节点.phase, toNode: 第一个节点.node } });
+    Object.assign(出参, { contactId: 联系人.id, projectId: 项目.id, followUpId: null });
+    if (!好.跟进) return;
     const 跟进 = await tx.followUp.create({
       data: { type: 好.跟进.type, content: 好.跟进.content, occurredAt: 好.跟进.occurredAt, title: "", status: "已完成", customerId, contactId: 联系人.id, ownerId: me.id },
     });
     await tx.followUpProject.create({ data: { followUpId: 跟进.id, projectId: 项目.id, node: 第一个节点.node } });
     await tx.customer.update({ where: { id: customerId }, data: { lastFollowAt: 好.跟进.occurredAt } });
-    Object.assign(出参, { contactId: 联系人.id, projectId: 项目.id, followUpId: 跟进.id });
+    出参.followUpId = 跟进.id;
   });
 }

@@ -67,7 +67,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   // 企业版超时回收：线索 / 商机阶段记沟通要填下一步时间；算出哪天会自动回公海（和 lib/project/db.ts 公海超时收回 同一个起点）
   const 要下一步 = 规则.超时回收.开 && !p.result && (能进公海的阶段 as readonly string[]).includes(p.phase);
   const 回收日 = 超时回收日(规则, p, 超时起点(p.createdAt, p.logs[0]?.at, p.customer.lastFollowAt));
-  const 能记沟通 = 企业 && !公海 && (能改 || p.members.some((m) => m.userId === me.id && m.inviteStatus === "JOINED"));
+  const 能记沟通 = !公海 && (能改 || p.members.some((m) => m.userId === me.id && m.inviteStatus === "JOINED"));
   // 企业版节点必填：这个节点配了必填才给；还差哪几样和 lib/project/db.ts 按必填推进 同一个算法
   // 企业版 D-37：直属上级（账号可能还是 SALES）、总管理员能改节点；负责人有直属上级时往前推只给直属上级和老板（都和 lib/project/db.ts 改节点 同一个判断）
   const org = 企业 ? await 读组织() : null;

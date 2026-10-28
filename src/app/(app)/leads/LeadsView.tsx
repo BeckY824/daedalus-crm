@@ -59,7 +59,7 @@ export default function LeadsView({
   来源们,
   me,
   能自动分配 = false,
-  企业版项目 = false,
+  项目模式 = false,
   线索分配开着 = false,
   满额提醒 = [],
 }: {
@@ -73,8 +73,8 @@ export default function LeadsView({
   me: string;
   /** 企业版「线索分配」规则开着、且这人能分配（老板 / 总管理员 / 市场管理）才摆「自动分配」 */
   能自动分配?: boolean;
-  /** 企业版且开了项目模式（10-25 F1、F6）：新建线索照常弹表单，市场、渠道能只建一条线索；转化顺手建项目 */
-  企业版项目?: boolean;
+  /** 开了项目模式（10-25 F1、F6；10-28 团队版也一样）：新建线索照常弹表单，能只建一条线索；转化顺手建项目 */
+  项目模式?: boolean;
   /** 企业版「线索分配」规则开着：负责人只能经「分配」换，编辑框里负责人只读；页头摆「我分出去的」 */
   线索分配开着?: boolean;
   /** 企业版自动分配因都已满额没分出去的提醒，只有市场管理、总管理员有（lib/enterprise/lead-full-notice.ts） */
@@ -83,9 +83,8 @@ export default function LeadsView({
   const router = useRouter();
   const { message, modal } = App.useApp();
   const b = useBusiness();
-  // 项目模式开着：新建一律走建档向导。企业版例外，线索先单独建、转化时再建项目（10-25 F1）
+  // 项目模式开着也能单独建一条线索，转化时再建项目（10-25 F1）；要一步建好客户 + 项目的走项目页的建档向导
   const 新建 = () => {
-    if (b.projectMode && !企业版项目) return router.push("/projects/new");
     setEditing(null);
     setOpen(true);
   };
@@ -147,7 +146,7 @@ export default function LeadsView({
     const 到 = 撞.customerId;
     modal.confirm({
       title: `电话已经是${b.customer}「${撞.客户名}」的号码`,
-      content: `负责人：${撞.负责人}。把「${r.name}」并到这位${b.customer}？线索标成已转化、关联到「${撞.客户名}」，不另建档案，也不改「${撞.客户名}」的资料。${企业版项目 ? `会在「${撞.客户名}」名下建一个项目「${r.name}」。` : ""}`,
+      content: `负责人：${撞.负责人}。把「${r.name}」并到这位${b.customer}？线索标成已转化、关联到「${撞.客户名}」，不另建档案，也不改「${撞.客户名}」的资料。${项目模式 ? `会在「${撞.客户名}」名下建一个项目「${r.name}」。` : ""}`,
       okText: `并到「${撞.客户名}」`,
       cancelText: "取消",
       async onOk() {
@@ -241,13 +240,13 @@ export default function LeadsView({
               icon={<SwapRightOutlined />}
               onClick={() =>
                 modal.confirm({
-                  title: 企业版项目 ? `将「${r.name}」转为项目？` : `将「${r.name}」转为${b.customer}？`,
+                  title: 项目模式 ? `将「${r.name}」转为项目？` : `将「${r.name}」转为${b.customer}？`,
                   // 按实际会填的格子、用当前叫法说（2026-10-04 L-016），见 lib/lead-convert.ts 转化会带上
                   content: (() => {
                     const 带 = 转化会带上(r, b.fields);
-                    return `会建一位${b.customer}${带 ? `，${带}一起带过去` : ""}${企业版项目 ? `，并在名下建一个项目「${r.name}」` : ""}，线索标记为已转化。`;
+                    return `会建一位${b.customer}${带 ? `，${带}一起带过去` : ""}${项目模式 ? `，并在名下建一个项目「${r.name}」` : ""}，线索标记为已转化。`;
                   })(),
-                  okText: 企业版项目 ? "转为项目" : `转为${b.customer}`,
+                  okText: 项目模式 ? "转为项目" : `转为${b.customer}`,
                   cancelText: "取消",
                   async onOk() {
                     const res = await convertLead(r.id);
@@ -260,7 +259,7 @@ export default function LeadsView({
                 })
               }
             >
-              {企业版项目 ? "转项目" : `转${b.customer}`}
+              {项目模式 ? "转项目" : `转${b.customer}`}
             </Button>
             {能自动分配 && (
               <Button
