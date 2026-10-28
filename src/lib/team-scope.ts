@@ -254,7 +254,13 @@ export function 限定条件(model: string, 谁们: 谁, 互看读 = false): Rec
     // 节点、单据（二审：节点开关打开后盯盘、按 id 改节点都会碰到同事的单）
     case "TradeOrderNode":
     case "TradeOrderDoc":
+    // 样品 / 验货 / 海运（0.46.30）：同节点、单据
+    case "TradeOrderCheck":
+    case "TradeOrderTrack":
       return { order: { customer: 客户 } };
+    // 节点负责人（0.46.30 D-47）：跟着节点所在的订单走
+    case "TradeOrderNodeOwner":
+      return { node: { order: { customer: 客户 } } };
     case "Task":
     case "FollowPlan":
       return { OR: [{ ownerId: 我 }, { customer: 客户 }] };

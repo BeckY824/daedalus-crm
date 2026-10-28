@@ -45,6 +45,10 @@ export const 同步表 = [
   "TradeOrderNode",
   "TradeOrderDoc",
   "TradeOrderPurchase",
+  // 样品 / 验货 / 海运 / 节点负责人（0.46.30 D-44～D-47，迁移 055 / 056）：跟着订单走；负责人挂在节点上，排在节点后面
+  "TradeOrderCheck",
+  "TradeOrderTrack",
+  "TradeOrderNodeOwner",
   "FollowUpOrder",
   // 商机 / 订单的产品图片（2026-10-22 D-24）：同步的只是这一行（名字、大小、sha256），文件走单独的密文通道（sync/attach-client.ts）
   "Attachment",
@@ -112,6 +116,8 @@ export const 指向人的列: [string, string][] = [
   ["AiProject", "ownerId"],
   ["ImportBatch", "userId"],
   ["TradeOrder", "ownerId"],
+  // 节点负责人（0.46.30 D-47）：不建外键
+  ["TradeOrderNodeOwner", "userId"],
   ["WorkspaceAccount", "userId"],
   ["Attachment", "userId"],
   // 项目模式 1a（2026-10-23）：都不建外键，靠这里改身份

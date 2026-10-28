@@ -46,7 +46,7 @@ let 客户 = "";
 beforeAll(async () => {
   设("DESKTOP_LOCAL", undefined);
   设("MULTI_TENANT", undefined);
-  for (const t of ["AiConversation", "AiProject", "Setting", "AuditLog", "ImportBatch", "FollowUpOrder", "TradeOrderDoc", "TradeOrderNode", "TradeOrderPurchase", "TradeOrder", "Task", "FollowPlan", "FollowUpSource", "FollowUp", "ContractOwner", "Contract", "Opportunity", "Contact", "UnassignedContact", "Lead", "CustomerPool", "CustomerClaim", "EntMember", "EntDept"]) await raw.$executeRawUnsafe(`DELETE FROM "${t}"`);
+  for (const t of ["AiConversation", "AiProject", "Setting", "AuditLog", "ImportBatch", "FollowUpOrder", "TradeOrderCheck", "TradeOrderTrack", "TradeOrderNodeOwner", "TradeOrderDoc", "TradeOrderNode", "TradeOrderPurchase", "TradeOrder", "Task", "FollowPlan", "FollowUpSource", "FollowUp", "ContractOwner", "Contract", "Opportunity", "Contact", "UnassignedContact", "Lead", "CustomerPool", "CustomerClaim", "EntMember", "EntDept"]) await raw.$executeRawUnsafe(`DELETE FROM "${t}"`);
   await raw.$executeRawUnsafe('UPDATE "Customer" SET referrerCustomerId = NULL, attributionCustomerId = NULL');
   for (const t of ["Customer", "Channel", "Supplier", "User"]) await raw.$executeRawUnsafe(`DELETE FROM "${t}"`);
   await raw.$queryRawUnsafe("PRAGMA journal_mode = WAL");
