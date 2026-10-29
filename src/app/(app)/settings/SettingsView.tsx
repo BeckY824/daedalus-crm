@@ -23,7 +23,7 @@ import KeymapTab from "./KeymapTab";
 import AppearanceTab from "./AppearanceTab";
 import ProjectSettingsTab, { type 项目设置 } from "./ProjectSettingsTab";
 import OrgTab, { type 组织架构 } from "./OrgTab";
-import type { BusinessConfig } from "@/lib/business-config";
+import { 摆团队项, type BusinessConfig } from "@/lib/business-config";
 import type { AiUsage } from "@/lib/ai-usage";
 
 /** 左目录里每一项底下那句话。放在组件外面，免得每次渲染重建 */
@@ -63,6 +63,7 @@ export default function SettingsView({
   企业版导入 = false,
   下属可停用 = [],
   能改跟进渠道 = false,
+  在团队 = false,
 }: {
   users: Row[];
   me: SessionUser;
@@ -101,6 +102,8 @@ export default function SettingsView({
   下属可停用?: string[];
   /** 老板 / 管理员：多一栏「跟进渠道」（改名、藏、自己加），业务员只能选 */
   能改跟进渠道?: boolean;
+  /** 桌面端开了团队（有 .team.json）：只有自己一个人也摆公海、项目模式、业务员能删 */
+  在团队?: boolean;
 }) {
   const [搜, set搜] = useState("");
   // 当前页签由地址栏 ?tab= 决定：中栏那列设置项就是一组带 tab 的链接，刷新、回退都对得上
@@ -125,7 +128,7 @@ export default function SettingsView({
     ...(桌面端 ? [{ key: "team", label: "团队", children: <TeamTab /> }] : []),
     // AI 接入是本机的（桌面端团队版的业务员在自己电脑上也能配）；业务配置全团队一份，只有管理员 / 老板改
     ...(isAdmin || 桌面端 ? [{ key: "ai", label: "AI 接入", children: <AiSettingsTab llm={llm} usage={aiUsage} 企业版={企业版} /> }] : []),
-    ...(isAdmin ? [{ key: "business", label: "业务配置", children: <BusinessSettingsTab value={business} 多人={users.filter((u) => u.active).length > 1} /> }] : []),
+    ...(isAdmin ? [{ key: "business", label: "业务配置", children: <BusinessSettingsTab value={business} 多人={摆团队项(在团队, users.filter((u) => u.active).length)} /> }] : []),
     ...(能改跟进渠道 && business.followTypes ? [{ key: "followTypes", label: "跟进渠道", children: <FollowTypesTab value={business.followTypes} /> }] : []),
     ...(组织架构 ? [{ key: "org", label: "组织架构", children: <OrgTab value={组织架构} /> }] : []),
     ...(项目设置 ? [{ key: "project", label: "项目模式", children: <ProjectSettingsTab value={项目设置} 成员={users.filter((u) => u.active).map((u) => ({ id: u.id, name: u.name }))} /> }] : []),
