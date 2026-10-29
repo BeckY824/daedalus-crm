@@ -104,6 +104,8 @@ export type 范围配置 = {
   cleaned?: { 删: number; 冲突: number; AI残留: number; 擦净?: boolean };
   /** 上一次从头拉时本机的表结构签名（同 团队配置.结构）。变了或没记过 = 各范围游标归零、从头重拉 */
   结构?: string;
+  /** 本机缺行从头补拉过的范围 → 当时的 head（2026-10-29，见 缺行的范围）：同一个 head 只补一次，补不回来的不每轮重拉 */
+  补过?: Record<string, number>;
 };
 
 type 结果<T = object> = ({ ok: true } & T) | { ok: false; error: string };
@@ -1324,9 +1326,13 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
       return { ok: false as const, error: 话 };
     };
     const 待拉: { s: 目录范围; after: number }[] = [];
+    const 补过: Record<string, number> = {};
+    for (const s of scopes) if (typeof c.scoped?.补过?.[s.id] === "number") 补过[s.id] = c.scoped.补过[s.id];
+    const 缺 = await 缺行的范围(scopes, c.scoped?.cursors ?? {}, 补过);
+    for (const id of 缺) 补过[id] = scopes.find((s) => s.id === id)!.head!;
     for (const s of scopes) {
       const cur = c.scoped?.cursors?.[s.id];
-      const after = cur && cur.revision >= s.revision ? cur.after : 0;
+      const after = cur && cur.revision >= s.revision && !缺.has(s.id) ? cur.after : 0;
       // 游标已经到这个范围最新的批次：没什么可拉的，不发请求（2026-10-21：老板一轮原来每位客户一个请求；老服务端不回 head，照旧拉）
       if (typeof s.head === "number" && cur && after >= s.head) { cursors[s.id] = { after, revision: s.revision }; continue; }
       待拉.push({ s, after });
@@ -1343,7 +1349,7 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
         if (r.状态 !== 200) return r;
         const batches = (r.json.batches as 拉到的范围包[]) ?? [];
         const 页 = 收页(s, batches);
-        if (页.收.length) { const x = await 回放(prisma, 页.收, c.device, { 留底: 能管理团队(c) }); 拉 += x.应用; 撞 += x.撞; }
+        if (页.收.length) { const x = await 回放(prisma, 页.收, c.device, { 留底: 能管理团队(c), 含本人: 缺.has(s.id) }); 拉 += x.应用; 撞 += x.撞; }
         if (页.到.length) after = 页.到[页.到.length - 1].seq;
         cursors[s.id] = { after, revision: s.revision };
         记游标();
@@ -1362,6 +1368,7 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
       if (r.状态 !== 200) return 拉失败(r);
       const 回 = new Map(((r.json.scopes as { scopeId: string; later?: boolean; error?: number; more?: boolean; batches?: 拉到的范围包[] }[]) ?? []).map((x) => [x.scopeId, x]));
       const 收: 改动[] = [];
+      const 收本人: 改动[] = [];
       const 前进: { s: 目录范围; after: number }[] = [];
       for (const x of 这批) {
         const y = 回.get(x.s.id);
@@ -1369,13 +1376,15 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
         if (y.later) { 一批批.push(x); continue; }
         const batches = y.batches ?? [];
         const 页 = 收页(x.s, batches);
-        收.push(...页.收);
+        (缺.has(x.s.id) ? 收本人 : 收).push(...页.收);
         const after = 页.到.length ? 页.到[页.到.length - 1].seq : x.after;
         前进.push({ s: x.s, after });
         if (!页.停了 && y.more && batches.length) 一批批.push({ s: x.s, after });
       }
       // 各范围的包按批次号合起来回放一次（就是它们进中转的先后），游标在回放之后才前进
       if (收.length) { const z = await 回放(prisma, 收, c.device, { 留底: 能管理团队(c) }); 拉 += z.应用; 撞 += z.撞; }
+      // 本机缺行从头补拉的范围：本机自己推出去的那些也要回放（缺的多半就是自己建的），已有的按字段钟比、不会倒退
+      if (收本人.length) { const z = await 回放(prisma, 收本人, c.device, { 留底: 能管理团队(c), 含本人: true }); 拉 += z.应用; 撞 += z.撞; }
       for (const x of 前进) cursors[x.s.id] = { after: x.after, revision: x.s.revision };
       记游标();
     }
@@ -1383,7 +1392,7 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
     // 目录里已经删掉、本机却还留着的记录：照目录补一次删除（候选 6 实机：同一账号另一台领取后，这台公海那一行一直不走）
     const 补删 = await 照目录补删除(index.values(), c.device, 能管理团队(c));
     拉 += 补删;
-    记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "ready" }), stage: "ready", cursors, skipped, held, cleaned }, lastError: null, ...同步上了(), last: { 推: p.推, 拉, 撞 } });
+    记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "ready" }), stage: "ready", cursors, skipped, held, cleaned, 补过 }, lastError: null, ...同步上了(), last: { 推: p.推, 拉, 撞 } });
     /*
       老板那台补起点：目录里的 needBaseline = 改过归属、有业务员看得到、却还没有改归属之后起点的记录
       （交出去的人是旧版本客户端、起点太大没跟转交一起推、推完转交就断了……）。老板收全队、刚拉齐，永远有权写，由它补上；
@@ -1410,6 +1419,42 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
     记团队(teamId, { lastError: 话, lastSyncAt: new Date().toISOString() });
     return { ok: false, error: 话 };
   }
+}
+
+/**
+ * 目录里有（没删）、本机却没有这一行的范围（2026-10-29，团队实机：业务员那台 25 位客户只剩 7 位，云端 25 位都在）：
+ * 本机库被换过 / 删过一批，游标却还说「拉到了 head」，每轮跳过，那些记录再也回不来。这样的范围游标归零、从头拉一遍。
+ * 只看游标已经到 head 的范围（没到的这一轮本来就要拉）；本机待推、本机删过（墓碑）、回放跳过、合并改过编号的不算缺；
+ * 同一个 head 只补一次（补过），补了还缺的（比如父行不在、回放跳过）等 head 变了再说，不每轮从头拉。只用编号，不碰密文。
+ */
+async function 缺行的范围(scopes: 目录范围[], cursors: 范围配置["cursors"], 补过: Record<string, number>): Promise<Set<string>> {
+  const 候选 = scopes.filter((s) => {
+    const cur = cursors[s.id];
+    return typeof s.head === "number" && s.head > 0 && cur && cur.revision >= s.revision && cur.after >= s.head && 补过[s.id] !== s.head;
+  });
+  const 缺: Set<string> = new Set();
+  if (!候选.length) return 缺;
+  const 不算 = new Set<string>();
+  for (const sql of [
+    "SELECT DISTINCT tbl, pk FROM _sync_log WHERE seq > COALESCE((SELECT v FROM _sync_cursor WHERE k = 'pushed'), 0)",
+    "SELECT tbl, pk FROM _sync_tomb",
+    "SELECT DISTINCT tbl, pk FROM _sync_skip",
+    "SELECT tbl, fromId AS pk FROM _sync_alias",
+  ]) for (const r of await prisma.$queryRawUnsafe<{ tbl: string; pk: string }[]>(sql).catch(() => [])) 不算.add(行键(r.tbl, String(r.pk)));
+  const 按表 = new Map<string, { k: string; scope: string }[]>();
+  for (const s of 候选) for (const r of s.records) {
+    if (r.deleted || !(同步表 as readonly string[]).includes(r.t) || 不算.has(行键(r.t, r.k))) continue;
+    按表.set(r.t, [...(按表.get(r.t) ?? []), { k: r.k, scope: s.id }]);
+  }
+  for (const [t, rs] of 按表) {
+    const pk = 主字段(t);
+    for (let i = 0; i < rs.length; i += 400) {
+      const part = rs.slice(i, i + 400);
+      const 在 = new Set((await prisma.$queryRawUnsafe<{ k: string }[]>(`SELECT "${pk}" AS k FROM "${t}" WHERE "${pk}" IN (${part.map(() => "?").join(",")})`, ...part.map((r) => r.k))).map((x) => String(x.k)));
+      for (const r of part) if (!在.has(r.k)) 缺.add(r.scope);
+    }
+  }
+  return 缺;
 }
 
 /**

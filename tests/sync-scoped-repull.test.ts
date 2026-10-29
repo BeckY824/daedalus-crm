@@ -175,3 +175,51 @@ describe("范围同步：本机表结构变了就从头重拉", () => {
     expect(读配置("li").scoped!.cursors).toEqual(前);
   });
 });
+
+describe("范围同步：本机缺了记录、游标却说已拉齐，就从头补拉（2026-10-29）", () => {
+  /** 模拟本机库被换过 / 删过一批：不经触发器删掉这一行和它的同步痕迹，不会推出删除 */
+  async function 本机丢了(id: string) {
+    const d = db("li");
+    await 卸触发器(d);
+    await d.$executeRawUnsafe('DELETE FROM "CustomerExtra" WHERE "customerId" = ?', id);
+    await d.$executeRawUnsafe('DELETE FROM "Customer" WHERE "id" = ?', id);
+    for (const aux of ["_sync_log", "_sync_field", "_sync_tomb", "_sync_skip"]) await d.$executeRawUnsafe(`DELETE FROM ${aux} WHERE pk = ?`, id);
+    await 装触发器(d);
+  }
+
+  it("本机丢了的客户下一轮补回来，云端那份不受影响", async () => {
+    await 都轮("li");
+    await 本机丢了("c-li");
+    expect(await db("li").customer.count({ where: { id: "c-li" } })).toBe(0);
+    await 都轮("li");
+    expect(await db("li").customer.findUnique({ where: { id: "c-li" } })).toMatchObject({ name: "业务员的客户", salesOwnerId: A("li") });
+    expect(await 档案()).toMatchObject({ country: "美国" });
+    // 老板那边照旧在
+    await 都轮("boss");
+    expect(await db("boss").customer.count({ where: { id: "c-li" } })).toBe(1);
+  });
+
+  it("补齐以后不再每轮从头拉：游标不变", async () => {
+    await 都轮("li");
+    const 前 = 读配置("li").scoped!.cursors;
+    await 都轮("li");
+    expect(读配置("li").scoped!.cursors).toEqual(前);
+  });
+
+  it("同一个 head 补过一次还缺的，不再每轮重拉；head 变了再补", async () => {
+    await 都轮("li");
+    const 范围 = Object.keys(读配置("li").scoped!.补过 ?? {});
+    expect(范围.length).toBeGreaterThan(0);
+    // 假装上一轮已经在当前 head 补过：本机再丢，这一轮不补
+    const c = 读配置("li");
+    const 头 = Object.fromEntries(Object.entries(c.scoped!.cursors).map(([k, v]) => [k, v.after]));
+    client.写团队({ ...c, scoped: { ...c.scoped!, 补过: 头 } });
+    await 本机丢了("c-li");
+    await 都轮("li");
+    expect(await db("li").customer.count({ where: { id: "c-li" } })).toBe(0);
+    // 老板一改，head 变了，这一轮补回来
+    await db("boss").customer.update({ where: { id: "c-li" }, data: { name: "业务员的客户（改）" } });
+    await 都轮("boss", "li");
+    expect(await db("li").customer.findUnique({ where: { id: "c-li" } })).toMatchObject({ name: "业务员的客户（改）" });
+  });
+});
