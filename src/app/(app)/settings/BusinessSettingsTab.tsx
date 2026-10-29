@@ -17,7 +17,7 @@ import { DemoDataSection } from "@/components/EmptyState";
  * 顶上那几个预设是**填表的快捷方式**，不是一个新的配置项：点一下把整组字段填好，
  * 之后每一项照样能自己改，也要自己点保存。默认那套是通用销售，教培招生和外贸出口各是一套。
  */
-export default function BusinessSettingsTab({ value, 多人 = false }: { value: BusinessConfig; /** 在职的不止一个人：才摆公海那一项 */ 多人?: boolean }) {
+export default function BusinessSettingsTab({ value, 多人 = false }: { value: BusinessConfig; /** 开了团队、或在职的不止一个人：才摆公海、项目模式、业务员能删 */ 多人?: boolean }) {
   const router = useRouter();
   const { message } = App.useApp();
   const [form] = Form.useForm<BusinessConfig>();

@@ -20,6 +20,7 @@ import { 读改权限, 能改设置, 谁能改的话, type 设置项名 } from "
 import type { 组织架构 } from "./OrgTab";
 import { 本月分配情况 } from "../leads/assign-actions";
 import { 本机能管人 } from "@/lib/desktop/team-role";
+import { 读团队 } from "@/lib/sync/client";
 
 /**
  * 设置的正文（服务端组件，负责取数）。**两条路由共用它**：
@@ -150,6 +151,8 @@ export default async function SettingsBody() {
       /* 跟进渠道（D-48）：老板，和桌面端团队版里本机是管理员的那位；业务员看不到这一栏。和 actions.ts 能改跟进渠道 同一套 */
       能改跟进渠道={!共享区 && (me.role === "ADMIN" || (process.env.DESKTOP_LOCAL === "1" && 本机能管人()))}
       共享区={共享区}
+      /* 桌面端开了团队：业务配置里的公海、项目模式、业务员能删就摆出来，不等同事同步进来（2026-10-29） */
+      在团队={本地模式() && 读团队() !== null}
       企业版导入={企业版() && me.role === "ADMIN" && !共享区}
       /* 托管版的登录标识是邮箱（控制面账号按邮箱认，找回密码也靠它）；
          自部署版是用户名，既有账号是 admin / zhangsan 这种，不能改 */
