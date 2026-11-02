@@ -16,7 +16,7 @@ import { 团队身份id } from "../desktop/me";
 import { 对齐我的名字 } from "../desktop/my-name";
 import { 改身份, 建同步表, 装触发器, 卸触发器, 记全量, 待推, 记已推, 回放, 装了吗, 只留自己的, 没同步上, 本机结构签名, type 改动 } from "./local";
 import { createHmac } from "node:crypto";
-import { 范围快照, 记录快照, 清理失权副本, 转为范围冲突, 范围冲突数, 验收范围包, 范围包错误, 范围包未到, 主字段, type 拉到的范围包 } from "./scoped-local";
+import { 范围快照, 记录快照, 清理失权副本, 失权预估, 转为范围冲突, 范围冲突数, 验收范围包, 范围包错误, 范围包未到, 主字段, type 拉到的范围包 } from "./scoped-local";
 import { 提取范围, 行键, 范围字段, 还等吗, type 范围索引, type 卡住的范围 } from "./scope-policy";
 import { 同步表 } from "./tables";
 import { 记设备主人, 有不认识的设备 } from "./trash";
@@ -101,12 +101,19 @@ export type 范围配置 = {
    * 上一轮清理：删了多少失权副本、转成冲突几条、AI 历史里可能还提到失权客户的条数（不删，只提示）；
    * 擦净 = 删完之后整库重建、WAL 截断成功（库文件字节里不留删掉的行），false = 下一轮清理先补擦
    */
-  cleaned?: { 删: number; 冲突: number; AI残留: number; 擦净?: boolean };
+  cleaned?: { 删: number; 冲突: number; AI残留: number; 擦净?: boolean; 拒删?: number; 本人失?: number };
   /** 上一次从头拉时本机的表结构签名（同 团队配置.结构）。变了或没记过 = 各范围游标归零、从头重拉 */
   结构?: string;
   /** 本机缺行从头补拉过的范围 → 当时的 head（2026-10-29，见 缺行的范围）：同一个 head 只补一次，补不回来的不每轮重拉 */
   补过?: Record<string, number>;
+  /**
+   * 全部范围从头补拉过一遍的版本（2026-11-02）：小于 全补版本 = 升级上来先把每个范围从 0 拉一遍（含本机自己推出去的），
+   * 把以前误删、游标却说「拉到了」的记录补回来；成功跑完一轮才记上
+   */
+  全补?: number;
 };
+/** 见 范围配置.全补：要所有设备再从头补拉一遍时加一 */
+export const 全补版本 = 1;
 
 type 结果<T = object> = ({ ok: true } & T) | { ok: false; error: string };
 
@@ -148,7 +155,13 @@ const HTTP: 传输 = async (方法, 路径, body) => {
       signal: AbortSignal.timeout(30_000),
       cache: "no-store",
     });
-    return { 状态: r.status, json: (await r.json().catch(() => ({}))) as Record<string, unknown> };
+    const json = (await r.json().catch(() => null)) as Record<string, unknown> | null;
+    /*
+      回了 200 但正文没读全（30 秒超时落在下载正文的半路、连接中途断了、代理回了一页不是 JSON 的）：当连不上处理（2026-11-02）。
+      原来当成 {} 往下走——目录成了「什么都看不到」，业务员那台把本人名下的客户、跟进当失权全删了（团队实机两次）
+    */
+    if (json === null || typeof json !== "object") return r.ok ? { 状态: 0, json: { error: "云端回的内容没收全，稍后再试" } } : { 状态: r.status, json: {} };
+    return { 状态: r.status, json };
   } catch {
     return { 状态: 0, json: { error: "连不上云端，检查一下网络" } };
   }
@@ -1261,6 +1274,18 @@ function 合目录(键: string, 上次: { token: string; scopes: Map<string, 目
   return [...合.values()];
 }
 
+/**
+ * 目录回包像不像样（2026-11-02）：正常的目录一定有 owner（是不是老板）和 scopes 数组，每个范围有编号、版本和记录数组；
+ * 全量的（不是 delta）一定有「团队」范围（成员行人人看得到）。不像样的当取不到目录，这一轮不清理、不拉，
+ * 免得半截回包被当成「什么都看不到」把本机记录当失权删光（团队实机两次）
+ */
+function 目录像样(j: Record<string, unknown>): boolean {
+  if (typeof j.owner !== "boolean" || !Array.isArray(j.scopes)) return false;
+  if (!(j.scopes as unknown[]).every((s) => !!s && typeof s === "object" && typeof (s as 目录范围).id === "string" && typeof (s as 目录范围).revision === "number" && Array.isArray((s as 目录范围).records))) return false;
+  if (j.delta === true) return j.removed === undefined || Array.isArray(j.removed);
+  return (j.scopes as 目录范围[]).some((s) => s.id === "team");
+}
+
 /** 一次拉多个范围（2026-10-21）：每个请求最多几个范围（服务端上限 500）；老服务端不认就关掉，进程重启再试 */
 const 范围每批 = 200;
 let 批量拉取可用 = true;
@@ -1284,6 +1309,12 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
     // 带上设备号：服务端据此记「我的设备」里的最近同步，被移除的这台在这里就被挡下（2026-10-15 多设备同步）
     const 上次 = 上次目录.get(`${teamId}|${c.device}`);
     const d = await 范围请求(c, "directory", { device: c.device, ...(上次 ? { base: 上次.token } : {}) });
+    if (d.状态 === 200 && !目录像样(d.json)) {
+      上次目录.delete(`${teamId}|${c.device}`);
+      console.warn("[同步] 目录回包不完整，这一轮不清理、不拉");
+      记团队(teamId, { lastError: "同步目录没收全，稍后自动重试", lastSyncAt: new Date().toISOString() });
+      return { ok: false, error: "同步目录没收全，稍后自动重试" };
+    }
     if (d.状态 !== 200) { const 话 = 错话(d, "取不到同步目录"); 记团队(teamId, { lastError: 话, lastSyncAt: new Date().toISOString() }); return { ok: false, error: 话 }; }
     if (Number(d.json.epoch ?? 0) > (c.epoch ?? 0)) c = await 更新钥匙(c);
     // 人多放慢以这次目录为准（老服务端不回 = 不放慢）
@@ -1300,7 +1331,33 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
     const allowed = new Set(index.keys());
     // 待推已推完（失权的已转冲突）才清理：否则刚建、还没进目录的本人记录会被当成失权
     let cleaned = c.scoped?.cleaned;
-    if (!owner) cleaned = await 看全部(() => 清理失权副本(prisma, allowed));
+    if (!owner) {
+      const 账号 = 读云端凭据()?.accountId;
+      const 本人 = 账号 ? 团队身份id(账号) : null;
+      /*
+        要删本人名下的客户、或一次删好几位（2026-11-02）：先不带 base 重拿一份全量目录核对，两份里都没有的才算失权。
+        带 base 的增量合错、上一份回包有问题都靠这一步兜住；重拿失败或不像样，这一轮不清理
+      */
+      const 预 = await 看全部(() => 失权预估(prisma, allowed, 本人));
+      let 清 = true;
+      // 上一轮已经拒删、还是这么多：结论不变（下面的 拒删 照样挡住），不用每轮重拿全量目录
+      const 已拒过 = !!c.scoped?.cleaned?.拒删 && c.scoped.cleaned.本人失 === 预.本人失;
+      if ((预.本人失 > 0 || 预.失 > 5) && !已拒过) {
+        const d2 = await 范围请求(c, "directory", { device: c.device });
+        if (d2.状态 === 200 && 目录像样(d2.json) && d2.json.owner === false) {
+          for (const s of 合目录(`${teamId}|${c.device}`, undefined, d2.json)) for (const r of s.records) allowed.add(行键(r.t, r.k));
+        } else {
+          清 = false;
+          上次目录.delete(`${teamId}|${c.device}`);
+          console.warn(`[同步] 不在目录里的客户 ${预.失} 位（本人名下 ${预.本人失}），重拿目录没成功，这一轮不清理`);
+        }
+      }
+      if (清) {
+        cleaned = await 看全部(() => 清理失权副本(prisma, allowed, { 本人 }));
+        if (cleaned.拒删) console.warn(`[同步] 本人名下 ${cleaned.本人失} 位客户不在目录里（共 ${预.本人共} 位），像是目录出错，这一轮不删（${cleaned.拒删} 条）`);
+        else if (cleaned.删) console.log(`[同步] 清理失权副本 ${cleaned.删} 条（客户 ${预.失} 位，本人名下 ${预.本人失}），转冲突 ${cleaned.冲突}`);
+      }
+    }
     const cursors: 范围配置["cursors"] = {};
     let 拉 = 0, 撞 = 0, skipped = c.scoped?.skipped ?? 0;
     const held: 卡住的范围 = {};
@@ -1329,7 +1386,11 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
     const 补过: Record<string, number> = {};
     for (const s of scopes) if (typeof c.scoped?.补过?.[s.id] === "number") 补过[s.id] = c.scoped.补过[s.id];
     const 缺 = await 缺行的范围(scopes, c.scoped?.cursors ?? {}, 补过);
-    for (const id of 缺) 补过[id] = scopes.find((s) => s.id === id)!.head!;
+    // 升级上来补一遍（2026-11-02，见 范围配置.全补）：老板那台不清理，不用补
+    const 全补这轮 = !owner && c.scoped?.全补 !== 全补版本;
+    if (全补这轮) for (const s of scopes) if (s.records.length) 缺.add(s.id);
+    for (const id of 缺) { const h = scopes.find((s) => s.id === id)!.head; if (typeof h === "number") 补过[id] = h; }
+    let 全补齐 = true;
     for (const s of scopes) {
       const cur = c.scoped?.cursors?.[s.id];
       const after = cur && cur.revision >= s.revision && !缺.has(s.id) ? cur.after : 0;
@@ -1372,7 +1433,7 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
       const 前进: { s: 目录范围; after: number }[] = [];
       for (const x of 这批) {
         const y = 回.get(x.s.id);
-        if (!y || y.error) continue; // 回里没有（不该出现）或看不到了：这一轮跳过，游标不动
+        if (!y || y.error) { 全补齐 = false; continue; } // 回里没有（不该出现）或看不到了：这一轮跳过，游标不动
         if (y.later) { 一批批.push(x); continue; }
         const batches = y.batches ?? [];
         const 页 = 收页(x.s, batches);
@@ -1392,7 +1453,7 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
     // 目录里已经删掉、本机却还留着的记录：照目录补一次删除（候选 6 实机：同一账号另一台领取后，这台公海那一行一直不走）
     const 补删 = await 照目录补删除(index.values(), c.device, 能管理团队(c));
     拉 += 补删;
-    记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "ready" }), stage: "ready", cursors, skipped, held, cleaned, 补过 }, lastError: null, ...同步上了(), last: { 推: p.推, 拉, 撞 } });
+    记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "ready" }), stage: "ready", cursors, skipped, held, cleaned, 补过, ...(全补齐 ? { 全补: 全补版本 } : {}) }, lastError: null, ...同步上了(), last: { 推: p.推, 拉, 撞 } });
     /*
       老板那台补起点：目录里的 needBaseline = 改过归属、有业务员看得到、却还没有改归属之后起点的记录
       （交出去的人是旧版本客户端、起点太大没跟转交一起推、推完转交就断了……）。老板收全队、刚拉齐，永远有权写，由它补上；
@@ -1438,7 +1499,8 @@ async function 缺行的范围(scopes: 目录范围[], cursors: 范围配置["cu
   for (const sql of [
     "SELECT DISTINCT tbl, pk FROM _sync_log WHERE seq > COALESCE((SELECT v FROM _sync_cursor WHERE k = 'pushed'), 0)",
     "SELECT tbl, pk FROM _sync_tomb",
-    "SELECT DISTINCT tbl, pk FROM _sync_skip",
+    // 清孤儿记的跳过 hlc 是空的：那是本机删掉的孤儿、不是回放不了，父行回来了还得能补回（2026-11-02）
+    "SELECT DISTINCT tbl, pk FROM _sync_skip WHERE hlc <> ''",
     "SELECT tbl, fromId AS pk FROM _sync_alias",
   ]) for (const r of await prisma.$queryRawUnsafe<{ tbl: string; pk: string }[]>(sql).catch(() => [])) 不算.add(行键(r.tbl, String(r.pk)));
   const 按表 = new Map<string, { k: string; scope: string }[]>();

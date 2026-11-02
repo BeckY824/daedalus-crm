@@ -293,7 +293,9 @@ function 恢复({ 库, 数据目录, 文件名, 现在 = new Date(), 校验 }) {
       if (!团队.teamId || !团队.key || !团队.device) throw new Error("团队配置损坏，请先修复后再恢复备份");
       const 临时文件 = `${团队文件}.${process.pid}.restore.tmp`;
       try {
-        fs.writeFileSync(临时文件, JSON.stringify({ ...团队, pulled: 0 }), { mode: 0o600 });
+        // 分范围同步的游标也归零，全补 去掉 = 从头补拉一遍、含本机自己推出去的（2026-11-02：原来只清 pulled，范围同步的记录回不来）
+        const 范围 = 团队.scoped ? { scoped: { ...团队.scoped, cursors: {}, 补过: {}, 全补: undefined } } : {};
+        fs.writeFileSync(临时文件, JSON.stringify({ ...团队, pulled: 0, ...范围 }), { mode: 0o600 });
         fs.chmodSync(临时文件, 0o600);
         fs.renameSync(临时文件, 团队文件);
       } finally {

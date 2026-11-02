@@ -150,6 +150,23 @@ export async function 范围冲突数(db: Db): Promise<number> {
   try { await 建范围冲突表(db); return Number((await db.$queryRawUnsafe<{ n: bigint | number }[]>("SELECT COUNT(*) AS n FROM _sync_scope_conflict WHERE resolvedAt IS NULL"))[0]?.n ?? 0); } catch { return 0; }
 }
 const 全队表 = ['User', 'Setting', 'Channel', 'Supplier'];
+/**
+ * 不在目录里的客户有几位、其中本人名下（负责人 / 渠道负责人是本人）几位、本人名下一共几位（2026-11-02）：
+ * 清理之前先看一眼，删得多或删到本人名下的，调用方先重拿一份全量目录核对；只读，不碰同步表以外的东西
+ */
+export async function 失权预估(db: PrismaClient, allowed: Set<string>, 本人?: string | null) {
+  const rows = await db.$queryRawUnsafe<{ id: string; s: string | null; c: string | null }[]>('SELECT id, salesOwnerId AS s, channelOwnerId AS c FROM Customer');
+  let 失 = 0, 本人失 = 0, 本人共 = 0;
+  for (const r of rows) {
+    const 是本人 = !!本人 && (r.s === 本人 || r.c === 本人);
+    if (是本人) 本人共++;
+    if (!allowed.has(行键('Customer', String(r.id)))) { 失++; if (是本人) 本人失++; }
+  }
+  return { 失, 本人失, 本人共 };
+}
+/** 一次要删掉本人名下的客户超过这么多位、且超过本人名下的一半：不删，留着等下一轮（2026-11-02，见 清理失权副本） */
+export const 拒删下限 = 5;
+export const 拒删 = (本人失: number, 本人共: number) => 本人失 >= 拒删下限 && 本人失 * 2 > 本人共;
 /** 失去权限后不仅删客户，也清除同步日志、相关导入撤销快照里的旧副本。
  * 失权记录若仍有未上传改动：先转成显式冲突（_sync_scope_conflict），绝不静默丢弃，也不推给云端。
  * 边界：只处理本账号 crm.db；不删备份文件、不删 AI 对话（只统计可能涉及失权客户的条数供界面提示）。
@@ -159,7 +176,12 @@ const 全队表 = ['User', 'Setting', 'Channel', 'Supplier'];
  * 所以：待推里有「新建」的记录这一轮不清（下一轮推上去，收下就进目录，被拒就由推送转冲突）；挂在失权记录下的新建照样算失权
  * （推上去也会被拒，留着会违反外键）。读待推、判失权、转冲突、删除放在同一个事务里（本机只有一个连接，这期间别的写排队），中间插不进新改动。
  */
-export async function 清理失权副本(db: PrismaClient, allowed: Set<string>) {
+/*
+  本人名下的大批客户一下子「不在目录里」不删（2026-11-02，团队实机两次：业务员那台 25 位客户先剩 7 位、后来全没了，云端一条没少）：
+  转交给别人是一位一位转的，一次转走本人大半客户几乎只会是目录出了错（回包没收全、合并出错），而这里删了不能恢复（secure_delete + 整库重建）。
+  所以本人名下 ≥ 拒删下限 位、且超过一半要删时整轮不清理、不转冲突，只记一句；真是转走的，留在本机也推不上去（推送转冲突）
+*/
+export async function 清理失权副本(db: PrismaClient, allowed: Set<string>, 选项: { 本人?: string | null } = {}) {
   await 建范围冲突表(db);
   // PRAGMA secure_delete 会返回一行结果，只能用 queryRaw（草稿用 executeRaw，业务员首轮清理必然失败）
   await db.$queryRawUnsafe('PRAGMA secure_delete = ON');
@@ -192,6 +214,12 @@ export async function 清理失权副本(db: PrismaClient, allowed: Set<string>)
       for (const key of [...留]) if ((父们.get(key) ?? []).some(p => seen.has(p) && !留.has(p))) { 留.delete(key); 变 = true; }
     }
     const lost = 不在目录.filter(x => !留.has(行键(x.t, x.k)));
+    if (选项.本人 && lost.some(x => x.t === 'Customer')) {
+      const 失 = new Set(lost.filter(x => x.t === 'Customer').map(x => x.k));
+      const mine = await tx.$queryRawUnsafe<{ id: string }[]>('SELECT id FROM Customer WHERE salesOwnerId = ? OR channelOwnerId = ?', 选项.本人, 选项.本人);
+      const 本人失 = mine.filter(m => 失.has(String(m.id))).length;
+      if (拒删(本人失, mine.length)) return { 删: 0, 冲突: 0, AI残留: 0, 拒删: lost.length, 本人失 };
+    }
     const lostKeys = new Set(lost.map(x => 行键(x.t, x.k)));
     const conflicts = await 转冲突(tx, pending.filter(p => lostKeys.has(行键(p.tbl, p.pk))).map(p => Number(p.seq)), '该记录已不在本机同步范围内（转交、领取或权限变化）；未上传改动已保留，请与老板核对');
     if (!lost.length) return { 删: 0, 冲突: conflicts, AI残留: 0 };
