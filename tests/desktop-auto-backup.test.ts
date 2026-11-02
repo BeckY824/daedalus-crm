@@ -131,6 +131,15 @@ describe("恢复", () => {
     expect(团队).toEqual({ ...原团队, pulled: 0 });
   });
 
+  it("范围同步的团队恢复旧库：范围游标、补过、全补也重置，缺的才拉得回来", () => {
+    备一份再改();
+    const 团队文件 = path.join(目录, ".team.json");
+    const 原团队 = { teamId: "audit-team", device: "dAUDIT01", key: "test-key", pulled: 42, scoped: { stage: "ready", cursors: { "owner:a": { revision: 1, after: 9 } }, 补过: { "owner:a": 9 }, 全补: 1, skipped: {} } };
+    fs.writeFileSync(团队文件, JSON.stringify(原团队));
+    自动.恢复({ 库, 数据目录: 目录, 文件名: "daily-2026-10-04.db", 校验: 备份.校验数据库 });
+    expect(JSON.parse(fs.readFileSync(团队文件, "utf8"))).toEqual({ ...原团队, pulled: 0, scoped: { stage: "ready", cursors: {}, 补过: {}, skipped: {} } });
+  });
+
   it("团队配置损坏时中止恢复，不替换当前数据库", () => {
     备一份再改();
     const before = fs.readFileSync(库);

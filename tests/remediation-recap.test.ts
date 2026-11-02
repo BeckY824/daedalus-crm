@@ -33,9 +33,9 @@ it("完成计划按实际完成时间，反复点完成不改首次时间，撤�
 });
 it("自己的建档按创建操作人，转交不重记成别人的新建", async () => {
   const other = await prisma.user.create({ data: { email: "other", name: "乙", password: "x" } });
-  const mine = await prisma.customer.create({ data: { name: "我创建后转给乙", phone: "", salesOwnerId: other.id } });
-  const assigned = await prisma.customer.create({ data: { name: "乙创建后转给我", phone: "", salesOwnerId: state.user.id } });
-  for (const [id, uid] of [[mine.id, state.user.id], [assigned.id, other.id]]) await prisma.auditLog.create({ data: { userId: uid, userName: uid, action: "create", entity: "Customer", entityId: id, summary: "创建客户" } });
+  const mine = await prisma.customer.create({ data: { name: "我创建后转给乙", phone: "", salesOwnerId: other.id, createdAt: new Date() } });
+  const assigned = await prisma.customer.create({ data: { name: "乙创建后转给我", phone: "", salesOwnerId: state.user.id, createdAt: new Date() } });
+  for (const [id, uid] of [[mine.id, state.user.id], [assigned.id, other.id]]) await prisma.auditLog.create({ data: { userId: uid, userName: uid, action: "create", entity: "Customer", entityId: id, summary: "创建客户", at: new Date() } });
   const r = await tool("my_recap").run({ period: "this_month" }, ctx());
   expect((r.data as { 新建的客户: { 姓名: string }[] }).新建的客户.map((x) => x.姓名)).toEqual(["我创建后转给乙"]);
 });
@@ -65,11 +65,11 @@ it("常驻进程跨月后本月快捷查询随当前时间重算", () => {
 it("导入、线索新建转化可核实建档人；并入老客户不算新建，重复证据只计一次", async () => {
   const other = await prisma.user.create({ data: { email: "source-other", name: "乙", password: "x" } });
   const ids: string[] = [];
-  for (const name of ["本人导入后转交", "本人线索新建后转交", "并入已有客户"]) ids.push((await prisma.customer.create({ data: { name, phone: "", salesOwnerId: other.id } })).id);
-  const batch = await prisma.importBatch.create({ data: { userId: state.user.id, userName: "QA", fileName: "本地.csv" } });
+  for (const name of ["本人导入后转交", "本人线索新建后转交", "并入已有客户"]) ids.push((await prisma.customer.create({ data: { name, phone: "", salesOwnerId: other.id, createdAt: new Date() } })).id);
+  const batch = await prisma.importBatch.create({ data: { userId: state.user.id, userName: "QA", fileName: "本地.csv", at: new Date() } });
   await prisma.importRow.create({ data: { batchId: batch.id, customerId: ids[0], kind: "create" } });
-  await prisma.auditLog.create({ data: { userId: state.user.id, userName: "QA", action: "create", entity: "Customer", entityId: ids[0], summary: "重复创建证据" } });
-  for (const [customer, merge] of [[ids[1], false], [ids[2], true]] as const) await prisma.auditLog.create({ data: { userId: state.user.id, userName: "QA", action: "convert", entity: "Lead", summary: "转化", detail: JSON.stringify({ customerId: customer, 并入: merge }) } });
+  await prisma.auditLog.create({ data: { userId: state.user.id, userName: "QA", action: "create", entity: "Customer", entityId: ids[0], summary: "重复创建证据", at: new Date() } });
+  for (const [customer, merge] of [[ids[1], false], [ids[2], true]] as const) await prisma.auditLog.create({ data: { userId: state.user.id, userName: "QA", action: "convert", entity: "Lead", summary: "转化", detail: JSON.stringify({ customerId: customer, 并入: merge }), at: new Date() } });
   const r = await tool("my_recap").run({ period: "this_month" }, ctx());
   expect((r.data as { 新建的客户: { 姓名: string }[] }).新建的客户.map((x) => x.姓名).sort()).toEqual(["本人导入后转交", "本人线索新建后转交"].sort());
   expect(r.summary).toContain("可核实本人建档 2 位");
